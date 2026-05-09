@@ -1,9 +1,10 @@
-import MyDeskCore
+import MindDeskCore
 import SwiftUI
 
 struct AppSettingsView: View {
     @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
+    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var canvasConnectSingleShot = true
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var workspaceCanvasTodoPanelDefaultOpen = true
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var workspaceCanvasTodoDoneColumnDefaultOpen = false
 
@@ -31,6 +32,13 @@ struct AppSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Toggle("Single-use Connect", isOn: $canvasConnectSingleShot)
+
+                Text("When enabled, Connect mode returns to Select after one link is created. Turn it off to keep building links without leaving Connect mode.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } header: {
                 Text("Canvas")
             }

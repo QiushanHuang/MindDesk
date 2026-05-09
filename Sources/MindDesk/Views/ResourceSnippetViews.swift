@@ -1,4 +1,4 @@
-import MyDeskCore
+import MindDeskCore
 import AppKit
 import Quartz
 import SwiftData
@@ -128,8 +128,13 @@ struct ResourceListView: View {
             ResourceRenameSheet(resource: resource) {
                 resource.customName = resource.title
                 resource.refreshSearchText()
-                try? modelContext.save()
-                onStatus("Renamed MyDesk metadata: \(resource.displayName)")
+                do {
+                    try modelContext.save()
+                    onStatus("Renamed MindDesk metadata: \(resource.displayName)")
+                } catch {
+                    modelContext.rollback()
+                    onStatus(error.localizedDescription)
+                }
             }
         }
     }
@@ -145,7 +150,7 @@ struct ResourceListView: View {
         return "No resources yet"
     }
 
-    private enum ResourceAction {
+    private enum ResourceAction: Equatable {
         case open
         case reveal
         case copy
@@ -155,9 +160,9 @@ struct ResourceListView: View {
         let url: URL?
         switch targetFilter {
         case .folder:
-            url = FileDialogs.chooseDirectory(message: "Choose a folder to pin in MyDesk.")
+            url = FileDialogs.chooseDirectory(message: "Choose a folder to pin in MindDesk.")
         case .file:
-            url = FileDialogs.chooseFile(message: "Choose a file to pin in MyDesk.")
+            url = FileDialogs.chooseFile(message: "Choose a file to pin in MindDesk.")
         case nil:
             url = FileDialogs.chooseResource()
         }
@@ -173,6 +178,7 @@ struct ResourceListView: View {
             )
             onStatus(summary.statusText)
         } catch {
+            modelContext.rollback()
             onStatus(error.localizedDescription)
         }
     }
@@ -197,16 +203,27 @@ struct ResourceListView: View {
             )
             onStatus(summary.statusText)
         } catch {
+            modelContext.rollback()
             onStatus(error.localizedDescription)
         }
     }
 
     private func performResourceAction(_ resource: ResourcePinModel, action: ResourceAction) {
-        let resolved = BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
-        let url = resolved.url
+        if action == .copy {
+            ClipboardService().copy(resource.displayPath)
+            onStatus("Copied path: \(resource.displayPath)")
+            return
+        }
 
+        let bookmarkService = BookmarkService()
         do {
-            try BookmarkService().access(url) {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
+            let url = resolved.url
+            try bookmarkService.access(url) {
                 switch action {
                 case .open:
                     switch ResourceFinderRouting.doubleClickAction(forTargetType: resource.targetTypeRaw) {
@@ -223,12 +240,8 @@ struct ResourceListView: View {
                     resource.status = .available
                     onStatus("Revealed \(resource.displayName) in Finder")
                 case .copy:
-                    ClipboardService().copy(url.path)
-                    onStatus("Copied path: \(url.path)")
+                    break
                 }
-            }
-            if resolved.stale {
-                resource.status = .staleAuthorization
             }
             resource.lastResolvedPath = url.path
             resource.displayPath = url.path
@@ -237,19 +250,27 @@ struct ResourceListView: View {
             try modelContext.save()
         } catch {
             resource.status = .unavailable
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+            }
             onStatus(error.localizedDescription)
         }
     }
 
     private func createAlias(for resource: ResourcePinModel) {
-        let resolved = BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
         guard let requestedAliasURL = FileDialogs.saveAlias(defaultName: "\(resource.effectiveName) alias") else { return }
         let destination = requestedAliasURL.deletingLastPathComponent()
         let name = requestedAliasURL.lastPathComponent
         let bookmarkService = BookmarkService()
 
         do {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
             let aliasURL = try bookmarkService.access(resolved.url) {
                 try bookmarkService.access(destination) {
                     try AliasService().createAlias(source: resolved.url, destinationDirectory: destination, name: name)
@@ -268,7 +289,11 @@ struct ResourceListView: View {
         } catch {
             let failed = FinderAliasRecordModel(sourceObjectType: "resourcePin", sourceObjectId: resource.id, aliasDisplayPath: requestedAliasURL.path, status: .failed)
             modelContext.insert(failed)
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+            }
             onStatus(error.localizedDescription)
         }
     }
@@ -276,6 +301,13 @@ struct ResourceListView: View {
     private func reauthorize(_ resource: ResourcePinModel) {
         guard let url = FileDialogs.chooseResource() else { return }
         do {
+            let selectedType = ResourceImportService.targetType(for: url)
+            guard ResourceAuthorizationPolicy.acceptsReauthorization(
+                existingTargetType: resource.targetTypeRaw,
+                selectedTargetType: selectedType.rawValue
+            ) else {
+                throw WorkbenchError.resourceTypeMismatch(expected: resource.targetTypeRaw, selected: selectedType.rawValue)
+            }
             resource.securityScopedBookmarkData = try BookmarkService().makeBookmark(for: url)
             resource.displayPath = url.path
             resource.lastResolvedPath = url.path
@@ -313,11 +345,8 @@ struct ResourcePreviewView: View {
     @State private var folderItems: [FolderPreviewItem] = []
     @State private var isLoadingFolder = false
     @State private var previewError: String?
+    @State private var folderPreviewTask: Task<Void, Never>?
     @State private var renamingResource: ResourcePinModel?
-
-    private var resolvedURL: URL {
-        BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath).url
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -334,21 +363,40 @@ struct ResourcePreviewView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             onInspect(.resource(resource.id))
+            previewError = nil
             if resource.targetType == .folder {
                 loadFolderContents()
             }
         }
         .onChange(of: resource.id) { _, _ in
             onInspect(.resource(resource.id))
+            folderPreviewTask?.cancel()
+            folderItems = []
+            previewError = nil
             if resource.targetType == .folder {
                 loadFolderContents()
             }
         }
+        .onChange(of: resource.statusRaw) { _, _ in
+            previewError = nil
+        }
+        .onChange(of: resource.lastResolvedPath) { _, _ in
+            previewError = nil
+        }
+        .onDisappear {
+            folderPreviewTask?.cancel()
+            folderPreviewTask = nil
+        }
         .sheet(item: $renamingResource) { resource in
             ResourceRenameSheet(resource: resource) {
                 resource.refreshSearchText()
-                try? modelContext.save()
-                onStatus("Renamed MyDesk metadata: \(resource.displayName)")
+                do {
+                    try modelContext.save()
+                    onStatus("Renamed MindDesk metadata: \(resource.displayName)")
+                } catch {
+                    modelContext.rollback()
+                    onStatus(error.localizedDescription)
+                }
             }
         }
     }
@@ -410,10 +458,10 @@ struct ResourcePreviewView: View {
                 }
                 .help("Show details")
                 Menu {
-                    Button("Rename in MyDesk") { renamingResource = resource }
+                    Button("Rename in MindDesk") { renamingResource = resource }
                     Button(resource.isPinned ? "Unpin Shortcut" : "Pin Shortcut") { togglePin() }
                     Divider()
-                    Button("Remove from MyDesk", role: .destructive) { onRemove(resource) }
+                    Button("Remove from MindDesk", role: .destructive) { onRemove(resource) }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -474,31 +522,50 @@ struct ResourcePreviewView: View {
             Text("Quick Preview")
                 .font(.headline)
 
-            if FileManager.default.fileExists(atPath: resolvedURL.path) {
-                QuickLookPreview(url: resolvedURL)
+            if let previewError {
+                ContentUnavailableView("Preview unavailable", systemImage: "doc", description: Text(previewError))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    }
+            } else if !ResourceAuthorizationPolicy.canAccessFileSystem(status: resource.statusRaw, hasBookmarkData: resource.securityScopedBookmarkData != nil) {
+                ContentUnavailableView("Reauthorization required", systemImage: "lock", description: Text(resource.displayPath))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView("File unavailable", systemImage: "exclamationmark.triangle", description: Text(resolvedURL.path))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                QuickLookPreview(
+                    bookmarkData: resource.securityScopedBookmarkData,
+                    fallbackPath: resource.lastResolvedPath,
+                    statusRaw: resource.statusRaw
+                ) { message in
+                    previewError = message
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                }
             }
         }
     }
 
-    private enum ResourcePreviewAction {
+    private enum ResourcePreviewAction: Equatable {
         case open
         case reveal
         case copy
     }
 
     private func performResourceAction(_ action: ResourcePreviewAction) {
+        if action == .copy {
+            ClipboardService().copy(resource.displayPath)
+            onStatus("Copied path: \(resource.displayPath)")
+            return
+        }
+
         let bookmarkService = BookmarkService()
-        let resolved = bookmarkService.resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
         do {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
             try bookmarkService.access(resolved.url) {
                 switch action {
                 case .open:
@@ -514,19 +581,22 @@ struct ResourcePreviewView: View {
                     try FinderService().reveal(resolved.url)
                     onStatus("Revealed \(resource.displayName) in Finder")
                 case .copy:
-                    ClipboardService().copy(resolved.url.path)
-                    onStatus("Copied path: \(resolved.url.path)")
+                    break
                 }
             }
             resource.lastResolvedPath = resolved.url.path
             resource.displayPath = resolved.url.path
-            resource.status = resolved.stale ? .staleAuthorization : .available
+            resource.status = .available
             resource.updatedAt = .now
             resource.refreshSearchText()
             try modelContext.save()
         } catch {
             resource.status = .unavailable
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+            }
             onStatus(error.localizedDescription)
         }
     }
@@ -535,16 +605,19 @@ struct ResourcePreviewView: View {
         guard resource.targetType == .folder else { return }
         let bookmarkData = resource.securityScopedBookmarkData
         let fallbackPath = resource.lastResolvedPath
+        let statusRaw = resource.statusRaw
+        folderPreviewTask?.cancel()
         isLoadingFolder = true
         previewError = nil
 
-        Task {
+        folderPreviewTask = Task {
             let result = await Task.detached(priority: .userInitiated) {
                 Result {
-                    try FolderPreviewService().contents(bookmarkData: bookmarkData, fallbackPath: fallbackPath)
+                    try FolderPreviewService().contents(bookmarkData: bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
                 }
             }.value
 
+            guard !Task.isCancelled else { return }
             isLoadingFolder = false
             switch result {
             case .success(let items):
@@ -631,7 +704,14 @@ private struct FolderPreviewRow: View {
 }
 
 private struct QuickLookPreview: NSViewRepresentable {
-    let url: URL
+    let bookmarkData: Data?
+    let fallbackPath: String
+    let statusRaw: String
+    let onUnavailable: (String) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> QLPreviewView {
         let view = QLPreviewView(frame: .zero, style: .normal)!
@@ -640,7 +720,74 @@ private struct QuickLookPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: QLPreviewView, context: Context) {
-        nsView.previewItem = url as NSURL
+        context.coordinator.update(
+            bookmarkData: bookmarkData,
+            fallbackPath: fallbackPath,
+            statusRaw: statusRaw,
+            onUnavailable: onUnavailable,
+            in: nsView
+        )
+    }
+
+    static func dismantleNSView(_ nsView: QLPreviewView, coordinator: Coordinator) {
+        coordinator.stop(in: nsView)
+    }
+
+    @MainActor
+    final class Coordinator {
+        private struct ActiveResource: Equatable {
+            let bookmarkData: Data?
+            let fallbackPath: String
+            let statusRaw: String
+        }
+
+        private var activeResource: ActiveResource?
+        private var activeURL: URL?
+        private var didAccess = false
+
+        func update(bookmarkData: Data?, fallbackPath: String, statusRaw: String, onUnavailable: @escaping (String) -> Void, in previewView: QLPreviewView) {
+            let resource = ActiveResource(bookmarkData: bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
+            guard activeResource != resource else {
+                if let activeURL {
+                    previewView.previewItem = activeURL as NSURL
+                }
+                return
+            }
+
+            stop(in: previewView)
+            do {
+                let resolved = try BookmarkService().resolveAuthorizedBookmark(bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
+                guard FileManager.default.fileExists(atPath: resolved.url.path) else {
+                    activeResource = resource
+                    reportUnavailable("Missing file: \(resolved.url.path)", for: resource, onUnavailable: onUnavailable)
+                    return
+                }
+                activeResource = resource
+                activeURL = resolved.url
+                didAccess = resolved.url.startAccessingSecurityScopedResource()
+                previewView.previewItem = resolved.url as NSURL
+            } catch {
+                activeResource = resource
+                reportUnavailable(error.localizedDescription, for: resource, onUnavailable: onUnavailable)
+            }
+        }
+
+        private func reportUnavailable(_ message: String, for resource: ActiveResource, onUnavailable: @escaping (String) -> Void) {
+            Task { @MainActor [weak self] in
+                guard self?.activeResource == resource else { return }
+                onUnavailable(message)
+            }
+        }
+
+        func stop(in previewView: QLPreviewView) {
+            previewView.previewItem = nil
+            if didAccess {
+                activeURL?.stopAccessingSecurityScopedResource()
+            }
+            activeResource = nil
+            activeURL = nil
+            didAccess = false
+        }
     }
 }
 
@@ -724,11 +871,11 @@ private struct ResourceRowView: View {
                 iconButton(resource.isPinned ? "pin.slash" : "pin", resource.isPinned ? "Unpin" : "Pin", onTogglePin)
                 iconButton("info.circle", "Details", onInspect)
                 Menu {
-                    Button("Rename in MyDesk", action: onRename)
+                    Button("Rename in MindDesk", action: onRename)
                     Button("Create Finder Alias", action: onAlias)
                     Button("Reauthorize", action: onReauthorize)
                     Divider()
-                    Button("Remove from MyDesk", role: .destructive, action: onRemove)
+                    Button("Remove from MindDesk", role: .destructive, action: onRemove)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .frame(width: 24, height: 24)
@@ -748,11 +895,11 @@ private struct ResourceRowView: View {
             Button("Copy Full Path", action: onCopy)
             Button(resource.isPinned ? "Unpin" : "Pin", action: onTogglePin)
             Button("Details", action: onInspect)
-            Button("Rename in MyDesk", action: onRename)
+            Button("Rename in MindDesk", action: onRename)
             Button("Create Finder Alias", action: onAlias)
             Button("Reauthorize", action: onReauthorize)
             Divider()
-            Button("Remove from MyDesk", role: .destructive, action: onRemove)
+            Button("Remove from MindDesk", role: .destructive, action: onRemove)
         }
         Divider()
     }
@@ -947,11 +1094,16 @@ struct SnippetLibraryView: View {
             .frame(minHeight: effectiveListMinHeight, maxHeight: listMaxHeight)
         }
         .sheet(isPresented: $showingEditor) {
-            SnippetEditor(scope: scope ?? .global, workspaceId: workspaceId) { draft in
+            SnippetEditor(scope: scope ?? .global, workspaceId: workspaceId, resources: resources) { draft in
                 let snippet = draft.makeSnippet()
                 modelContext.insert(snippet)
-                try? modelContext.save()
-                onStatus("Created snippet: \(snippet.title)")
+                do {
+                    try modelContext.save()
+                    onStatus("Created snippet: \(snippet.title)")
+                } catch {
+                    modelContext.rollback()
+                    onStatus(error.localizedDescription)
+                }
             }
         }
         .alert("Run command in Terminal?", isPresented: Binding(
@@ -992,8 +1144,13 @@ struct SnippetLibraryView: View {
         ClipboardService().copy(snippet.body)
         snippet.lastCopiedAt = .now
         snippet.updatedAt = .now
-        try? modelContext.save()
-        onStatus("Copied \(snippet.kind.rawValue): \(snippet.title)")
+        do {
+            try modelContext.save()
+            onStatus("Copied \(snippet.kind.rawValue): \(snippet.title)")
+        } catch {
+            modelContext.rollback()
+            onStatus("Copied \(snippet.kind.rawValue), but could not update metadata. \(error.localizedDescription)")
+        }
     }
 
     private func openTerminal(_ snippet: SnippetModel) {
@@ -1001,20 +1158,28 @@ struct SnippetLibraryView: View {
             let directory = try resolvedWorkingDirectory(for: snippet)
             try TerminalService().open(at: directory)
             snippet.lastUsedAt = .now
-            try? modelContext.save()
-            onStatus("Opened Terminal at \(directory)")
+            do {
+                try modelContext.save()
+                onStatus("Opened Terminal at \(directory)")
+            } catch {
+                modelContext.rollback()
+                onStatus("Opened Terminal, but could not update metadata. \(error.localizedDescription)")
+            }
         } catch {
-            ClipboardService().copy(snippet.body)
-            onStatus("Terminal automation failed; copied command instead. \(error.localizedDescription)")
+            onStatus("Terminal automation failed. \(error.localizedDescription)")
         }
     }
 
     private func prepareRun(_ snippet: SnippetModel) {
         do {
-            pendingRun = CommandRunRequest(snippet: snippet, workingDirectory: try resolvedWorkingDirectory(for: snippet))
+            let request = CommandRunRequest(snippet: snippet, workingDirectory: try resolvedWorkingDirectory(for: snippet))
+            if CommandRunConfirmationPolicy.shouldConfirm(kind: snippet.kindRaw, requiresConfirmation: snippet.requiresConfirmation) {
+                pendingRun = request
+            } else {
+                run(request)
+            }
         } catch {
-            ClipboardService().copy(snippet.body)
-            onStatus("Could not resolve working directory; copied command. \(error.localizedDescription)")
+            onStatus("Could not resolve working directory. \(error.localizedDescription)")
         }
     }
 
@@ -1023,16 +1188,20 @@ struct SnippetLibraryView: View {
         do {
             try TerminalService().run(command: snippet.body, workingDirectory: request.workingDirectory)
             snippet.lastUsedAt = .now
-            try? modelContext.save()
-            onStatus("Requested Terminal run: \(snippet.title)")
+            do {
+                try modelContext.save()
+                onStatus("Requested Terminal run: \(snippet.title)")
+            } catch {
+                modelContext.rollback()
+                onStatus("Requested Terminal run, but could not update metadata. \(error.localizedDescription)")
+            }
         } catch {
             let runError = error
-            ClipboardService().copy(snippet.body)
             do {
                 try TerminalService().open(at: request.workingDirectory)
-                onStatus("Terminal run failed; copied command and opened Terminal at \(request.workingDirectory). \(runError.localizedDescription)")
+                onStatus("Terminal run failed; opened Terminal at \(request.workingDirectory). \(runError.localizedDescription)")
             } catch {
-                onStatus("Terminal run failed; copied command. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
+                onStatus("Terminal run failed. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
             }
         }
     }
@@ -1042,9 +1211,29 @@ struct SnippetLibraryView: View {
               let resource = resources.first(where: { $0.id == ref }) else {
             return FileManager.default.homeDirectoryForCurrentUser.path
         }
+        let records = resources.map {
+            ResourceLibraryRecord(
+                id: $0.id,
+                targetType: $0.targetTypeRaw,
+                title: $0.title,
+                originalName: $0.originalName,
+                customName: $0.customName,
+                displayPath: $0.displayPath,
+                isPinned: $0.isPinned,
+                scope: $0.scopeRaw,
+                workspaceId: $0.workspaceId
+            )
+        }
+        guard SnippetWorkingDirectoryOptions.validSelection(ref, in: records) != nil else {
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
 
         let bookmarkService = BookmarkService()
-        let resolved = bookmarkService.resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
+        let resolved = try bookmarkService.resolveAuthorizedBookmark(
+            resource.securityScopedBookmarkData,
+            fallbackPath: resource.lastResolvedPath,
+            statusRaw: resource.statusRaw
+        )
         var isDirectory: ObjCBool = false
         try bookmarkService.access(resolved.url) {
             guard FileManager.default.fileExists(atPath: resolved.url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -1054,7 +1243,7 @@ struct SnippetLibraryView: View {
 
         resource.lastResolvedPath = resolved.url.path
         resource.displayPath = resolved.url.path
-        resource.status = resolved.stale ? .staleAuthorization : .available
+        resource.status = .available
         resource.updatedAt = .now
         try modelContext.save()
         return resolved.url.path
@@ -1253,6 +1442,7 @@ struct SnippetEditorDraft {
     var scope: WorkbenchScope
     var workspaceId: String?
     var requiresConfirmation: Bool
+    var workingDirectoryRef: String?
 
     func makeSnippet() -> SnippetModel {
         SnippetModel(
@@ -1263,6 +1453,7 @@ struct SnippetEditorDraft {
             details: details,
             tags: tags,
             scope: scope,
+            workingDirectoryRef: kind == .command ? workingDirectoryRef : nil,
             requiresConfirmation: kind == .command ? requiresConfirmation : false
         )
     }
@@ -1273,6 +1464,7 @@ struct SnippetEditor: View {
     let snippet: SnippetModel?
     let scope: WorkbenchScope
     let workspaceId: String?
+    let resources: [ResourcePinModel]
     let onSave: (SnippetEditorDraft) -> Void
 
     @State private var title = ""
@@ -1281,16 +1473,19 @@ struct SnippetEditor: View {
     @State private var details = ""
     @State private var tags = ""
     @State private var requiresConfirmation = true
+    @State private var workingDirectoryRef: String?
 
     init(
         snippet: SnippetModel? = nil,
         scope: WorkbenchScope,
         workspaceId: String?,
+        resources: [ResourcePinModel],
         onSave: @escaping (SnippetEditorDraft) -> Void
     ) {
         self.snippet = snippet
         self.scope = scope
         self.workspaceId = workspaceId
+        self.resources = resources
         self.onSave = onSave
         _title = State(initialValue: snippet?.title ?? "")
         _kind = State(initialValue: snippet?.kind ?? .prompt)
@@ -1298,6 +1493,7 @@ struct SnippetEditor: View {
         _details = State(initialValue: snippet?.details ?? "")
         _tags = State(initialValue: snippet?.tags.joined(separator: ", ") ?? "")
         _requiresConfirmation = State(initialValue: snippet?.requiresConfirmation ?? true)
+        _workingDirectoryRef = State(initialValue: snippet?.workingDirectoryRef)
     }
 
     var body: some View {
@@ -1319,10 +1515,17 @@ struct SnippetEditor: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
             Toggle("Require confirmation before running command", isOn: $requiresConfirmation)
                 .disabled(kind == .prompt)
+            if kind == .command {
+                workingDirectoryPicker
+            }
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
+                    let savedWorkingDirectoryRef = SnippetWorkingDirectoryOptions.validSelection(
+                        workingDirectoryRef,
+                        in: workingDirectoryRecords
+                    )
                     let draft = SnippetEditorDraft(
                         title: title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Snippet" : title.trimmingCharacters(in: .whitespacesAndNewlines),
                         kind: kind,
@@ -1331,7 +1534,8 @@ struct SnippetEditor: View {
                         tags: tags.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
                         scope: scope,
                         workspaceId: workspaceId,
-                        requiresConfirmation: kind == .command ? requiresConfirmation : false
+                        requiresConfirmation: kind == .command ? requiresConfirmation : false,
+                        workingDirectoryRef: kind == .command ? savedWorkingDirectoryRef : nil
                     )
                     onSave(draft)
                     dismiss()
@@ -1340,6 +1544,76 @@ struct SnippetEditor: View {
             }
         }
         .padding()
-        .frame(width: 560, height: 520)
+        .frame(width: 560, height: 590)
+    }
+
+    private var workingDirectoryPicker: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker("Working Directory", selection: workingDirectorySelection) {
+                Text("Home Folder").tag("")
+                ForEach(workingDirectoryOptions) { resource in
+                    Text(resource.displayName).tag(resource.id)
+                }
+            }
+            if let selectedWorkingDirectoryPath {
+                Text(selectedWorkingDirectoryPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+            } else if workingDirectoryOptions.isEmpty {
+                Text("No folder resources available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var workingDirectorySelection: Binding<String> {
+        Binding(
+            get: {
+                SnippetWorkingDirectoryOptions.validSelection(
+                    workingDirectoryRef,
+                    in: workingDirectoryRecords
+                ) ?? ""
+            },
+            set: { newValue in
+                workingDirectoryRef = newValue.isEmpty ? nil : newValue
+            }
+        )
+    }
+
+    private var selectedWorkingDirectoryPath: String? {
+        guard let id = SnippetWorkingDirectoryOptions.validSelection(workingDirectoryRef, in: workingDirectoryRecords),
+              let resource = resources.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return resource.displayPath
+    }
+
+    private var workingDirectoryOptions: [ResourcePinModel] {
+        let resourceById = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
+        return SnippetWorkingDirectoryOptions.folders(in: workingDirectoryRecords)
+            .compactMap { resourceById[$0.id] }
+    }
+
+    private var workingDirectoryRecords: [ResourceLibraryRecord] {
+        resources.map { resource in
+            ResourceLibraryRecord(
+                id: resource.id,
+                targetType: resource.targetTypeRaw,
+                title: resource.title,
+                originalName: resource.originalName,
+                customName: resource.customName,
+                displayPath: resource.displayPath,
+                lastResolvedPath: resource.lastResolvedPath,
+                isPinned: resource.isPinned,
+                updatedAt: resource.updatedAt,
+                sortIndex: resource.sortIndex,
+                scope: resource.scopeRaw,
+                workspaceId: resource.workspaceId
+            )
+        }
     }
 }

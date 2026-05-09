@@ -4,7 +4,7 @@
 
 **Goal:** Implement explicit Global Library resources, pinned shortcuts, directed canvas links, fixed cards, note cards, organization frames, drag-to-import, and frame drag propagation.
 
-**Architecture:** Keep the existing SwiftData models for migration safety and add defaulted fields. Put deterministic resource/canvas rules in `MyDeskCore` so behavior is testable without SwiftUI. Update SwiftUI views to call those rules and keep drag state transient until persistence is needed.
+**Architecture:** Keep the existing SwiftData models for migration safety and add defaulted fields. Put deterministic resource/canvas rules in `MindDeskCore` so behavior is testable without SwiftUI. Update SwiftUI views to call those rules and keep drag state transient until persistence is needed.
 
 **Tech Stack:** SwiftPM macOS app, SwiftUI, SwiftData, AppKit Finder services, `UniformTypeIdentifiers`, XCTest.
 
@@ -13,8 +13,8 @@
 ### Task 1: Core Behavior Tests And Helpers
 
 **Files:**
-- Modify: `Tests/MyDeskCoreTests/CoreBehaviorTests.swift`
-- Modify: `Sources/MyDeskCore/WorkbenchOrdering.swift`
+- Modify: `Tests/MindDeskCoreTests/CoreBehaviorTests.swift`
+- Modify: `Sources/MindDeskCore/WorkbenchOrdering.swift`
 
 - [ ] Add failing tests for resource library filtering, display naming, directional edge duplicates, group frame child detection, and frame drag propagation.
 - [ ] Run `swift test --filter CoreBehaviorTests` and verify the new tests fail because helper types do not exist yet.
@@ -28,10 +28,10 @@
 ### Task 2: Migration-Safe Model And Manifest Fields
 
 **Files:**
-- Modify: `Sources/MyDesk/Models/WorkbenchModels.swift`
-- Modify: `Sources/MyDeskCore/ExportManifest.swift`
-- Modify: `Sources/MyDesk/Services/SystemServices.swift`
-- Modify: `Tests/MyDeskCoreTests/CoreBehaviorTests.swift`
+- Modify: `Sources/MindDesk/Models/WorkbenchModels.swift`
+- Modify: `Sources/MindDeskCore/ExportManifest.swift`
+- Modify: `Sources/MindDesk/Services/SystemServices.swift`
+- Modify: `Tests/MindDeskCoreTests/CoreBehaviorTests.swift`
 
 - [ ] Extend `ResourcePinModel` with `isPinned`, `originalName`, `customName`, and `searchText`, all with defaults.
 - [ ] Extend `CanvasModel`, `CanvasNodeModel`, and `CanvasEdgeModel` with defaulted animation, frame, and arrow fields.
@@ -42,9 +42,9 @@
 ### Task 3: Resource Import And Library UI
 
 **Files:**
-- Modify: `Sources/MyDesk/Services/SystemServices.swift`
-- Modify: `Sources/MyDesk/Views/ResourceSnippetViews.swift`
-- Modify: `Sources/MyDesk/Views/ContentView.swift`
+- Modify: `Sources/MindDesk/Services/SystemServices.swift`
+- Modify: `Sources/MindDesk/Views/ResourceSnippetViews.swift`
+- Modify: `Sources/MindDesk/Views/ContentView.swift`
 
 - [ ] Add a resource import service that deduplicates by resolved path and accepts an explicit `pinImported` flag.
 - [ ] Update Global Library to show separate Folders and Files source sections.
@@ -55,8 +55,8 @@
 ### Task 4: Canvas Directed Links, Notes, Frames, And Drops
 
 **Files:**
-- Modify: `Sources/MyDesk/Canvas/WorkspaceCanvasView.swift`
-- Modify: `Sources/MyDesk/Views/ContentView.swift`
+- Modify: `Sources/MindDesk/Canvas/WorkspaceCanvasView.swift`
+- Modify: `Sources/MindDesk/Views/ContentView.swift`
 
 - [ ] Render note and group frame nodes in the canvas instead of filtering notes out.
 - [ ] Add buttons for Note and Frame creation.

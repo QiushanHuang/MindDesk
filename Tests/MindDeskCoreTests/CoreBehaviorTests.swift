@@ -1,5 +1,5 @@
 import XCTest
-@testable import MyDeskCore
+@testable import MindDeskCore
 
 final class CoreBehaviorTests: XCTestCase {
     func testShellQuoterHandlesSpacesAndSingleQuotes() {
@@ -18,27 +18,33 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
-    func testPersistentStoreLayoutUsesAppSpecificStoreDirectory() {
+    func testPersistentStoreLayoutUsesMindDeskStoreDirectoryWithLegacyMigrationSource() {
         let support = URL(fileURLWithPath: "/tmp/Application Support", isDirectory: true)
-        let layout = MyDeskStoreLayout(applicationSupportDirectory: support)
+        let layout = MindDeskStoreLayout(applicationSupportDirectory: support)
+        let previousBundleIdentifier = ["studio", "qiushan", "my" + "desk"].joined(separator: ".")
+        let previousStoreFileName = "My" + "Desk.store"
 
         XCTAssertEqual(
             layout.storeURL.path,
-            "/tmp/Application Support/studio.qiushan.mydesk/Stores/MyDesk.store"
+            "/tmp/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store"
+        )
+        XCTAssertEqual(
+            layout.legacyStoreURL.path,
+            "/tmp/Application Support/\(previousBundleIdentifier)/Stores/\(previousStoreFileName)"
         )
         XCTAssertEqual(layout.legacyDefaultStoreURL.path, "/tmp/Application Support/default.store")
         XCTAssertEqual(
             layout.backupDirectory.path,
-            "/tmp/Application Support/studio.qiushan.mydesk/Backups"
+            "/tmp/Application Support/studio.qiushan.minddesk/Backups"
         )
     }
 
     func testPersistentStoreLayoutTreatsSQLiteCompanionsAsOneStore() {
-        let store = URL(fileURLWithPath: "/tmp/MyDesk.store")
+        let store = URL(fileURLWithPath: "/tmp/MindDesk.store")
 
         XCTAssertEqual(
-            MyDeskStoreLayout.sqliteFileSet(for: store).map(\.lastPathComponent),
-            ["MyDesk.store", "MyDesk.store-wal", "MyDesk.store-shm"]
+            MindDeskStoreLayout.sqliteFileSet(for: store).map(\.lastPathComponent),
+            ["MindDesk.store", "MindDesk.store-wal", "MindDesk.store-shm"]
         )
     }
 
@@ -52,8 +58,95 @@ final class CoreBehaviorTests: XCTestCase {
         ]
 
         XCTAssertEqual(
-            MyDeskStoreLayout.backupFoldersToPrune(folders, keepingNewest: 2).map(\.lastPathComponent),
+            MindDeskStoreLayout.backupFoldersToPrune(folders, keepingNewest: 2).map(\.lastPathComponent),
             ["20260430-091100"]
+        )
+    }
+
+    func testPersistentStoreBackupRetentionRecognizesSameSecondSuffixedFolders() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let folders = [
+            backupRoot.appendingPathComponent("20260430-091100", isDirectory: true),
+            backupRoot.appendingPathComponent("20260430-091200", isDirectory: true),
+            backupRoot.appendingPathComponent("20260430-091300", isDirectory: true),
+            backupRoot.appendingPathComponent("20260430-091300-abcdef12", isDirectory: true),
+            backupRoot.appendingPathComponent("not-a-backup-20260430-091000", isDirectory: true)
+        ]
+
+        XCTAssertEqual(
+            MindDeskStoreLayout.backupFoldersToPrune(folders, keepingNewest: 2).map(\.lastPathComponent),
+            ["20260430-091100", "20260430-091200"]
+        )
+    }
+
+    func testPersistentStoreStartupBackupPolicySkipsRecentBackup() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let now = Date(timeIntervalSince1970: 1_800_000)
+        let recentBackup = backupRoot.appendingPathComponent(
+            MindDeskStoreLayout.backupFolderName(
+                for: now.addingTimeInterval(-60 * 60),
+                reason: .startup
+            ),
+            isDirectory: true
+        )
+
+        XCTAssertFalse(
+            MindDeskStoreLayout.shouldCreateStartupBackup(
+                storeExists: true,
+                backupFolders: [recentBackup],
+                now: now
+            )
+        )
+    }
+
+    func testPersistentStoreStartupBackupPolicyCreatesWhenBackupIsStale() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let now = Date(timeIntervalSince1970: 1_800_000)
+        let staleBackup = backupRoot.appendingPathComponent(
+            MindDeskStoreLayout.backupFolderName(
+                for: now.addingTimeInterval(-25 * 60 * 60),
+                reason: .startup
+            ),
+            isDirectory: true
+        )
+
+        XCTAssertTrue(
+            MindDeskStoreLayout.shouldCreateStartupBackup(
+                storeExists: true,
+                backupFolders: [staleBackup],
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            MindDeskStoreLayout.shouldCreateStartupBackup(
+                storeExists: false,
+                backupFolders: [staleBackup],
+                now: now
+            )
+        )
+    }
+
+    func testPersistentStoreBackupFolderNameSupportsMigrationReasonSuffix() {
+        let date = Date(timeIntervalSince1970: 1_800_000)
+
+        XCTAssertEqual(
+            MindDeskStoreLayout.backupFolderName(for: date, reason: .migration),
+            "19700121-200000-migration"
+        )
+    }
+
+    func testPersistentStoreRecoveryCandidatesPreferNewestTimestampedBackup() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let folders = [
+            backupRoot.appendingPathComponent("20260430-091100-startup", isDirectory: true),
+            backupRoot.appendingPathComponent("20260430-091500-migration", isDirectory: true),
+            backupRoot.appendingPathComponent("not-a-backup", isDirectory: true),
+            backupRoot.appendingPathComponent("20260430-091300-restore", isDirectory: true)
+        ]
+
+        XCTAssertEqual(
+            MindDeskStoreLayout.recoveryCandidateFolders(folders).map(\.lastPathComponent),
+            ["20260430-091500-migration", "20260430-091300-restore", "20260430-091100-startup"]
         )
     }
 
@@ -194,6 +287,35 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
+    func testWorkspaceSidebarOrderingMovesDraggedRowsWithinCurrentOrder() {
+        XCTAssertEqual(
+            WorkspaceSidebarOrdering.movedIDs(["a", "b", "c", "d"], fromOffsets: IndexSet(integer: 1), toOffset: 3),
+            ["a", "c", "b", "d"]
+        )
+        XCTAssertEqual(
+            WorkspaceSidebarOrdering.movedIDs(["a", "b", "c", "d"], fromOffsets: IndexSet([1, 2]), toOffset: 4),
+            ["a", "d", "b", "c"]
+        )
+        XCTAssertEqual(
+            WorkspaceSidebarOrdering.movedIDs(["a", "b", "c"], fromOffsets: IndexSet(integer: 9), toOffset: 1),
+            ["a", "b", "c"]
+        )
+    }
+
+    func testWorkspaceSidebarOrderingKeepsPinnedItemsBeforeUnpinnedItems() {
+        let pinned = Set(["pinned-a", "pinned-b"])
+
+        XCTAssertTrue(
+            WorkspaceSidebarOrdering.keepsPinnedPrefix(["pinned-a", "pinned-b", "regular-a"], pinnedIDs: pinned)
+        )
+        XCTAssertTrue(
+            WorkspaceSidebarOrdering.keepsPinnedPrefix(["regular-a", "regular-b"], pinnedIDs: pinned)
+        )
+        XCTAssertFalse(
+            WorkspaceSidebarOrdering.keepsPinnedPrefix(["regular-a", "pinned-a", "regular-b"], pinnedIDs: pinned)
+        )
+    }
+
     func testWorkbenchSidebarMetricsAreCompactButReadable() {
         XCTAssertLessThan(WorkbenchSidebarMetrics.idealWidth, 240)
         XCTAssertGreaterThanOrEqual(WorkbenchSidebarMetrics.minimumWidth, 200)
@@ -205,6 +327,76 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen, "workspaceCanvasTodoDoneColumnDefaultOpen")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen, "workspaceCanvasTodoDoneColumnOpen")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoColumnRatio, "workspaceCanvasTodoColumnRatio")
+        XCTAssertEqual(AppPreferenceKeys.canvasConnectSingleShot, "canvasConnectSingleShot")
+    }
+
+    func testCanvasConnectionPolicySupportsSingleShotAndChainModes() {
+        XCTAssertEqual(
+            CanvasConnectionPolicy.completion(targetNodeId: "b", singleShot: true),
+            CanvasConnectionCompletion(nextSourceNodeId: nil, returnsToSelectMode: true)
+        )
+        XCTAssertEqual(
+            CanvasConnectionPolicy.completion(targetNodeId: "b", singleShot: false),
+            CanvasConnectionCompletion(nextSourceNodeId: "b", returnsToSelectMode: false)
+        )
+    }
+
+    func testCanvasConnectSourcePolicyStartsLinkFromSelectedCard() {
+        XCTAssertEqual(
+            CanvasConnectSourcePolicy.start(from: "node-a"),
+            CanvasConnectSourceCommand(
+                nextSourceNodeId: "node-a",
+                selectedNodeIDs: ["node-a"],
+                entersConnectMode: true
+            )
+        )
+    }
+
+    func testCanvasEdgeDirectionPolicyReversesEndpointsAndKeepsTargetArrow() {
+        let reversed = CanvasEdgeDirectionPolicy.reversed(
+            CanvasEdgeDirectionRecord(
+                id: "edge-1",
+                sourceNodeId: "a",
+                targetNodeId: "b",
+                sourceArrow: "none",
+                targetArrow: "arrow"
+            )
+        )
+
+        XCTAssertEqual(reversed.sourceNodeId, "b")
+        XCTAssertEqual(reversed.targetNodeId, "a")
+        XCTAssertEqual(reversed.sourceArrow, "none")
+        XCTAssertEqual(reversed.targetArrow, "arrow")
+    }
+
+    func testCanvasEdgeDirectionPolicyRejectsDuplicateOppositeDirection() {
+        let edge = CanvasEdgeDirectionRecord(
+            id: "edge-1",
+            sourceNodeId: "a",
+            targetNodeId: "b",
+            sourceArrow: "none",
+            targetArrow: "arrow"
+        )
+        let existing = [
+            CanvasEdgeEndpointRecord(id: "edge-1", sourceNodeId: "a", targetNodeId: "b"),
+            CanvasEdgeEndpointRecord(id: "edge-2", sourceNodeId: "b", targetNodeId: "a")
+        ]
+
+        XCTAssertFalse(CanvasEdgeDirectionPolicy.canReverse(edge, existingEdges: existing))
+        XCTAssertTrue(CanvasEdgeDirectionPolicy.canReverse(edge, existingEdges: Array(existing.prefix(1))))
+    }
+
+
+    func testCanvasPerformancePolicyDisablesExpensiveRoutingWhileInteractingOrDense() {
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: true))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: CanvasPerformancePolicy.maximumRoutedEdgeCount + 1, obstacleCount: 20, isInteracting: false))
+    }
+
+    func testCanvasSideRailLayoutShrinksRightRailForNarrowWindows() {
+        XCTAssertEqual(CanvasSideRailLayout.rightRailWidth(availableWidth: 1120), 244)
+        XCTAssertEqual(CanvasSideRailLayout.rightRailWidth(availableWidth: 900), 198)
+        XCTAssertEqual(CanvasSideRailLayout.rightRailWidth(availableWidth: 760), 180)
     }
 
     func testTodoColumnSplitRatioIsClampedToUsableRange() {
@@ -242,6 +434,159 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
+    func testTodoGroupDeletionPolicyMovesTasksToDefaultAndSelectsFallback() {
+        let plan = TodoGroupDeletionPolicy.plan(
+            deletingGroupId: "custom",
+            defaultGroupId: "default",
+            orderedGroupIds: ["default", "custom", "next"]
+        )
+
+        XCTAssertEqual(plan.todoTargetGroupId, "default")
+        XCTAssertEqual(plan.nextSelectedGroupId, "default")
+        XCTAssertTrue(plan.deletesGroup)
+    }
+
+    func testTodoGroupDeletionPolicyKeepsDefaultGroupSelection() {
+        let plan = TodoGroupDeletionPolicy.plan(
+            deletingGroupId: "default",
+            defaultGroupId: "default",
+            orderedGroupIds: ["default", "next"]
+        )
+
+        XCTAssertNil(plan.todoTargetGroupId)
+        XCTAssertEqual(plan.nextSelectedGroupId, "default")
+        XCTAssertFalse(plan.deletesGroup)
+    }
+
+    func testTodoBoardTaskSummaryCleansInlineDetails() {
+        XCTAssertEqual(
+            TodoBoardTaskSummary.inlineDetail("  Needs copy\nand screenshots  "),
+            "Needs copy and screenshots"
+        )
+        XCTAssertNil(TodoBoardTaskSummary.inlineDetail(" \n\t "))
+    }
+
+    func testWebCardURLNormalizationAddsHTTPSAndRejectsInvalidHosts() {
+        XCTAssertEqual(WebCardURL.normalized("example.com")?.absoluteString, "https://example.com")
+        XCTAssertEqual(WebCardURL.normalized("https://example.com/path?q=1")?.absoluteString, "https://example.com/path?q=1")
+        XCTAssertEqual(WebCardURL.normalized("localhost:3000")?.absoluteString, "https://localhost:3000")
+        XCTAssertEqual(WebCardURL.normalized("http://localhost:3000")?.absoluteString, "http://localhost:3000")
+        XCTAssertEqual(WebCardURL.normalized("https://intranet")?.absoluteString, "https://intranet")
+        XCTAssertNil(WebCardURL.normalized("not a url"))
+    }
+
+    func testWorkspaceDeletionPolicyRemovesCrossCanvasResourceSnippetReferencesAndEdges() {
+        let plan = WorkspaceDeletionPolicy.plan(
+            workspaceId: "workspace-a",
+            canvases: [
+                WorkspaceDeletionCanvasRecord(id: "canvas-a", workspaceId: "workspace-a"),
+                WorkspaceDeletionCanvasRecord(id: "canvas-b", workspaceId: "workspace-b")
+            ],
+            nodes: [
+                WorkspaceDeletionNodeRecord(id: "owned-node", canvasId: "canvas-a", objectType: nil, objectId: nil),
+                WorkspaceDeletionNodeRecord(id: "workspace-ref", canvasId: "canvas-b", objectType: "workspace", objectId: "workspace-a"),
+                WorkspaceDeletionNodeRecord(id: "resource-ref", canvasId: "canvas-b", objectType: "resourcePin", objectId: "resource-a"),
+                WorkspaceDeletionNodeRecord(id: "snippet-ref", canvasId: "canvas-b", objectType: "snippet", objectId: "snippet-a"),
+                WorkspaceDeletionNodeRecord(id: "unrelated", canvasId: "canvas-b", objectType: "resourcePin", objectId: "resource-b")
+            ],
+            edges: [
+                WorkspaceDeletionEdgeRecord(id: "owned-edge", canvasId: "canvas-a", sourceNodeId: "owned-node", targetNodeId: "owned-node"),
+                WorkspaceDeletionEdgeRecord(id: "cross-resource-edge", canvasId: "canvas-b", sourceNodeId: "resource-ref", targetNodeId: "unrelated"),
+                WorkspaceDeletionEdgeRecord(id: "cross-snippet-edge", canvasId: "canvas-b", sourceNodeId: "unrelated", targetNodeId: "snippet-ref"),
+                WorkspaceDeletionEdgeRecord(id: "keep-edge", canvasId: "canvas-b", sourceNodeId: "unrelated", targetNodeId: "unrelated")
+            ],
+            snippets: [
+                WorkspaceDeletionSnippetRecord(id: "global-command", workingDirectoryRef: "resource-a"),
+                WorkspaceDeletionSnippetRecord(id: "other-command", workingDirectoryRef: "resource-b")
+            ],
+            resourceIds: ["resource-a"],
+            snippetIds: ["snippet-a"]
+        )
+
+        XCTAssertEqual(plan.nodeIds, ["owned-node", "resource-ref", "snippet-ref", "workspace-ref"])
+        XCTAssertEqual(plan.edgeIds, ["cross-resource-edge", "cross-snippet-edge", "owned-edge"])
+        XCTAssertEqual(plan.snippetIdsClearingWorkingDirectory, ["global-command"])
+    }
+
+    func testCanvasNodeObjectReferenceMapperRemapsWorkspaceAndWebCards() {
+        XCTAssertEqual(
+            CanvasNodeObjectReferenceMapper.mappedObjectId(
+                objectType: "workspace",
+                objectId: "old-workspace",
+                resourceMap: [:],
+                snippetMap: [:],
+                workspaceMap: ["old-workspace": "new-workspace"]
+            ),
+            "new-workspace"
+        )
+        XCTAssertEqual(
+            CanvasNodeObjectReferenceMapper.mappedObjectId(
+                objectType: "webURL",
+                objectId: nil,
+                body: "example.com",
+                resourceMap: [:],
+                snippetMap: [:],
+                workspaceMap: [:]
+            ),
+            "https://example.com"
+        )
+        XCTAssertEqual(
+            CanvasNodeObjectReferenceMapper.mappedObjectId(
+                objectType: "webURL",
+                objectId: "https://example.com",
+                body: "Edited description",
+                resourceMap: [:],
+                snippetMap: [:],
+                workspaceMap: [:]
+            ),
+            "https://example.com"
+        )
+    }
+
+    func testCanvasManifestParentMapperRemapsParentsAfterNodeMapIsComplete() {
+        let nodeMap = [
+            "old-child": "new-child",
+            "old-parent": "new-parent"
+        ]
+
+        XCTAssertEqual(
+            CanvasManifestParentMapper.mappedParentNodeId("old-parent", nodeMap: nodeMap),
+            "new-parent"
+        )
+        XCTAssertNil(CanvasManifestParentMapper.mappedParentNodeId(nil, nodeMap: nodeMap))
+        XCTAssertNil(CanvasManifestParentMapper.mappedParentNodeId("missing-parent", nodeMap: nodeMap))
+    }
+
+    func testQuickOpenIndexSearchesWorkspacesResourcesWebCardsAndSnippets() {
+        let records = [
+            QuickOpenRecord(id: "w1", kind: .workspace, title: "Research Map", subtitle: "Workspace"),
+            QuickOpenRecord(id: "r1", kind: .resource, title: "Draft.pdf", subtitle: "/tmp/Draft.pdf"),
+            QuickOpenRecord(id: "web1", kind: .webCard, title: "OpenAI Docs", subtitle: "https://platform.openai.com"),
+            QuickOpenRecord(id: "s1", kind: .snippet, title: "Release prompt", subtitle: "Snippet")
+        ]
+
+        XCTAssertEqual(QuickOpenIndex.results(for: "docs", in: records).map(\.id), ["web1"])
+        XCTAssertEqual(QuickOpenIndex.results(for: "map", in: records).map(\.id), ["w1"])
+        XCTAssertEqual(QuickOpenIndex.results(for: "", in: records, limit: 2).map(\.id), ["w1", "r1"])
+    }
+
+    func testQuickOpenIndexRanksTitleMatchesBeforeSubtitleMatches() {
+        let records = [
+            QuickOpenRecord(id: "subtitle", kind: .resource, title: "Draft.pdf", subtitle: "OpenAI Docs"),
+            QuickOpenRecord(id: "title", kind: .webCard, title: "Docs Home", subtitle: "https://example.com")
+        ]
+
+        XCTAssertEqual(QuickOpenIndex.results(for: "docs", in: records).map(\.id), ["title", "subtitle"])
+    }
+
+    func testQuickOpenSelectionPolicyWrapsAndClampsSelection() {
+        XCTAssertEqual(QuickOpenSelectionPolicy.movedIndex(current: 0, delta: 1, resultCount: 3), 1)
+        XCTAssertEqual(QuickOpenSelectionPolicy.movedIndex(current: 2, delta: 1, resultCount: 3), 0)
+        XCTAssertEqual(QuickOpenSelectionPolicy.movedIndex(current: 0, delta: -1, resultCount: 3), 2)
+        XCTAssertEqual(QuickOpenSelectionPolicy.normalizedIndex(4, resultCount: 2), 1)
+        XCTAssertEqual(QuickOpenSelectionPolicy.normalizedIndex(0, resultCount: 0), 0)
+    }
+
     func testManifestRoundTripKeepsSchemaVersion() throws {
         let manifest = ExportManifest(
             schemaVersion: 1,
@@ -260,8 +605,8 @@ final class CoreBehaviorTests: XCTestCase {
             ],
             aliases: []
         )
-        let data = try JSONEncoder.mydesk.encode(manifest)
-        let decoded = try JSONDecoder.mydesk.decode(ExportManifest.self, from: data)
+        let data = try JSONEncoder.minddesk.encode(manifest)
+        let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: data)
         XCTAssertEqual(decoded.schemaVersion, 1)
         XCTAssertEqual(decoded.canvases.first?.viewportX, 12)
         XCTAssertEqual(decoded.canvases.first?.viewportY, -8)
@@ -293,7 +638,7 @@ final class CoreBehaviorTests: XCTestCase {
         }
         """
 
-        let decoded = try JSONDecoder.mydesk.decode(ExportManifest.self, from: Data(json.utf8))
+        let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.canvases.first?.viewportX, 0)
         XCTAssertEqual(decoded.canvases.first?.viewportY, 0)
         XCTAssertEqual(decoded.canvases.first?.zoom, 1)
@@ -305,6 +650,104 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.canvases.first?.animationsEnabled, true)
         XCTAssertEqual(decoded.nodes.first?.zIndex, 0)
         XCTAssertEqual(decoded.edges.first?.targetArrow, "arrow")
+    }
+
+    func testManifestImportValidationReportsBrokenReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: "missing-workspace", title: "File", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "workspace", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: "missing-workspace", title: "Command", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: "missing-resource", requiresConfirmation: false)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "missing-workspace", title: "Map")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "missing-canvas", title: "Node", body: "", nodeType: "resource", objectType: "resourcePin", objectId: "missing-resource", x: 0, y: 0, width: 160, height: 96, parentNodeId: "missing-parent")
+            ],
+            edges: [
+                CanvasEdgeRecord(id: "edge", canvasId: "missing-canvas", sourceNodeId: "missing-source", targetNodeId: "missing-target", label: "")
+            ],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Resource resource references missing workspace missing-workspace."))
+        XCTAssertTrue(issues.contains("Snippet snippet references missing working directory resource missing-resource."))
+        XCTAssertTrue(issues.contains("Canvas canvas references missing workspace missing-workspace."))
+        XCTAssertTrue(issues.contains("Node node references missing canvas missing-canvas."))
+        XCTAssertTrue(issues.contains("Edge edge references missing source node missing-source."))
+    }
+
+    func testLegacySnippetRecordDefaultsMissingCommandConfirmationToSafeValue() throws {
+        let json = """
+        {
+          "id": "snippet",
+          "workspaceId": null,
+          "title": "List files",
+          "kind": "command",
+          "body": "ls",
+          "details": "",
+          "tags": [],
+          "scope": "global"
+        }
+        """
+
+        let decoded = try JSONDecoder.minddesk.decode(SnippetRecord.self, from: Data(json.utf8))
+
+        XCTAssertTrue(decoded.requiresConfirmation)
+        XCTAssertNil(decoded.workingDirectoryRef)
+    }
+
+    func testLegacySnippetRecordDefaultsMissingPromptConfirmationToFalse() throws {
+        let json = """
+        {
+          "id": "snippet",
+          "workspaceId": null,
+          "title": "Draft",
+          "kind": "prompt",
+          "body": "Summarize",
+          "details": "",
+          "tags": [],
+          "scope": "global"
+        }
+        """
+
+        let decoded = try JSONDecoder.minddesk.decode(SnippetRecord.self, from: Data(json.utf8))
+
+        XCTAssertFalse(decoded.requiresConfirmation)
+    }
+
+    func testImportedCommandSnippetsAlwaysRequireConfirmation() {
+        XCTAssertTrue(SnippetImportTrustPolicy.requiresConfirmation(kind: "command", exportedRequiresConfirmation: false))
+        XCTAssertTrue(SnippetImportTrustPolicy.requiresConfirmation(kind: "command", exportedRequiresConfirmation: true))
+        XCTAssertFalse(SnippetImportTrustPolicy.requiresConfirmation(kind: "prompt", exportedRequiresConfirmation: false))
+    }
+
+    func testImportedResourcesRequireCurrentBookmarkBeforeFileAccess() {
+        XCTAssertFalse(ResourceAuthorizationPolicy.canAccessFileSystem(status: "unavailable", hasBookmarkData: false))
+        XCTAssertFalse(ResourceAuthorizationPolicy.canAccessFileSystem(status: "available", hasBookmarkData: false))
+        XCTAssertFalse(ResourceAuthorizationPolicy.canAccessFileSystem(status: "staleAuthorization", hasBookmarkData: true))
+        XCTAssertTrue(ResourceAuthorizationPolicy.canAccessFileSystem(status: "available", hasBookmarkData: true))
+    }
+
+    func testReauthorizationMustPreserveResourceTargetType() {
+        XCTAssertTrue(ResourceAuthorizationPolicy.acceptsReauthorization(existingTargetType: "folder", selectedTargetType: "folder"))
+        XCTAssertTrue(ResourceAuthorizationPolicy.acceptsReauthorization(existingTargetType: "file", selectedTargetType: "file"))
+        XCTAssertFalse(ResourceAuthorizationPolicy.acceptsReauthorization(existingTargetType: "folder", selectedTargetType: "file"))
+        XCTAssertFalse(ResourceAuthorizationPolicy.acceptsReauthorization(existingTargetType: "file", selectedTargetType: "folder"))
+    }
+
+    func testCanvasObstacleRoutingRequiresSmallVisibleWorkload() {
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 41, obstacleCount: 20, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 90, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: true))
     }
 
     func testCanvasNodeColorStyleParsesHexInputs() {
@@ -455,6 +898,36 @@ final class CoreBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(visible.map(\.id), ["current", "global"])
+    }
+
+    func testCommandRunConfirmationPolicyAlwaysConfirmsCommands() {
+        XCTAssertTrue(CommandRunConfirmationPolicy.shouldConfirm(kind: "command", requiresConfirmation: true))
+        XCTAssertTrue(CommandRunConfirmationPolicy.shouldConfirm(kind: "command", requiresConfirmation: false))
+        XCTAssertFalse(CommandRunConfirmationPolicy.shouldConfirm(kind: "prompt", requiresConfirmation: true))
+    }
+
+    func testSnippetWorkingDirectoryOptionsKeepFoldersInResourceOrder() {
+        let older = Date(timeIntervalSince1970: 10)
+        let newer = Date(timeIntervalSince1970: 20)
+        let records = [
+            ResourceLibraryRecord(id: "file", targetType: "file", title: "Plan.md", originalName: "Plan.md", customName: "", displayPath: "/tmp/Plan.md", isPinned: true, updatedAt: newer, sortIndex: 0),
+            ResourceLibraryRecord(id: "folder-b", targetType: "folder", title: "Beta", originalName: "Beta", customName: "", displayPath: "/tmp/Beta", isPinned: true, updatedAt: older, sortIndex: 2),
+            ResourceLibraryRecord(id: "folder-a", targetType: "folder", title: "Alpha", originalName: "Alpha", customName: "", displayPath: "/tmp/Alpha", isPinned: true, updatedAt: newer, sortIndex: 1)
+        ]
+
+        XCTAssertEqual(SnippetWorkingDirectoryOptions.folders(in: records).map(\.id), ["folder-a", "folder-b"])
+    }
+
+    func testSnippetWorkingDirectoryOptionsDropInvalidSelection() {
+        let records = [
+            ResourceLibraryRecord(id: "folder", targetType: "folder", title: "Folder", originalName: "Folder", customName: "", displayPath: "/tmp/Folder", isPinned: true),
+            ResourceLibraryRecord(id: "file", targetType: "file", title: "Plan.md", originalName: "Plan.md", customName: "", displayPath: "/tmp/Plan.md", isPinned: true)
+        ]
+
+        XCTAssertEqual(SnippetWorkingDirectoryOptions.validSelection("folder", in: records), "folder")
+        XCTAssertNil(SnippetWorkingDirectoryOptions.validSelection("file", in: records))
+        XCTAssertNil(SnippetWorkingDirectoryOptions.validSelection("missing", in: records))
+        XCTAssertNil(SnippetWorkingDirectoryOptions.validSelection(nil, in: records))
     }
 
     func testCanvasEdgeIdentityTreatsOppositeDirectionsAsDifferentLinks() {
@@ -766,6 +1239,111 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(CanvasEdgeRoutePlanner.polylineIntersectsObstacles(polyline, obstacles: [obstacle], clearance: 18))
     }
 
+    func testCanvasEdgeRouteDefaultsDoNotRerouteNearButClearCards() {
+        let route = CanvasEdgeRoutePlanner.routePoints(
+            start: CanvasEdgePoint(x: 100, y: 40),
+            end: CanvasEdgePoint(x: 340, y: 40),
+            startDirection: CanvasEdgePoint(x: 1, y: 0),
+            endDirection: CanvasEdgePoint(x: 1, y: 0),
+            obstacles: [
+                CanvasFrameRect(id: "near", x: 160, y: 43, width: 100, height: 80)
+            ],
+            clearance: CanvasEdgeRouteDefaults.routingClearance
+        )
+
+        XCTAssertTrue(route.isEmpty)
+        XCTAssertLessThanOrEqual(CanvasEdgeRouteDefaults.routingClearance, 3)
+    }
+
+    func testCanvasEdgeRouteDefaultsStillRerouteActualIntersections() {
+        let route = CanvasEdgeRoutePlanner.routePoints(
+            start: CanvasEdgePoint(x: 100, y: 40),
+            end: CanvasEdgePoint(x: 340, y: 40),
+            startDirection: CanvasEdgePoint(x: 1, y: 0),
+            endDirection: CanvasEdgePoint(x: 1, y: 0),
+            obstacles: [
+                CanvasFrameRect(id: "blocking", x: 160, y: 20, width: 100, height: 80)
+            ],
+            clearance: CanvasEdgeRouteDefaults.routingClearance
+        )
+
+        XCTAssertFalse(route.isEmpty)
+    }
+
+    func testCanvasEdgeHitTestingSelectsOnlyTheNearestLineWithinThreshold() {
+        let hit = CanvasEdgeHitTesting.nearestEdgeID(
+            at: CanvasEdgePoint(x: 180, y: 43),
+            edges: [
+                CanvasEdgeHitRecord(id: "a-b", points: [
+                    CanvasEdgePoint(x: 100, y: 40),
+                    CanvasEdgePoint(x: 260, y: 40)
+                ]),
+                CanvasEdgeHitRecord(id: "far", points: [
+                    CanvasEdgePoint(x: 100, y: 120),
+                    CanvasEdgePoint(x: 260, y: 120)
+                ])
+            ],
+            threshold: 6
+        )
+
+        XCTAssertEqual(hit, "a-b")
+        XCTAssertNil(CanvasEdgeHitTesting.nearestEdgeID(
+            at: CanvasEdgePoint(x: 180, y: 60),
+            edges: [
+                CanvasEdgeHitRecord(id: "a-b", points: [
+                    CanvasEdgePoint(x: 100, y: 40),
+                    CanvasEdgePoint(x: 260, y: 40)
+                ])
+            ],
+            threshold: 6
+        ))
+    }
+
+    func testCanvasEdgeDeletionPrefersSelectedEdgesAndDoesNotDeleteSingleNodeLinks() {
+        let edges = [
+            CanvasEdgeEndpointRecord(id: "a-b", sourceNodeId: "a", targetNodeId: "b"),
+            CanvasEdgeEndpointRecord(id: "a-c", sourceNodeId: "a", targetNodeId: "c")
+        ]
+
+        XCTAssertEqual(
+            CanvasEdgeDeletionPolicy.edgeIDsToDelete(selectedEdgeIDs: ["a-b"], selectedNodeIDs: ["a"], edges: edges),
+            ["a-b"]
+        )
+        XCTAssertEqual(
+            CanvasEdgeDeletionPolicy.edgeIDsToDelete(selectedEdgeIDs: [], selectedNodeIDs: ["a"], edges: edges),
+            []
+        )
+        XCTAssertEqual(
+            CanvasEdgeDeletionPolicy.edgeIDsToDelete(selectedEdgeIDs: [], selectedNodeIDs: ["a", "b"], edges: edges),
+            ["a-b"]
+        )
+    }
+
+    func testCanvasEdgeDeletionRequiresLineSelectionForAmbiguousPairLinks() {
+        let edges = [
+            CanvasEdgeEndpointRecord(id: "a-b", sourceNodeId: "a", targetNodeId: "b"),
+            CanvasEdgeEndpointRecord(id: "b-a", sourceNodeId: "b", targetNodeId: "a")
+        ]
+
+        XCTAssertEqual(
+            CanvasEdgeDeletionPolicy.edgeIDsToDelete(selectedEdgeIDs: [], selectedNodeIDs: ["a", "b"], edges: edges),
+            []
+        )
+    }
+
+    func testCanvasNodeDeletionPolicyDeletesIncidentEdges() {
+        let edges = [
+            CanvasEdgeEndpointRecord(id: "a-b", sourceNodeId: "a", targetNodeId: "b"),
+            CanvasEdgeEndpointRecord(id: "b-c", sourceNodeId: "b", targetNodeId: "c"),
+            CanvasEdgeEndpointRecord(id: "c-d", sourceNodeId: "c", targetNodeId: "d")
+        ]
+
+        XCTAssertEqual(
+            CanvasNodeDeletionPolicy.incidentEdgeIDs(selectedNodeIDs: ["a", "b"], edges: edges),
+            ["a-b", "b-c"]
+        )
+    }
+
     func testCanvasViewportProjectionUsesScaledVisibleBounds() {
         let rect = CanvasViewportProjection.screenRect(
             id: "node",
@@ -925,6 +1503,16 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(CanvasEdgeFlowPhase.dashPhase(elapsed: 0, duration: 2, cycleLength: 180), 0)
         XCTAssertEqual(CanvasEdgeFlowPhase.dashPhase(elapsed: 1, duration: 2, cycleLength: 180), -90)
         XCTAssertEqual(CanvasEdgeFlowPhase.dashPhase(elapsed: 2.5, duration: 2, cycleLength: 180), -45)
+    }
+
+    func testCanvasEdgeAnimationPolicyPausesWhileCanvasIsInteracting() {
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            edgeCount: 12,
+            isInteracting: true
+        ))
     }
 
     func testFrameGeometryResizingClampsToMinimumSize() {
@@ -1104,6 +1692,6 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "off", animationsEnabled: true, reduceMotion: false, edgeCount: 20))
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: false, reduceMotion: false, edgeCount: 20))
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: true, edgeCount: 20))
-        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: 180))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount + 1))
     }
 }

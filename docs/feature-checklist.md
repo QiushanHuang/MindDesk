@@ -1,4 +1,4 @@
-# MyDesk 功能回归清单
+# MindDesk 功能回归清单
 
 用于每次修改后检查功能是否退化。建议在发布前逐项跑一遍；遇到 bug 时，把对应条目、复现步骤、截图和相关日志补到 issue 或变更记录里。
 
@@ -17,7 +17,7 @@
 - [ ] 点击 Pinned Folders / Pinned Files 会在右侧打开对应列表。
 - [ ] 点击单个 pinned 文件夹/文件会在右侧显示内容或预览。
 - [ ] 右键菜单包含常用操作，并且不会误删 Finder 里的真实文件。
-- [ ] Workspaces 可创建、重命名、删除 MyDesk metadata。
+- [ ] Workspaces 可创建、重命名、删除 MindDesk metadata。
 - [ ] Workspaces 排序、pin 置顶、选择状态稳定。
 
 ## Global Library 与资源
@@ -26,7 +26,7 @@
 - [ ] 文件夹和文件按来源分类显示。
 - [ ] 可 pin、unpin、重命名显示名、复制路径、查看详情。
 - [ ] 双击文件夹在 Finder 打开；双击文件在 Finder 中定位。
-- [ ] 删除资源只删除 MyDesk metadata，不删除 Finder 原始文件。
+- [ ] 删除资源只删除 MindDesk metadata，不删除 Finder 原始文件。
 
 ## Snippet Library
 
@@ -75,7 +75,7 @@
 
 ## Settings
 
-- [ ] `Command + ,` 能打开 MyDesk Settings。
+- [ ] `Command + ,` 能打开 MindDesk Settings。
 - [ ] Canvas 的 Scroll wheel zoom 方向可切换。
 - [ ] 修改设置后不需要重启 App，Canvas 滚动缩放立即按新方向生效。
 - [ ] Settings 关闭后选择仍被保存。
@@ -93,4 +93,10 @@
 - [ ] `swift test`
 - [ ] `git diff --check`
 - [ ] `./script/build_and_run.sh --verify`
+- [ ] `bash -n script/package_release.sh`
+- [ ] `plutil -lint script/release.entitlements`
+- [ ] GitHub Actions CI 通过。
+- [ ] 正式发布必须用 `./script/package_release.sh --mode notarized ...` 生成已签名、notarized、stapled 的 DMG。
+- [ ] GitHub Actions Release workflow 已配置 Developer ID 和 App Store Connect API key Secrets 后再手动触发。
+- [ ] 只有内部测试包可以使用 `--mode adhoc --allow-adhoc`，并确认产物名带 `-adhoc`。
 - [ ] 用 Computer Use 或手动操作检查 Canvas 点击、拖动、缩放、连接、Settings。

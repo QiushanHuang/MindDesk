@@ -1,4 +1,5 @@
-import MyDeskCore
+import MindDeskCore
+import AppKit
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -41,6 +42,8 @@ struct ContentView: View {
     @State private var pinnedFoldersDropTarget = false
     @State private var pinnedFilesDropTarget = false
     @State private var isInspectorVisible = false
+    @State private var isQuickOpenPresented = false
+    @State private var quickOpenQuery = ""
 
     private var defaultCanvasZoom: Double {
         CanvasZoomBaseline.actualZoom(
@@ -143,6 +146,7 @@ struct ContentView: View {
                                 workspaceContextMenu(for: workspace)
                             }
                     }
+                    .onMove(perform: moveWorkspaces)
                 }
             }
             .listStyle(.sidebar)
@@ -151,7 +155,7 @@ struct ContentView: View {
                 ideal: WorkbenchSidebarMetrics.idealWidth,
                 max: WorkbenchSidebarMetrics.maximumWidth
             )
-            .navigationTitle("MyDesk")
+            .navigationTitle("MindDesk")
             .toolbar {
                 Button {
                     addWorkspace()
@@ -187,6 +191,12 @@ struct ContentView: View {
                 .background(.bar)
             }
             .toolbar {
+                Button {
+                    openQuickOpen()
+                } label: {
+                    Label("Quick Open", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("k", modifiers: .command)
                 Button {
                     exportManifest()
                 } label: {
@@ -225,15 +235,22 @@ struct ContentView: View {
             }
         }
         .sheet(item: $editingSnippet) { snippet in
-            SnippetEditor(snippet: snippet, scope: snippet.scope, workspaceId: snippet.workspaceId) { draft in
+            SnippetEditor(snippet: snippet, scope: snippet.scope, workspaceId: snippet.workspaceId, resources: resources) { draft in
                 saveSnippet(snippet, draft: draft)
             }
+        }
+        .sheet(isPresented: $isQuickOpenPresented) {
+            QuickOpenPanel(
+                query: $quickOpenQuery,
+                records: quickOpenRecords,
+                onOpen: openQuickOpenRecord
+            )
         }
         .alert("Delete workspace metadata?", isPresented: Binding(
             get: { workspaceToDelete != nil },
             set: { if !$0 { workspaceToDelete = nil } }
         )) {
-            Button("Delete MyDesk Metadata", role: .destructive) {
+            Button("Delete MindDesk Metadata", role: .destructive) {
                 if let workspaceToDelete {
                     deleteWorkspace(workspaceToDelete)
                 }
@@ -244,14 +261,14 @@ struct ContentView: View {
             }
         } message: {
             if let workspaceToDelete {
-                Text("This removes \(workspaceToDelete.title) from MyDesk, including its canvas cards and workspace-only pins. Finder files and folders are not deleted, renamed, or moved.")
+                Text("This removes \(workspaceToDelete.title) from MindDesk, including its canvas cards and workspace-only pins. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
         .alert("Remove source metadata?", isPresented: Binding(
             get: { resourceToRemove != nil },
             set: { if !$0 { resourceToRemove = nil } }
         )) {
-            Button("Remove From MyDesk", role: .destructive) {
+            Button("Remove From MindDesk", role: .destructive) {
                 if let resourceToRemove {
                     removeResourceFromLibrary(resourceToRemove)
                 }
@@ -262,14 +279,14 @@ struct ContentView: View {
             }
         } message: {
             if let resourceToRemove {
-                Text("This removes \(resourceToRemove.displayName) and related MyDesk canvas cards/aliases from MyDesk metadata only. Finder files and folders are not deleted, renamed, or moved.")
+                Text("This removes \(resourceToRemove.displayName) and related MindDesk canvas cards/aliases from MindDesk metadata only. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
         .alert("Delete snippet metadata?", isPresented: Binding(
             get: { snippetToDelete != nil },
             set: { if !$0 { snippetToDelete = nil } }
         )) {
-            Button("Delete From MyDesk", role: .destructive) {
+            Button("Delete From MindDesk", role: .destructive) {
                 if let snippetToDelete {
                     deleteSnippet(snippetToDelete)
                 }
@@ -280,7 +297,7 @@ struct ContentView: View {
             }
         } message: {
             if let snippetToDelete {
-                Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MyDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
+                Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MindDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
     }
@@ -337,6 +354,25 @@ struct ContentView: View {
             }
             return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }
+    }
+
+    private var quickOpenRecords: [QuickOpenRecord] {
+        var records: [QuickOpenRecord] = []
+        records.append(contentsOf: orderedWorkspaces.map {
+            QuickOpenRecord(id: "workspace:\($0.id)", kind: .workspace, title: $0.title, subtitle: $0.details)
+        })
+        records.append(contentsOf: orderedResources.map {
+            QuickOpenRecord(id: "resource:\($0.id)", kind: .resource, title: $0.displayName, subtitle: $0.displayPath)
+        })
+        records.append(contentsOf: snippets.sorted { $0.updatedAt > $1.updatedAt }.map {
+            QuickOpenRecord(id: "snippet:\($0.id)", kind: .snippet, title: $0.title, subtitle: $0.details)
+        })
+        let webCards = nodes.compactMap { node -> QuickOpenRecord? in
+            guard node.objectType == "webURL", let url = WebCardURL.normalized(node.objectId ?? node.body) else { return nil }
+            return QuickOpenRecord(id: "webCard:\(node.id)", kind: .webCard, title: node.title, subtitle: url.absoluteString)
+        }
+        records.append(contentsOf: webCards)
+        return records
     }
 
     @ViewBuilder
@@ -456,7 +492,8 @@ struct ContentView: View {
                     onToggleWorkspacePinned: { toggleWorkspacePinned($0) },
                     onRemoveResource: { resourceToRemove = $0 },
                     onEditSnippet: { editingSnippet = $0 },
-                    onDeleteSnippet: { snippetToDelete = $0 }
+                    onDeleteSnippet: { snippetToDelete = $0 },
+                    onSelectWorkspace: { selection = .workspace($0) }
                 )
             } else {
                 ContentUnavailableView("Workspace missing", systemImage: "questionmark.folder")
@@ -494,7 +531,7 @@ struct ContentView: View {
         }
         .disabled(!canMoveWorkspace(workspace, direction: .down))
         Divider()
-        Button("Delete MyDesk Metadata", role: .destructive) {
+        Button("Delete MindDesk Metadata", role: .destructive) {
             workspaceToDelete = workspace
         }
     }
@@ -510,14 +547,14 @@ struct ContentView: View {
         Button("Copy Full Path") {
             copyResourcePath(resource)
         }
-        Button("Rename in MyDesk") {
+        Button("Rename in MindDesk") {
             renamingResource = resource
         }
         Button(resource.isPinned ? "Unpin Shortcut" : "Pin Shortcut") {
             toggleResourcePinned(resource)
         }
         Divider()
-        Button("Remove from MyDesk", role: .destructive) {
+        Button("Remove from MindDesk", role: .destructive) {
             resourceToRemove = resource
         }
     }
@@ -577,6 +614,43 @@ struct ContentView: View {
         statusMessage = message
     }
 
+    private func openQuickOpen() {
+        quickOpenQuery = ""
+        isQuickOpenPresented = true
+    }
+
+    private func openQuickOpenRecord(_ record: QuickOpenRecord) {
+        let id = payloadID(from: record)
+        switch record.kind {
+        case .workspace:
+            selection = .workspace(id)
+            setStatus("Opened workspace: \(record.title)")
+        case .resource:
+            selection = .resource(id)
+            setStatus("Opened resource record: \(record.title)")
+        case .snippet:
+            selection = .snippets
+            showInspector(.snippet(id))
+            setStatus("Showing snippet: \(record.title)")
+        case .webCard:
+            guard let node = nodes.first(where: { $0.id == id }),
+                  let url = WebCardURL.normalized(node.objectId ?? node.body) else {
+                setStatus("Web card is missing a valid URL")
+                return
+            }
+            NSWorkspace.shared.open(url)
+            if let canvas = canvases.first(where: { $0.id == node.canvasId }) {
+                selection = .workspace(canvas.workspaceId)
+            }
+            setStatus("Opened web page: \(url.absoluteString)")
+        }
+        isQuickOpenPresented = false
+    }
+
+    private func payloadID(from record: QuickOpenRecord) -> String {
+        record.id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? record.id
+    }
+
     private func saveWorkspaceRename(_ workspace: WorkspaceModel) {
         do {
             workspace.updatedAt = .now
@@ -594,7 +668,7 @@ struct ContentView: View {
             resource.refreshSearchText()
             resource.updatedAt = .now
             try modelContext.save()
-            setStatus("Renamed MyDesk metadata: \(resource.displayName)")
+            setStatus("Renamed MindDesk metadata: \(resource.displayName)")
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
@@ -623,6 +697,7 @@ struct ContentView: View {
             snippet.details = draft.details
             snippet.tags = draft.tags
             snippet.scopeRaw = draft.scope.rawValue
+            snippet.workingDirectoryRef = draft.kind == .command ? draft.workingDirectoryRef : nil
             snippet.requiresConfirmation = draft.kind == .command ? draft.requiresConfirmation : false
             snippet.updatedAt = .now
             try modelContext.save()
@@ -674,6 +749,43 @@ struct ContentView: View {
         }
     }
 
+    private func moveWorkspaces(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let ids = orderedWorkspaces.map(\.id)
+        let movedIds = WorkspaceSidebarOrdering.movedIDs(ids, fromOffsets: source, toOffset: destination)
+        guard movedIds != ids else { return }
+        let pinnedIds = Set(workspaces.filter(\.isPinned).map(\.id))
+        guard WorkspaceSidebarOrdering.keepsPinnedPrefix(movedIds, pinnedIDs: pinnedIds) else {
+            setStatus("Drag sorting keeps pinned workspaces in the pinned section")
+            return
+        }
+
+        let now = Date.now
+        let orderedPinnedIds = movedIds.filter { id in
+            workspaces.first(where: { $0.id == id })?.isPinned == true
+        }
+        let unpinnedIds = movedIds.filter { id in
+            workspaces.first(where: { $0.id == id })?.isPinned == false
+        }
+        renumberWorkspaces(ids: orderedPinnedIds, now: now)
+        renumberWorkspaces(ids: unpinnedIds, now: now)
+
+        do {
+            try modelContext.save()
+            setStatus("Reordered workspaces")
+        } catch {
+            modelContext.rollback()
+            setStatus(error.localizedDescription)
+        }
+    }
+
+    private func renumberWorkspaces(ids: [String], now: Date) {
+        for (index, id) in ids.enumerated() {
+            guard let workspace = workspaces.first(where: { $0.id == id }) else { continue }
+            workspace.sortIndex = index
+            workspace.updatedAt = now
+        }
+    }
+
     private func renumberWorkspaceSection(isPinned: Bool) {
         let peers = orderedWorkspaces.filter { $0.isPinned == isPinned }
         for (index, workspace) in peers.enumerated() {
@@ -684,20 +796,46 @@ struct ContentView: View {
     private func deleteWorkspace(_ workspace: WorkspaceModel) {
         do {
             let workspaceCanvases = canvases.filter { $0.workspaceId == workspace.id }
-            let canvasIds = Set(workspaceCanvases.map(\.id))
-            let workspaceNodes = nodes.filter { canvasIds.contains($0.canvasId) }
-            let nodeIds = Set(workspaceNodes.map(\.id))
             let workspaceResources = resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
             let workspaceSnippets = snippets.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
             let workspaceTodos = todos.filter { $0.workspaceId == workspace.id }
             let workspaceTodoGroups = todoGroups.filter { $0.workspaceId == workspace.id }
             let deletedResourceIds = Set(workspaceResources.map(\.id))
             let deletedSnippetIds = Set(workspaceSnippets.map(\.id))
+            let deletionPlan = WorkspaceDeletionPolicy.plan(
+                workspaceId: workspace.id,
+                canvases: canvases.map { WorkspaceDeletionCanvasRecord(id: $0.id, workspaceId: $0.workspaceId) },
+                nodes: nodes.map {
+                    WorkspaceDeletionNodeRecord(
+                        id: $0.id,
+                        canvasId: $0.canvasId,
+                        objectType: $0.objectType,
+                        objectId: $0.objectId
+                    )
+                },
+                edges: edges.map {
+                    WorkspaceDeletionEdgeRecord(
+                        id: $0.id,
+                        canvasId: $0.canvasId,
+                        sourceNodeId: $0.sourceNodeId,
+                        targetNodeId: $0.targetNodeId
+                    )
+                },
+                snippets: snippets.map {
+                    WorkspaceDeletionSnippetRecord(id: $0.id, workingDirectoryRef: $0.workingDirectoryRef)
+                },
+                resourceIds: deletedResourceIds,
+                snippetIds: deletedSnippetIds
+            )
+            let nodeIds = Set(deletionPlan.nodeIds)
+            let edgeIds = Set(deletionPlan.edgeIds)
+            let snippetIdsClearingWorkingDirectory = Set(deletionPlan.snippetIdsClearingWorkingDirectory)
+            let now = Date.now
 
-            for edge in edges where canvasIds.contains(edge.canvasId) || nodeIds.contains(edge.sourceNodeId) || nodeIds.contains(edge.targetNodeId) {
+            for edge in edges where edgeIds.contains(edge.id) {
                 modelContext.delete(edge)
             }
-            for node in workspaceNodes {
+            for node in nodes where nodeIds.contains(node.id) {
                 modelContext.delete(node)
             }
             for canvas in workspaceCanvases {
@@ -705,6 +843,10 @@ struct ContentView: View {
             }
             for alias in aliases where deletedResourceIds.contains(alias.sourceObjectId) || deletedSnippetIds.contains(alias.sourceObjectId) {
                 alias.status = .missing
+            }
+            for snippet in snippets where snippetIdsClearingWorkingDirectory.contains(snippet.id) {
+                snippet.workingDirectoryRef = nil
+                snippet.updatedAt = now
             }
             for resource in workspaceResources {
                 modelContext.delete(resource)
@@ -723,7 +865,10 @@ struct ContentView: View {
             selection = orderedWorkspaces.first { $0.id != workspace.id }.map { .workspace($0.id) } ?? .home
             inspectorSelection = nil
             workspaceCanvasTabActive = false
-            setStatus("Deleted MyDesk workspace metadata. Finder items affected: 0")
+            let workingDirectoryStatus = snippetIdsClearingWorkingDirectory.isEmpty
+                ? ""
+                : " Cleared \(snippetIdsClearingWorkingDirectory.count) command working directory reference\(snippetIdsClearingWorkingDirectory.count == 1 ? "" : "s")."
+            setStatus("Deleted MindDesk workspace metadata. Finder items affected: 0.\(workingDirectoryStatus)")
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
@@ -749,27 +894,34 @@ struct ContentView: View {
     }
 
     private func copyResourcePath(_ resource: ResourcePinModel) {
-        let resolved = BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
-        ClipboardService().copy(resolved.url.path)
-        setStatus("Copied path: \(resolved.url.path)")
+        ClipboardService().copy(resource.displayPath)
+        setStatus("Copied path: \(resource.displayPath)")
     }
 
     private func performResource(_ resource: ResourcePinModel, actionName: String, action: (URL) throws -> Void) {
         let bookmarkService = BookmarkService()
-        let resolved = bookmarkService.resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
         do {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
             try bookmarkService.access(resolved.url) {
                 try action(resolved.url)
             }
             resource.lastResolvedPath = resolved.url.path
             resource.displayPath = resolved.url.path
-            resource.status = resolved.stale ? .staleAuthorization : .available
+            resource.status = .available
             resource.updatedAt = .now
             try modelContext.save()
             setStatus("\(actionName) \(resource.displayName)")
         } catch {
             resource.status = .unavailable
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+            }
             setStatus(error.localizedDescription)
         }
     }
@@ -796,7 +948,7 @@ struct ContentView: View {
                 selection = .home
                 inspectorSelection = nil
             }
-            setStatus("Removed \(resource.displayName) from MyDesk metadata. Finder items affected: 0")
+            setStatus("Removed \(resource.displayName) from MindDesk metadata. Finder items affected: 0")
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
@@ -839,9 +991,9 @@ struct ContentView: View {
                 edges: edges,
                 aliases: aliases
             )
-            let data = try JSONEncoder.mydesk.encode(manifest)
+            let data = try JSONEncoder.minddesk.encode(manifest)
             try data.write(to: url, options: .atomic)
-            setStatus("Exported MyDesk manifest to \(url.path)")
+            setStatus("Exported MindDesk manifest to \(url.path)")
         } catch {
             setStatus(error.localizedDescription)
         }
@@ -861,11 +1013,19 @@ struct ContentView: View {
     }
 
     private func importRecords(from manifest: ExportManifest) throws {
+        let validationIssues = ManifestImportValidation.issues(in: manifest)
+        guard validationIssues.isEmpty else {
+            let details = validationIssues.prefix(5).joined(separator: " ")
+            let suffix = validationIssues.count > 5 ? " \(validationIssues.count - 5) more issue\(validationIssues.count - 5 == 1 ? "" : "s")." : ""
+            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: \(details)\(suffix)")
+        }
+
         var workspaceMap: [String: String] = [:]
         var resourceMap: [String: String] = [:]
         var snippetMap: [String: String] = [:]
         var canvasMap: [String: String] = [:]
         var nodeMap: [String: String] = [:]
+        var importedNodeParents: [(node: CanvasNodeModel, parentNodeId: String?)] = []
 
         for record in manifest.workspaces {
             let workspace = WorkspaceModel(title: record.title, details: record.details, createdAt: record.createdAt, updatedAt: record.updatedAt, lastOpenedAt: record.lastOpenedAt, isPinned: record.isPinned, sortIndex: record.sortIndex, schemaVersion: manifest.schemaVersion)
@@ -907,7 +1067,10 @@ struct ContentView: View {
                 tags: record.tags,
                 scope: WorkbenchScope(rawValue: record.scope) ?? .global,
                 workingDirectoryRef: record.workingDirectoryRef.flatMap { resourceMap[$0] },
-                requiresConfirmation: record.requiresConfirmation,
+                requiresConfirmation: SnippetImportTrustPolicy.requiresConfirmation(
+                    kind: record.kind,
+                    exportedRequiresConfirmation: record.requiresConfirmation
+                ),
                 lastCopiedAt: record.lastCopiedAt,
                 lastUsedAt: record.lastUsedAt,
                 createdAt: record.createdAt,
@@ -926,14 +1089,14 @@ struct ContentView: View {
 
         for record in manifest.nodes {
             guard let canvasId = canvasMap[record.canvasId] else { continue }
-            let mappedObjectId: String?
-            if record.objectType == "resourcePin" {
-                mappedObjectId = record.objectId.flatMap { resourceMap[$0] }
-            } else if record.objectType == "snippet" {
-                mappedObjectId = record.objectId.flatMap { snippetMap[$0] }
-            } else {
-                mappedObjectId = nil
-            }
+            let mappedObjectId = CanvasNodeObjectReferenceMapper.mappedObjectId(
+                objectType: record.objectType,
+                objectId: record.objectId,
+                body: record.body,
+                resourceMap: resourceMap,
+                snippetMap: snippetMap,
+                workspaceMap: workspaceMap
+            )
             let node = CanvasNodeModel(
                 canvasId: canvasId,
                 title: record.title,
@@ -946,7 +1109,7 @@ struct ContentView: View {
                 width: record.width,
                 height: record.height,
                 collapsed: record.collapsed,
-                parentNodeId: record.parentNodeId.flatMap { nodeMap[$0] } ?? record.parentNodeId,
+                parentNodeId: nil,
                 zIndex: record.zIndex,
                 locked: record.locked,
                 styleRaw: record.style,
@@ -955,7 +1118,15 @@ struct ContentView: View {
                 updatedAt: record.updatedAt
             )
             nodeMap[record.id] = node.id
+            importedNodeParents.append((node: node, parentNodeId: record.parentNodeId))
             modelContext.insert(node)
+        }
+
+        for importedNodeParent in importedNodeParents {
+            importedNodeParent.node.parentNodeId = CanvasManifestParentMapper.mappedParentNodeId(
+                importedNodeParent.parentNodeId,
+                nodeMap: nodeMap
+            )
         }
 
         for record in manifest.edges {
@@ -978,6 +1149,217 @@ enum InspectorSelection: Equatable {
     case resource(String)
     case snippet(String)
     case node(String)
+}
+
+struct QuickOpenPanel: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var query: String
+    let records: [QuickOpenRecord]
+    let onOpen: (QuickOpenRecord) -> Void
+    @FocusState private var isSearchFocused: Bool
+    @State private var selectedIndex = 0
+
+    private var results: [QuickOpenRecord] {
+        QuickOpenIndex.results(for: query, in: records, limit: 20)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Quick Open", text: $query)
+                    .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            if results.isEmpty {
+                ContentUnavailableView("No matching commands", systemImage: "magnifyingglass", description: Text(query.isEmpty ? "Start typing to search MindDesk." : query))
+                    .frame(maxWidth: .infinity, minHeight: 320)
+            } else {
+                ScrollViewReader { proxy in
+                    List(Array(results.enumerated()), id: \.element.id) { index, record in
+                        Button {
+                            selectedIndex = index
+                            openSelectedResult()
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: record.kind.systemImage)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(record.title)
+                                        .font(.body.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(record.subtitle.isEmpty ? record.kind.title : record.subtitle)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer()
+                            }
+                            .padding(.vertical, 4)
+                            .contentShape(Rectangle())
+                            .background(selectedIndex == index ? Color.accentColor.opacity(0.16) : Color.clear)
+                        }
+                        .id(record.id)
+                        .buttonStyle(.plain)
+                        .onHover { hovering in
+                            if hovering {
+                                selectedIndex = index
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                    .frame(minHeight: 320)
+                    .onChange(of: selectedIndex) { _, _ in
+                        scrollSelectedResult(with: proxy)
+                    }
+                    .onChange(of: resultIDs) { _, _ in
+                        selectedIndex = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+                        scrollSelectedResult(with: proxy)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(width: 560, height: 430)
+        .background(QuickOpenKeyMonitor { event in
+            handleKeyDown(event)
+        })
+        .onAppear {
+            selectedIndex = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+            Task { @MainActor in
+                isSearchFocused = true
+            }
+        }
+        .onChange(of: query) { _, _ in
+            selectedIndex = 0
+        }
+        .onMoveCommand { direction in
+            switch direction {
+            case .down:
+                selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: 1, resultCount: results.count)
+            case .up:
+                selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: -1, resultCount: results.count)
+            default:
+                break
+            }
+        }
+    }
+
+    private var resultIDs: [String] {
+        results.map(\.id)
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 36, 76:
+            openSelectedResult()
+            return true
+        case 53:
+            dismiss()
+            return true
+        case 125:
+            selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: 1, resultCount: results.count)
+            return true
+        case 126:
+            selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: -1, resultCount: results.count)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func scrollSelectedResult(with proxy: ScrollViewProxy) {
+        let currentResults = results
+        guard !currentResults.isEmpty else { return }
+        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: currentResults.count)
+        let id = currentResults[index].id
+        Task { @MainActor in
+            withAnimation(.easeOut(duration: 0.12)) {
+                proxy.scrollTo(id, anchor: .center)
+            }
+        }
+    }
+
+    private func openSelectedResult() {
+        guard !results.isEmpty else { return }
+        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+        onOpen(results[index])
+        dismiss()
+    }
+}
+
+private struct QuickOpenKeyMonitor: NSViewRepresentable {
+    let onKeyDown: (NSEvent) -> Bool
+
+    func makeNSView(context _: Context) -> QuickOpenKeyMonitorView {
+        let view = QuickOpenKeyMonitorView()
+        view.onKeyDown = onKeyDown
+        view.installMonitorIfNeeded()
+        return view
+    }
+
+    func updateNSView(_ nsView: QuickOpenKeyMonitorView, context _: Context) {
+        nsView.onKeyDown = onKeyDown
+    }
+
+    static func dismantleNSView(_ nsView: QuickOpenKeyMonitorView, coordinator _: ()) {
+        nsView.removeMonitor()
+    }
+}
+
+private final class QuickOpenKeyMonitorView: NSView {
+    var onKeyDown: ((NSEvent) -> Bool)?
+    private var monitor: Any?
+
+    override func hitTest(_: NSPoint) -> NSView? {
+        nil
+    }
+
+    func installMonitorIfNeeded() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self,
+                  let window,
+                  event.window === window else {
+                return event
+            }
+            return onKeyDown?(event) == true ? nil : event
+        }
+    }
+
+    func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+}
+
+private extension QuickOpenRecordKind {
+    var systemImage: String {
+        switch self {
+        case .workspace: "rectangle.3.group"
+        case .resource: "folder"
+        case .webCard: "globe"
+        case .snippet: "text.quote"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .workspace: "Workspace"
+        case .resource: "Resource"
+        case .webCard: "Web Page"
+        case .snippet: "Snippet"
+        }
+    }
 }
 
 struct SidebarWorkspaceRow: View {
@@ -1084,7 +1466,7 @@ struct ResourceRenameSheet: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Rename Resource")
                 .font(.title2.bold())
-            TextField("Title in MyDesk", text: $title)
+            TextField("Title in MindDesk", text: $title)
             Text("Original: \(resource.originalName.isEmpty ? resource.displayPath : resource.originalName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1134,7 +1516,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("MyDesk")
+                Text("MindDesk")
                     .font(.largeTitle.bold())
                 Text("Personal workspace for folders, files, commands, prompts, and workflow maps.")
                     .foregroundStyle(.secondary)
@@ -1517,6 +1899,7 @@ struct WorkspaceDetailView: View {
     let onRemoveResource: (ResourcePinModel) -> Void
     let onEditSnippet: (SnippetModel) -> Void
     let onDeleteSnippet: (SnippetModel) -> Void
+    let onSelectWorkspace: (String) -> Void
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
     @State private var tab = "Canvas"
     @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
@@ -1602,7 +1985,8 @@ struct WorkspaceDetailView: View {
                         nodes: nodes.filter { $0.canvasId == canvas.id },
                         edges: edges.filter { $0.canvasId == canvas.id },
                         onStatus: onStatus,
-                        onInspect: onInspect
+                        onInspect: onInspect,
+                        onOpenWorkspace: onSelectWorkspace
                     )
                 } else {
                     ProgressView("Preparing canvas...")
@@ -1622,7 +2006,12 @@ struct WorkspaceDetailView: View {
             ensureCanvas()
             workspace.lastOpenedAt = .now
             workspace.updatedAt = .now
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+                onStatus(error.localizedDescription)
+            }
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue == "Canvas")

@@ -237,7 +237,7 @@ public struct SnippetRecord: Codable, Equatable, Identifiable {
         tags = try container.decode([String].self, forKey: .tags)
         scope = try container.decode(String.self, forKey: .scope)
         workingDirectoryRef = try container.decodeIfPresent(String.self, forKey: .workingDirectoryRef)
-        requiresConfirmation = try container.decode(Bool.self, forKey: .requiresConfirmation)
+        requiresConfirmation = try container.decodeIfPresent(Bool.self, forKey: .requiresConfirmation) ?? (kind == "command")
         lastCopiedAt = try container.decodeIfPresent(Date.self, forKey: .lastCopiedAt)
         lastUsedAt = try container.decodeIfPresent(Date.self, forKey: .lastUsedAt)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? fallbackDate
@@ -496,8 +496,73 @@ public struct AliasRecord: Codable, Equatable, Identifiable {
     }
 }
 
+public enum ManifestImportValidation {
+    public static func issues(in manifest: ExportManifest) -> [String] {
+        let workspaceIds = Set(manifest.workspaces.map(\.id))
+        let resourceIds = Set(manifest.resources.map(\.id))
+        let snippetIds = Set(manifest.snippets.map(\.id))
+        let canvasIds = Set(manifest.canvases.map(\.id))
+        let nodeIds = Set(manifest.nodes.map(\.id))
+        var issues: [String] = []
+
+        for resource in manifest.resources {
+            if let workspaceId = resource.workspaceId, !workspaceIds.contains(workspaceId) {
+                issues.append("Resource \(resource.id) references missing workspace \(workspaceId).")
+            }
+        }
+
+        for snippet in manifest.snippets {
+            if let workspaceId = snippet.workspaceId, !workspaceIds.contains(workspaceId) {
+                issues.append("Snippet \(snippet.id) references missing workspace \(workspaceId).")
+            }
+            if let resourceId = snippet.workingDirectoryRef, !resourceIds.contains(resourceId) {
+                issues.append("Snippet \(snippet.id) references missing working directory resource \(resourceId).")
+            }
+        }
+
+        for canvas in manifest.canvases where !workspaceIds.contains(canvas.workspaceId) {
+            issues.append("Canvas \(canvas.id) references missing workspace \(canvas.workspaceId).")
+        }
+
+        for node in manifest.nodes {
+            if !canvasIds.contains(node.canvasId) {
+                issues.append("Node \(node.id) references missing canvas \(node.canvasId).")
+            }
+            if let parentNodeId = node.parentNodeId, !nodeIds.contains(parentNodeId) {
+                issues.append("Node \(node.id) references missing parent node \(parentNodeId).")
+            }
+            if let objectType = node.objectType, let objectId = node.objectId {
+                switch objectType {
+                case "workspace" where !workspaceIds.contains(objectId):
+                    issues.append("Node \(node.id) references missing workspace object \(objectId).")
+                case "resourcePin" where !resourceIds.contains(objectId):
+                    issues.append("Node \(node.id) references missing resource object \(objectId).")
+                case "snippet" where !snippetIds.contains(objectId):
+                    issues.append("Node \(node.id) references missing snippet object \(objectId).")
+                default:
+                    break
+                }
+            }
+        }
+
+        for edge in manifest.edges {
+            if !canvasIds.contains(edge.canvasId) {
+                issues.append("Edge \(edge.id) references missing canvas \(edge.canvasId).")
+            }
+            if !nodeIds.contains(edge.sourceNodeId) {
+                issues.append("Edge \(edge.id) references missing source node \(edge.sourceNodeId).")
+            }
+            if !nodeIds.contains(edge.targetNodeId) {
+                issues.append("Edge \(edge.id) references missing target node \(edge.targetNodeId).")
+            }
+        }
+
+        return issues
+    }
+}
+
 public extension JSONEncoder {
-    static var mydesk: JSONEncoder {
+    static var minddesk: JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -506,7 +571,7 @@ public extension JSONEncoder {
 }
 
 public extension JSONDecoder {
-    static var mydesk: JSONDecoder {
+    static var minddesk: JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

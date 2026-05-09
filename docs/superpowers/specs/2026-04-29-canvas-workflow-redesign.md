@@ -1,4 +1,4 @@
-# MyDesk Canvas Workflow Redesign
+# MindDesk Canvas Workflow Redesign
 
 ## Goal
 

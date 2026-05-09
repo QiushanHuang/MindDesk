@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - codex/**
+
+jobs:
+  test:
+    name: Swift tests and release script checks
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      - name: Run Swift tests
+        run: swift test --scratch-path /tmp/minddesk-ci-tests
+
+      - name: Validate shell scripts and entitlements
+        run: |
+          bash -n script/build_and_run.sh
+          bash -n script/package_release.sh
+          plutil -lint script/release.entitlements
+          ./script/package_release.sh --help >/tmp/minddesk-package-help.txt
+
+      - name: Verify release guardrails
+        run: |
+          set +e
+          ./script/package_release.sh >/tmp/minddesk-package-default.out 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Expected notarized packaging without credentials to fail closed." >&2
+            cat /tmp/minddesk-package-default.out >&2
+            exit 1
+          fi
+          grep -qi "notarized release requires --identity" /tmp/minddesk-package-default.out
+
+          set +e
+          ./script/package_release.sh --mode adhoc >/tmp/minddesk-package-adhoc.out 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Expected ad-hoc packaging without explicit opt-in to fail." >&2
+            cat /tmp/minddesk-package-adhoc.out >&2
+            exit 1
+          fi
+          grep -qi "ad-hoc packages are internal only" /tmp/minddesk-package-adhoc.out
+
+      - name: Check whitespace
+        run: git diff --check

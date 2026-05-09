@@ -1,10 +1,10 @@
-# MyDesk macOS Workbench Design
+# MindDesk macOS Workbench Design
 
 Date: 2026-04-28
 
 ## Purpose
 
-MyDesk is a native macOS personal workbench for managing daily desktop work contexts. It is designed as a single personal work entry point rather than separate tools for files, commands, prompts, and workflow maps.
+MindDesk is a native macOS personal workbench for managing daily desktop work contexts. It is designed as a single personal work entry point rather than separate tools for files, commands, prompts, and workflow maps.
 
 The app helps the user quickly return to a project context, open important directories, copy exact paths, create shortcuts, copy common prompts or shell commands, and organize project workflow visually through a mind-map-like canvas.
 
@@ -81,7 +81,7 @@ The canvas is a first-class MVP surface, not a later add-on.
 
 The MVP supports two shortcut types:
 
-- App-internal pin: the default shortcut model inside MyDesk.
+- App-internal pin: the default shortcut model inside MindDesk.
 - Finder alias: an explicit advanced action that creates a macOS Finder alias on the Desktop or in a user-selected destination folder through Finder Apple Events.
 
 Finder alias creation asks the user to confirm source, destination, and alias name. If the destination already contains an item with the same name, the app asks for a different name before creating the alias. If Finder Automation permission is denied, the destination is not writable, or alias creation fails, the app shows the error and does not create a local success record.
@@ -364,7 +364,7 @@ Out of scope for MVP:
 
 The app should use:
 
-- A SwiftPM-first project in the current MyDesk directory, with a project-local script that stages and launches a macOS `.app` bundle for development.
+- A SwiftPM-first project in the current MindDesk directory, with a project-local script that stages and launches a macOS `.app` bundle for development.
 - SwiftUI for main UI and scene structure.
 - NavigationSplitView for the main window.
 - AppKit-backed services for Finder, clipboard, Terminal, and alias operations.

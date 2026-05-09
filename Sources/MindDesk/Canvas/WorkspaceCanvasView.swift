@@ -1,4 +1,4 @@
-import MyDeskCore
+import MindDeskCore
 import AppKit
 import SwiftData
 import SwiftUI
@@ -26,6 +26,14 @@ private enum CanvasInteractionMode: String, CaseIterable, Identifiable {
         case .boxSelect: "selection.pin.in.out"
         }
     }
+
+    var shortcut: KeyEquivalent {
+        switch self {
+        case .select: "1"
+        case .connect: "2"
+        case .boxSelect: "3"
+        }
+    }
 }
 
 private struct CanvasEdgeSegment: Identifiable {
@@ -37,6 +45,147 @@ private struct CanvasEdgeSegment: Identifiable {
     let control: CGPoint?
     let routePoints: [CGPoint]
     let isControlPointLocked: Bool
+}
+
+private struct CanvasNodeDeletionSnapshot {
+    let id: String
+    let canvasId: String
+    let title: String
+    let body: String
+    let nodeTypeRaw: String
+    let objectType: String?
+    let objectId: String?
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    let collapsed: Bool
+    let parentNodeId: String?
+    let zIndex: Double
+    let locked: Bool
+    let styleRaw: String
+    let accentColorRaw: String
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(_ node: CanvasNodeModel) {
+        id = node.id
+        canvasId = node.canvasId
+        title = node.title
+        body = node.body
+        nodeTypeRaw = node.nodeTypeRaw
+        objectType = node.objectType
+        objectId = node.objectId
+        x = node.x
+        y = node.y
+        width = node.width
+        height = node.height
+        collapsed = node.collapsed
+        parentNodeId = node.parentNodeId
+        zIndex = node.zIndex
+        locked = node.locked
+        styleRaw = node.styleRaw
+        accentColorRaw = node.accentColorRaw
+        createdAt = node.createdAt
+        updatedAt = node.updatedAt
+    }
+
+    func makeModel() -> CanvasNodeModel {
+        CanvasNodeModel(
+            id: id,
+            canvasId: canvasId,
+            title: title,
+            body: body,
+            nodeType: CanvasNodeKind(rawValue: nodeTypeRaw) ?? .note,
+            objectType: objectType,
+            objectId: objectId,
+            x: x,
+            y: y,
+            width: width,
+            height: height,
+            collapsed: collapsed,
+            parentNodeId: parentNodeId,
+            zIndex: zIndex,
+            locked: locked,
+            styleRaw: styleRaw,
+            accentColorRaw: accentColorRaw,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct CanvasEdgeDeletionSnapshot {
+    let id: String
+    let canvasId: String
+    let sourceNodeId: String
+    let targetNodeId: String
+    let label: String
+    let style: String
+    let sourceArrowRaw: String
+    let targetArrowRaw: String
+    let animated: Bool
+    let animationThemeRaw: String
+    let controlPointX: Double?
+    let controlPointY: Double?
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(_ edge: CanvasEdgeModel) {
+        id = edge.id
+        canvasId = edge.canvasId
+        sourceNodeId = edge.sourceNodeId
+        targetNodeId = edge.targetNodeId
+        label = edge.label
+        style = edge.style
+        sourceArrowRaw = edge.sourceArrowRaw
+        targetArrowRaw = edge.targetArrowRaw
+        animated = edge.animated
+        animationThemeRaw = edge.animationThemeRaw
+        controlPointX = edge.controlPointX
+        controlPointY = edge.controlPointY
+        createdAt = edge.createdAt
+        updatedAt = edge.updatedAt
+    }
+
+    func makeModel() -> CanvasEdgeModel {
+        CanvasEdgeModel(
+            id: id,
+            canvasId: canvasId,
+            sourceNodeId: sourceNodeId,
+            targetNodeId: targetNodeId,
+            label: label,
+            style: style,
+            sourceArrowRaw: sourceArrowRaw,
+            targetArrowRaw: targetArrowRaw,
+            animated: animated,
+            animationThemeRaw: animationThemeRaw,
+            controlPointX: controlPointX,
+            controlPointY: controlPointY,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct CanvasChildParentSnapshot {
+    let id: String
+    let parentNodeId: String?
+
+    init(_ node: CanvasNodeModel) {
+        id = node.id
+        parentNodeId = node.parentNodeId
+    }
+}
+
+private func fetchCanvasNodeForUndo(id: String, in context: ModelContext) -> CanvasNodeModel? {
+    let nodeId = id
+    let descriptor = FetchDescriptor<CanvasNodeModel>(
+        predicate: #Predicate { node in
+            node.id == nodeId
+        }
+    )
+    return try? context.fetch(descriptor).first
 }
 
 enum CanvasGlowTheme: String, CaseIterable, Identifiable {
@@ -68,13 +217,19 @@ private enum CanvasNodeMetrics {
     static let frameHeight = 250.0
     static let frameMinWidth = 240.0
     static let frameMinHeight = 160.0
-    static let edgeTargetClearance = 0.0
-    static let edgeRoutingClearance = 26.0
+    static let edgeTargetClearance = CanvasEdgeRouteDefaults.targetClearance
+    static let edgeRoutingClearance = CanvasEdgeRouteDefaults.routingClearance
     static let zoomBaseline = CanvasZoomBaseline.standardBaseline
     static let zoomMinimum = CanvasZoomBaseline.minimumZoom
     static let zoomMaximum = CanvasZoomBaseline.maximumZoom
     static let zoomDisplayStep = 0.1
     static let interactionHitSlop = CanvasInteractionMetrics.nodeHitSlop
+    static let viewportOverscan = 240.0
+    static let denseEdgeHandleLimit = 48
+    static let scrollZoomCommitDelayNanos: UInt64 = 450_000_000
+    static let scrollZoomCommitZoomEpsilon = 0.001
+    static let scrollZoomCommitViewportEpsilon = 0.5
+    static let textEditCommitDelayNanos: UInt64 = 350_000_000
 }
 
 private struct CanvasRenderSnapshot {
@@ -112,10 +267,16 @@ private struct CanvasRenderSnapshot {
     func edgeSegments(
         targetClearance: Double,
         routingClearance: Double,
+        usesObstacleRouting: Bool = true,
         rectFor: (CanvasNodeModel) -> CanvasFrameRect,
-        controlPointFor: (CanvasEdgeModel) -> CGPoint?
+        controlPointFor: (CanvasEdgeModel) -> CGPoint?,
+        shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
     ) -> [CanvasEdgeSegment] {
         let nodeRects: [String: CanvasFrameRect] = Dictionary(uniqueKeysWithValues: workflowNodes.map { ($0.id, rectFor($0)) })
+        let obstacleRects = nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
+            guard nodeById[id]?.nodeType != .groupFrame else { return nil }
+            return (id: id, rect: rect)
+        }
         return visibleEdges.compactMap { edge -> CanvasEdgeSegment? in
             guard let source = nodeById[edge.sourceNodeId],
                   let target = nodeById[edge.targetNodeId],
@@ -124,6 +285,9 @@ private struct CanvasRenderSnapshot {
                 return nil
             }
             let control = controlPointFor(edge)
+            if let shouldIncludeEdge, !shouldIncludeEdge(edge, sourceRect, targetRect, control) {
+                return nil
+            }
             let controlPoint = control.map { CanvasEdgePoint(x: $0.x, y: $0.y) }
             let anchors = CanvasEdgeAnchoring.anchors(
                 source: sourceRect,
@@ -131,28 +295,35 @@ private struct CanvasRenderSnapshot {
                 control: controlPoint,
                 targetClearance: targetClearance
             )
-            let obstacleRects = nodeRects
-                .filter { $0.key != source.id && $0.key != target.id }
-                .map(\.value)
-            let routePoints: [CanvasEdgePoint] = if let controlPoint {
-                CanvasEdgeRoutePlanner.routePoints(
-                    start: anchors.start,
-                    end: anchors.end,
-                    waypoints: [controlPoint],
-                    startDirection: anchors.startDirection,
-                    endDirection: anchors.endDirection,
-                    obstacles: obstacleRects,
-                    clearance: routingClearance
-                )
+            let routePoints: [CanvasEdgePoint]
+            if usesObstacleRouting {
+                let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
+                    obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
+                }
+                if let controlPoint {
+                    routePoints = CanvasEdgeRoutePlanner.routePoints(
+                        start: anchors.start,
+                        end: anchors.end,
+                        waypoints: [controlPoint],
+                        startDirection: anchors.startDirection,
+                        endDirection: anchors.endDirection,
+                        obstacles: edgeObstacleRects,
+                        clearance: routingClearance
+                    )
+                } else {
+                    routePoints = CanvasEdgeRoutePlanner.routePoints(
+                        start: anchors.start,
+                        end: anchors.end,
+                        startDirection: anchors.startDirection,
+                        endDirection: anchors.endDirection,
+                        obstacles: edgeObstacleRects,
+                        clearance: routingClearance
+                    )
+                }
+            } else if let controlPoint {
+                routePoints = [controlPoint]
             } else {
-                CanvasEdgeRoutePlanner.routePoints(
-                    start: anchors.start,
-                    end: anchors.end,
-                    startDirection: anchors.startDirection,
-                    endDirection: anchors.endDirection,
-                    obstacles: obstacleRects,
-                    clearance: routingClearance
-                )
+                routePoints = []
             }
             return CanvasEdgeSegment(
                 id: edge.id,
@@ -174,6 +345,18 @@ private struct CanvasNodeDragSnapshot {
     let rect: CanvasFrameRect
 }
 
+private struct CanvasNodeDragStart {
+    let x: Double
+    let y: Double
+    let parentNodeId: String?
+}
+
+private struct CanvasEdgeControlPointSnapshot {
+    let id: String
+    let x: Double
+    let y: Double
+}
+
 private struct WorkspaceResourceMenuGroup {
     let workspaceId: String
     let title: String
@@ -188,6 +371,7 @@ struct WorkspaceCanvasView: View {
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var todoPanelDefaultOpen = true
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var todoDoneColumnDefaultOpen = false
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen) private var isTodoDoneColumnOpen = false
+    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = true
     let canvas: CanvasModel
     let resources: [ResourcePinModel]
     let allResources: [ResourcePinModel]
@@ -199,15 +383,18 @@ struct WorkspaceCanvasView: View {
     let edges: [CanvasEdgeModel]
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
+    let onOpenWorkspace: (String) -> Void
 
     @State private var selectedNodeIDs: Set<String> = []
+    @State private var selectedEdgeIDs: Set<String> = []
     @State private var mode: CanvasInteractionMode = .select
     @State private var connectionSourceNodeId: String?
     @State private var selectionRect: CGRect?
-    @State private var nodeDragStart: [String: CGPoint] = [:]
+    @State private var nodeDragStart: [String: CanvasNodeDragStart] = [:]
     @State private var nodeDragSnapshots: [String: CanvasNodeDragSnapshot] = [:]
     @State private var transientNodeOffsets: [String: CGSize] = [:]
     @State private var transientViewportOffset: CGSize = .zero
+    @State private var transientZoomViewportOffset: CGSize = .zero
     @State private var zoomStart: Double?
     @State private var transientZoom: Double?
     @State private var isDropTarget = false
@@ -222,6 +409,10 @@ struct WorkspaceCanvasView: View {
     @State private var edgeControlDragStart: [String: CGPoint] = [:]
     @State private var transientEdgeControlPoints: [String: CGPoint] = [:]
     @State private var frameDragControlPointEdgeIDs: Set<String> = []
+    @State private var webCardDraft = ""
+    @State private var pendingScrollZoomCommit: Task<Void, Never>?
+    @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
+    @Environment(\.undoManager) private var undoManager
 
     private var zoom: CGFloat {
         CGFloat(effectiveZoom)
@@ -241,11 +432,11 @@ struct WorkspaceCanvasView: View {
     }
 
     private var effectiveViewportX: Double {
-        canvas.viewportX + Double(transientViewportOffset.width)
+        canvas.viewportX + Double(transientViewportOffset.width) + Double(transientZoomViewportOffset.width)
     }
 
     private var effectiveViewportY: Double {
-        canvas.viewportY + Double(transientViewportOffset.height)
+        canvas.viewportY + Double(transientViewportOffset.height) + Double(transientZoomViewportOffset.height)
     }
 
     private var workflowNodes: [CanvasNodeModel] {
@@ -264,6 +455,10 @@ struct WorkspaceCanvasView: View {
         Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0) })
     }
 
+    private var workspacesById: [String: WorkspaceModel] {
+        Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+    }
+
     private var visibleEdges: [CanvasEdgeModel] {
         edges.filter { workflowNodeById[$0.sourceNodeId] != nil && workflowNodeById[$0.targetNodeId] != nil }
     }
@@ -273,12 +468,26 @@ struct WorkspaceCanvasView: View {
     }
 
     private var shouldAnimateGlow: Bool {
+        shouldAnimateGlow(edgeCount: visibleEdges.count)
+    }
+
+    private func shouldAnimateGlow(edgeCount: Int) -> Bool {
         CanvasEdgeAnimationPolicy.shouldAnimateEdge(
             theme: canvas.linkAnimationThemeRaw,
             animationsEnabled: canvas.animationsEnabled,
             reduceMotion: reduceMotion,
-            edgeCount: visibleEdges.count
+            edgeCount: edgeCount,
+            isInteracting: isCanvasInteracting
         )
+    }
+
+    private var isCanvasInteracting: Bool {
+        !nodeDragStart.isEmpty ||
+            transientViewportOffset != .zero ||
+            transientZoomViewportOffset != .zero ||
+            transientZoom != nil ||
+            resizingNodeId != nil ||
+            !edgeControlDragStart.isEmpty
     }
 
     private var renderSnapshot: CanvasRenderSnapshot {
@@ -324,6 +533,21 @@ struct WorkspaceCanvasView: View {
         }
     }
 
+    @discardableResult
+    private func saveModelChanges(failurePrefix: String, successStatus: String? = nil) -> Bool {
+        do {
+            try modelContext.save()
+            if let successStatus {
+                onStatus(successStatus)
+            }
+            return true
+        } catch {
+            modelContext.rollback()
+            onStatus("\(failurePrefix): \(error.localizedDescription)")
+            return false
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let taskPanelHeight = todoPanelHeight(for: proxy.size.height)
@@ -331,12 +555,12 @@ struct WorkspaceCanvasView: View {
             VStack(spacing: 10) {
                 HStack(spacing: 12) {
                     canvasLeftRail
-                        .frame(width: 196)
+                        .frame(width: CanvasSideRailLayout.leftRailWidth)
                     canvasSurface
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if isCanvasInspectorVisible {
                         canvasRightRail
-                            .frame(width: 244)
+                            .frame(width: CanvasSideRailLayout.rightRailWidth(availableWidth: proxy.size.width))
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -365,10 +589,41 @@ struct WorkspaceCanvasView: View {
                 isTodoPanelInitialized = true
             }
         }
-        .onChange(of: canvasDefaultZoomPercent) { _, _ in
-            setZoom(zoomBaseline)
-            onStatus("Canvas 100% baseline updated")
+            .onDisappear {
+                flushPendingScrollZoomCommit()
+                flushPendingNodeTextCommits()
+            }
+            .onChange(of: canvasDefaultZoomPercent) { _, _ in
+                setZoom(zoomBaseline)
+                onStatus("Canvas 100% baseline updated")
+            }
+            .onChange(of: edges.map(\.id)) { _, edgeIDs in
+                selectedEdgeIDs.formIntersection(Set(edgeIDs))
+            }
+            .background(canvasCommandShortcuts.frame(width: 0, height: 0).opacity(0))
+    }
+
+    private var canvasCommandShortcuts: some View {
+        Group {
+            Button("Start Link From Selected Card") {
+                startLinkCommand()
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(selectedNode == nil)
+
+            Button("Connect Selected Cards") {
+                connectSelected()
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(selectedNodeIDs.count != 2)
+
+            Button("Reverse Selected Link") {
+                reverseSelectedLink()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(selectedEdgeIDs.count != 1)
         }
+        .accessibilityHidden(true)
     }
 
     private func todoPanelHeight(for availableHeight: CGFloat) -> CGFloat {
@@ -439,19 +694,42 @@ struct WorkspaceCanvasView: View {
                         }
                         .disabled(allResources.isEmpty)
 
-                        Menu {
-                            ForEach(snippets) { snippet in
-                                Button(snippet.title) { addSnippetNode(snippet) }
-                            }
-                        } label: {
+	                        Menu {
+	                            ForEach(snippets) { snippet in
+	                                Button(snippet.title) { addSnippetNode(snippet) }
+	                            }
+	                        } label: {
                             Label("Prompt / Command", systemImage: "text.badge.plus")
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(snippets.isEmpty)
+	                        }
+	                        .disabled(snippets.isEmpty)
 
-                        Button {
-                            addNoteNode()
-                        } label: {
+	                        Menu {
+	                            ForEach(workspaces.filter { $0.id != canvas.workspaceId }) { workspace in
+	                                Button(workspace.title) { addWorkspaceNode(workspace) }
+	                            }
+	                        } label: {
+	                            Label("Workspace", systemImage: "rectangle.3.group")
+	                                .frame(maxWidth: .infinity, alignment: .leading)
+	                        }
+	                        .disabled(workspaces.filter { $0.id != canvas.workspaceId }.isEmpty)
+
+	                        HStack(spacing: 6) {
+	                            TextField("example.com", text: $webCardDraft)
+	                                .textFieldStyle(.roundedBorder)
+	                                .onSubmit(addWebNode)
+	                            Button {
+	                                addWebNode()
+	                            } label: {
+	                                Image(systemName: "globe.badge.plus")
+	                                    .frame(width: 22)
+	                            }
+	                            .help("Add web page card")
+	                        }
+
+	                        Button {
+	                            addNoteNode()
+	                        } label: {
                             Label("Note", systemImage: "note.text.badge.plus")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -476,10 +754,15 @@ struct WorkspaceCanvasView: View {
                             } label: {
                                 Label(item.title, systemImage: item.systemImage)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(mode == item ? .accentColor : nil)
-                        }
+	                            }
+	                            .buttonStyle(.bordered)
+	                            .tint(mode == item ? .accentColor : nil)
+	                            .keyboardShortcut(item.shortcut, modifiers: .command)
+	                        }
+
+                        Toggle("Single Connect", isOn: $connectSingleShot)
+                            .toggleStyle(.checkbox)
+                            .help("After creating a link, return to Select mode.")
                     }
                 }
 
@@ -513,7 +796,7 @@ struct WorkspaceCanvasView: View {
                             canvas.linkAnimationThemeRaw = theme.rawValue
                             canvas.animationsEnabled = theme != .off
                             canvas.updatedAt = .now
-                            try? modelContext.save()
+                            saveModelChanges(failurePrefix: "Could not save glow setting")
                         }
                     )) {
                         ForEach(CanvasGlowTheme.allCases) { theme in
@@ -555,104 +838,117 @@ struct WorkspaceCanvasView: View {
     }
 
     private var canvasRightRail: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            GroupBox("Selection") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(selectionSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Button { openSelectedNode() } label: {
-                        Label("Open", systemImage: "arrow.up.forward.app")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedResource == nil)
-
-                    Button { copySelectedNode() } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNode == nil)
-
-                    Button { createAliasForSelectedNode() } label: {
-                        Label("Alias", systemImage: "arrowshape.turn.up.right")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedResource == nil)
-
-                    Button(role: .destructive) { deleteSelectedNodes() } label: {
-                        Label("Delete Card", systemImage: "trash")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNodeIDs.isEmpty)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            GroupBox("Connections") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(connectionSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Button { connectSelected() } label: {
-                        Label("Connect Selected", systemImage: "link")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNodeIDs.count != 2)
-
-                    Button(role: .destructive) { deleteSelectedConnections() } label: {
-                        Label("Delete Links", systemImage: "link.badge.minus")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNodeIDs.isEmpty)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            GroupBox("Card Color") {
-                VStack(alignment: .leading, spacing: 8) {
-                    if let selectedNode {
-                        CanvasCardColorEditor(
-                            styleRaw: selectedNode.accentColorRaw,
-                            onStyleChange: { updateNodeColor(selectedNode, to: $0) }
-                        )
-                    } else {
-                        Text("Select one card to edit its color.")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                GroupBox("Selection") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(selectionSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+
+	                        Button { openSelectedNode() } label: {
+	                            Label("Open", systemImage: "arrow.up.forward.app")
+	                                .frame(maxWidth: .infinity, alignment: .leading)
+	                        }
+	                        .disabled(selectedNode == nil)
+
+                        Button { copySelectedNode() } label: {
+                            Label("Copy", systemImage: "doc.on.doc")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNode == nil)
+
+                        Button { createAliasForSelectedNode() } label: {
+                            Label("Alias", systemImage: "arrowshape.turn.up.right")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedResource == nil)
+
+                        Button(role: .destructive) { deleteSelectedNodes() } label: {
+                            Label("Delete Card", systemImage: "trash")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNodeIDs.isEmpty)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                GroupBox("Connections") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(connectionSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Button { connectSelected() } label: {
+                            Label("Connect Selected", systemImage: "link")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNodeIDs.count != 2)
+
+                        Button { startLinkCommand() } label: {
+                            Label("Start Link From Card", systemImage: "arrowshape.turn.up.right")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNode == nil)
+
+                        Button { reverseSelectedLink() } label: {
+                            Label("Reverse Selected Link", systemImage: "arrow.left.arrow.right")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedEdgeIDs.count != 1)
+
+		                        Button(role: .destructive) { deleteSelectedConnections() } label: {
+		                            Label(selectedEdgeIDs.isEmpty ? "Delete Link Between Cards" : "Delete Selected Link", systemImage: "link.badge.minus")
+		                                .frame(maxWidth: .infinity, alignment: .leading)
+	                        }
+	                        .disabled(selectedEdgeIDs.isEmpty && selectedNodeIDs.count != 2)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                GroupBox("Card Color") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let selectedNode {
+                            CanvasCardColorEditor(
+                                styleRaw: selectedNode.accentColorRaw,
+                                onStyleChange: { updateNodeColor(selectedNode, to: $0) }
+                            )
+                        } else {
+                            Text("Select one card to edit its color.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
-            }
 
-            GroupBox("Layout") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Button { alignLeft() } label: {
-                        Label("Align Left", systemImage: "align.horizontal.left")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNodeIDs.count < 2)
+                GroupBox("Layout") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button { alignLeft() } label: {
+                            Label("Align Left", systemImage: "align.horizontal.left")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNodeIDs.count < 2)
 
-                    Button { alignTop() } label: {
-                        Label("Align Top", systemImage: "align.vertical.top")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .disabled(selectedNodeIDs.count < 2)
+                        Button { alignTop() } label: {
+                            Label("Align Top", systemImage: "align.vertical.top")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .disabled(selectedNodeIDs.count < 2)
 
-                    Button { autoArrange() } label: {
-                        Label("Auto Arrange", systemImage: "square.grid.3x3")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Button { autoArrange() } label: {
+                            Label("Auto Arrange", systemImage: "square.grid.3x3")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
-
-            Spacer()
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(12)
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
@@ -660,74 +956,82 @@ struct WorkspaceCanvasView: View {
     private var canvasSurface: some View {
         GeometryReader { proxy in
             let snapshot = renderSnapshot
-            let edgeSegments = snapshot.edgeSegments(
-                targetClearance: CanvasNodeMetrics.edgeTargetClearance * Double(zoom),
-                routingClearance: CanvasNodeMetrics.edgeRoutingClearance * Double(zoom),
-                rectFor: screenRect(for:),
-                controlPointFor: screenControlPoint(for:)
+            let nodeVisibleRect = visibleScreenRect(for: proxy.size)
+            let edgeVisibleRect = edgeVisibleScreenRect(for: proxy.size)
+            let visibleFrameNodes = snapshot.frameNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
+            let visibleCardNodes = snapshot.cardNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
+            let visibleResizeNodes = visibleFrameNodes + visibleCardNodes
+            let usesObstacleRouting = CanvasPerformancePolicy.usesObstacleRouting(
+                edgeCount: snapshot.visibleEdges.count,
+                obstacleCount: snapshot.cardNodes.count,
+                isInteracting: isCanvasInteracting
             )
+            let edgeSegments = snapshot.edgeSegments(
+                targetClearance: CanvasNodeMetrics.edgeTargetClearance,
+                routingClearance: CanvasNodeMetrics.edgeRoutingClearance,
+                usesObstacleRouting: usesObstacleRouting,
+                rectFor: screenRect(for:),
+                controlPointFor: screenControlPoint(for:),
+                shouldIncludeEdge: { edge, sourceRect, targetRect, control in
+                    selectedEdgeIDs.contains(edge.id) ||
+                        isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: edgeVisibleRect)
+                }
+            )
+            .filter { isEdgeSegmentVisible($0, in: edgeVisibleRect) || selectedEdgeIDs.contains($0.id) }
+            let animateVisibleEdges = shouldAnimateGlow(edgeCount: edgeSegments.count)
             ZStack(alignment: .topLeading) {
-                canvasBackground
+                    canvasBackground
 
-                ForEach(snapshot.frameNodes) { node in
-                    CanvasFrameCard(
-                        node: node,
-                        isSelected: selectedNodeIDs.contains(node.id),
-                        isConnected: false,
-                        glowTheme: glowTheme,
-                        animateGlow: false,
-                        glowPulse: false,
-                        isConnectionSource: connectionSourceNodeId == node.id,
-                        onInfo: { performCardButtonAction(node) { inspect(node) } },
-                        onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
-                        onConnect: { performCardButtonAction(node) { connectButtonTapped(node) } },
-                        onDelete: { performCardButtonAction(node) { delete(node) } },
-                        onTitleChange: { updateNodeTitle(node, to: $0) },
-                        onNoteChange: { updateNodeBody(node, to: $0) }
-                    )
-                    .frame(width: nodeSize(for: node).width, height: nodeSize(for: node).height)
-                    .scaleEffect(zoom)
-                    .frame(width: nodeSize(for: node).width * Double(zoom), height: nodeSize(for: node).height * Double(zoom))
-                    .padding(CanvasNodeMetrics.interactionHitSlop)
-                    .contentShape(.interaction, Rectangle())
-                    .position(screenPoint(for: node))
-                    .highPriorityGesture(dragGesture(for: node))
-                    .simultaneousGesture(TapGesture(count: 1).onEnded {
-                        handleNodeTap(node)
-                    })
-                    .zIndex(0)
-                }
+                    ForEach(visibleFrameNodes) { node in
+                        CanvasFrameCard(
+                            node: node,
+                            isSelected: selectedNodeIDs.contains(node.id),
+                            isConnected: snapshot.connectedNodeIDs.contains(node.id),
+                            glowTheme: glowTheme,
+                            animateGlow: animateVisibleEdges,
+                            glowPulse: animateVisibleEdges,
+                            isConnectionSource: connectionSourceNodeId == node.id,
+                            onInfo: { performCardButtonAction(node) { inspect(node) } },
+                            onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
+                            onStartLink: { performCardButtonAction(node) { startConnection(from: node) } },
+                            onConnect: { performCardButtonAction(node) { connectButtonTapped(node) } },
+                            onDelete: { performCardButtonAction(node) { delete(node) } },
+                            onTitleChange: { updateNodeTitle(node, to: $0) },
+                            onNoteChange: { updateNodeBody(node, to: $0) }
+                        )
+                        .frame(width: nodeSize(for: node).width, height: nodeSize(for: node).height)
+                        .scaleEffect(zoom)
+                        .frame(width: nodeSize(for: node).width * Double(zoom), height: nodeSize(for: node).height * Double(zoom))
+                        .padding(CanvasNodeMetrics.interactionHitSlop)
+                        .contentShape(.interaction, Rectangle())
+                        .position(screenPoint(for: node))
+                        .highPriorityGesture(dragGesture(for: node))
+                        .simultaneousGesture(TapGesture(count: 1).onEnded {
+                            handleNodeTap(node)
+                        })
+                        .zIndex(0)
+                    }
 
-                ForEach(edgeSegments) { segment in
-                    FlowingArrowEdge(
-                        start: segment.start,
-                        end: segment.end,
-                        startDirection: segment.startDirection,
-                        endDirection: segment.endDirection,
-                        control: transientEdgeControlPoints[segment.id] ?? segment.control,
-                        routePoints: segment.routePoints,
-                        theme: glowTheme,
-                        isAnimated: shouldAnimateGlow,
-                        lineScale: zoom,
-                        canvasSize: proxy.size
-                    )
+                edgeStrokeLayer(edgeSegments, animateVisibleEdges: animateVisibleEdges, canvasSize: proxy.size)
                     .zIndex(1.2)
-                }
 
-                ForEach(snapshot.cardNodes) { node in
-                    CanvasNodeCard(
-                        node: node,
-                        resource: snapshot.resource(for: node),
-                        snippet: snapshot.snippet(for: node),
-                        isSelected: selectedNodeIDs.contains(node.id),
+	                ForEach(visibleCardNodes) { node in
+	                    CanvasNodeCard(
+	                        node: node,
+	                        resource: snapshot.resource(for: node),
+	                        snippet: snapshot.snippet(for: node),
+	                        workspace: workspace(for: node),
+	                        webURL: webURL(for: node),
+	                        isSelected: selectedNodeIDs.contains(node.id),
                         isConnectionSource: connectionSourceNodeId == node.id,
-                        isConnected: false,
+                        isConnected: snapshot.connectedNodeIDs.contains(node.id),
                         glowTheme: glowTheme,
-                        animateGlow: false,
-                        glowPulse: false,
+                        animateGlow: animateVisibleEdges,
+                        glowPulse: animateVisibleEdges,
                         onOpen: { open(node) },
                         onInfo: { performCardButtonAction(node) { inspect(node) } },
                         onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
+                        onStartLink: { performCardButtonAction(node) { startConnection(from: node) } },
                         onConnect: { performCardButtonAction(node) { connectButtonTapped(node) } },
                         onToggleNote: { performCardButtonAction(node) { toggleNote(for: node) } },
                         onDelete: { performCardButtonAction(node) { delete(node) } },
@@ -750,48 +1054,64 @@ struct WorkspaceCanvasView: View {
                     .zIndex(2)
                 }
 
-                ForEach(edgeSegments) { segment in
-                    FlowingArrowHead(
-                        start: segment.start,
-                        end: segment.end,
-                        endDirection: segment.endDirection,
-                        control: transientEdgeControlPoints[segment.id] ?? segment.control,
-                        theme: glowTheme,
-                        isAnimated: shouldAnimateGlow,
-                        arrowScale: zoom,
-                        canvasSize: proxy.size
-                    )
+                CanvasEdgeArrowHeadLayer(
+                    segments: edgeSegments,
+                    transientControlPoints: transientEdgeControlPoints,
+                    selectedEdgeIDs: selectedEdgeIDs,
+                    theme: glowTheme,
+                    isAnimated: animateVisibleEdges,
+                    arrowScale: zoom,
+                    canvasSize: proxy.size
+                )
                     .zIndex(2.7)
-                }
 
-                ForEach(snapshot.workflowNodes) { node in
+                ForEach(visibleResizeNodes) { node in
                     resizeHandle(for: node)
                         .zIndex(3.4)
                 }
 
                 ForEach(edgeSegments) { segment in
-                    EdgeControlHandle(
-                        isCustom: (transientEdgeControlPoints[segment.id] ?? segment.control) != nil,
-                        isLocked: segment.control != nil && segment.isControlPointLocked,
-                        zoom: zoom
-                    )
-                        .position(edgeControlPoint(for: segment))
-                        .highPriorityGesture(edgeControlDragGesture(for: segment))
-                        .contextMenu {
-                            if segment.control == nil {
-                                Button("Add Anchor Here") {
-                                    addEdgeControlPoint(for: segment)
+                    if shouldShowEdgeControlHandle(for: segment, edgeCount: snapshot.visibleEdges.count) {
+                        EdgeControlHandle(
+                            isCustom: (transientEdgeControlPoints[segment.id] ?? segment.control) != nil,
+                            isLocked: segment.control != nil && segment.isControlPointLocked,
+                            zoom: zoom
+                        )
+                            .position(edgeControlPoint(for: segment))
+                            .highPriorityGesture(edgeControlDragGesture(for: segment))
+                            .contextMenu {
+                                if segment.control == nil {
+                                    Button("Select Link") {
+                                        selectEdge(segment.id)
+                                    }
+                                    Button("Add Free Bend Here") {
+                                        addEdgeControlPoint(for: segment)
+                                    }
+                                } else {
+                                    Button("Select Link") {
+                                        selectEdge(segment.id)
+                                    }
+                                    Button(segment.isControlPointLocked ? "Unlock Anchor" : "Lock Anchor") {
+                                        setEdgeControlPointLocked(!segment.isControlPointLocked, for: segment)
+                                    }
+                                    Button("Delete Bend", role: .destructive) {
+                                        deleteEdgeControlPoint(for: segment)
+                                    }
                                 }
-                            } else {
-                                Button(segment.isControlPointLocked ? "Unlock Anchor" : "Lock Anchor") {
-                                    setEdgeControlPointLocked(!segment.isControlPointLocked, for: segment)
+                                Divider()
+                                Button("Reverse Link Direction") {
+                                    selectedEdgeIDs = [segment.id]
+                                    selectedNodeIDs = []
+                                    reverseSelectedLink()
                                 }
-                                Button("Delete Anchor", role: .destructive) {
-                                    deleteEdgeControlPoint(for: segment)
+                                Button("Delete Link", role: .destructive) {
+                                    selectedEdgeIDs = [segment.id]
+                                    selectedNodeIDs = []
+                                    deleteSelectedConnections()
                                 }
                             }
-                        }
-                        .zIndex(3.1)
+                            .zIndex(3.1)
+                    }
                 }
 
                 if let selectionRect {
@@ -816,7 +1136,16 @@ struct WorkspaceCanvasView: View {
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(isDropTarget ? Color.accentColor : .clear, lineWidth: 2)
             }
-            .gesture(backgroundDrag(in: proxy.size))
+	            .gesture(backgroundDrag(in: proxy.size, edgeSegments: edgeSegments))
+	            .simultaneousGesture(SpatialTapGesture().onEnded { value in
+	                guard !backgroundDragStartsOnNode(value.location) else { return }
+	                if !selectEdge(at: value.location, in: edgeSegments), mode == .select {
+	                    selectedEdgeIDs = []
+                        selectedNodeIDs = []
+                        connectionSourceNodeId = nil
+	                }
+	            })
+	            .onDeleteCommand(perform: handleDeleteCommand)
             .simultaneousGesture(MagnifyGesture().onChanged { value in
                 let start = zoomStart ?? canvas.zoom
                 if zoomStart == nil {
@@ -831,7 +1160,7 @@ struct WorkspaceCanvasView: View {
                 if let transientZoom {
                     canvas.zoom = transientZoom
                     canvas.updatedAt = .now
-                    try? modelContext.save()
+                    saveModelChanges(failurePrefix: "Could not save canvas zoom")
                 }
                 zoomStart = nil
                 transientZoom = nil
@@ -857,6 +1186,107 @@ struct WorkspaceCanvasView: View {
                     .stroke(.quaternary, lineWidth: 0.5)
             }
             .zIndex(-10)
+    }
+
+    @ViewBuilder
+    private func edgeStrokeLayer(_ segments: [CanvasEdgeSegment], animateVisibleEdges: Bool, canvasSize: CGSize) -> some View {
+        if animateVisibleEdges {
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { timeline in
+                CanvasEdgeStrokeLayer(
+                    segments: segments,
+                    transientControlPoints: transientEdgeControlPoints,
+                    selectedEdgeIDs: selectedEdgeIDs,
+                    theme: glowTheme,
+                    dashPhase: CanvasEdgeFlowPhase.dashPhase(
+                        elapsed: timeline.date.timeIntervalSinceReferenceDate,
+                        duration: 1.6,
+                        cycleLength: 172
+                    ),
+                    lineScale: zoom,
+                    canvasSize: canvasSize
+                )
+            }
+        } else {
+            CanvasEdgeStrokeLayer(
+                segments: segments,
+                transientControlPoints: transientEdgeControlPoints,
+                selectedEdgeIDs: selectedEdgeIDs,
+                theme: glowTheme,
+                dashPhase: nil,
+                lineScale: zoom,
+                canvasSize: canvasSize
+            )
+        }
+    }
+
+    private func visibleScreenRect(for size: CGSize) -> CGRect {
+        let overscan = CGFloat(nodeOverscanPixels)
+        return CGRect(origin: .zero, size: size).insetBy(
+            dx: -overscan,
+            dy: -overscan
+        )
+    }
+
+    private func edgeVisibleScreenRect(for size: CGSize) -> CGRect {
+        let overscan = CGFloat(nodeOverscanPixels + CanvasNodeMetrics.viewportOverscan)
+        return CGRect(origin: .zero, size: size).insetBy(
+            dx: -overscan,
+            dy: -overscan
+        )
+    }
+
+    private var nodeOverscanPixels: Double {
+        min(640, max(220, 320 * sqrt(effectiveZoom / 0.35)))
+    }
+
+    private func isNodeVisible(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
+        let rect = screenRect(for: node)
+        let nodeRect = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
+            .insetBy(dx: -CanvasNodeMetrics.interactionHitSlop, dy: -CanvasNodeMetrics.interactionHitSlop)
+        return visibleRect.intersects(nodeRect)
+    }
+
+    private func isEdgeSegmentVisible(_ segment: CanvasEdgeSegment, in visibleRect: CGRect) -> Bool {
+        let points = [segment.start] + segment.routePoints + (segment.control.map { [$0] } ?? []) + [segment.end]
+        guard let first = points.first else { return false }
+        let bounds = points.reduce(CGRect(origin: first, size: .zero)) { partial, point in
+            partial.union(CGRect(origin: point, size: .zero))
+        }
+        return visibleRect.intersects(
+            bounds.insetBy(dx: -CanvasNodeMetrics.interactionHitSlop, dy: -CanvasNodeMetrics.interactionHitSlop)
+        )
+    }
+
+    private func isPotentialEdgeVisible(sourceRect: CanvasFrameRect, targetRect: CanvasFrameRect, control: CGPoint?, in visibleRect: CGRect) -> Bool {
+        let sourceBounds = CGRect(x: sourceRect.x, y: sourceRect.y, width: sourceRect.width, height: sourceRect.height)
+        let targetBounds = CGRect(x: targetRect.x, y: targetRect.y, width: targetRect.width, height: targetRect.height)
+        var bounds = sourceBounds.union(targetBounds)
+        if let control {
+            bounds = bounds.union(CGRect(origin: control, size: .zero))
+        }
+        let routingOverscan = CGFloat(max(CanvasNodeMetrics.viewportOverscan * 2, 900))
+        return visibleRect.intersects(bounds.insetBy(dx: -routingOverscan, dy: -routingOverscan))
+    }
+
+    private func shouldShowEdgeControlHandle(for segment: CanvasEdgeSegment, edgeCount: Int) -> Bool {
+        if selectedEdgeIDs.contains(segment.id) || transientEdgeControlPoints[segment.id] != nil {
+            return true
+        }
+        if isCanvasInteracting {
+            return false
+        }
+        if segment.control != nil || segment.isControlPointLocked {
+            return true
+        }
+        return edgeCount <= 24 && effectiveZoom >= 0.30
+    }
+
+    private func shouldRenderNode(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
+        isNodeVisible(node, in: visibleRect) ||
+            selectedNodeIDs.contains(node.id) ||
+            nodeDragStart[node.id] != nil ||
+            transientNodeOffsets[node.id] != nil ||
+            connectionSourceNodeId == node.id
     }
 
     private func screenPoint(for node: CanvasNodeModel) -> CGPoint {
@@ -906,8 +1336,8 @@ struct WorkspaceCanvasView: View {
             width: size.width,
             height: size.height,
             zoom: effectiveZoom,
-            viewportX: canvas.viewportX,
-            viewportY: canvas.viewportY
+            viewportX: effectiveViewportX,
+            viewportY: effectiveViewportY
         )
     }
 
@@ -1042,27 +1472,14 @@ struct WorkspaceCanvasView: View {
                     return
                 }
                 let start = edgeControlDragStart[segment.id] ?? edgeControlPoint(for: segment)
-                let screenPoint = CGPoint(
-                    x: start.x + value.translation.width,
-                    y: start.y + value.translation.height
-                )
-                let canvasPoint = CanvasViewportProjection.canvasPoint(
-                    screenX: Double(screenPoint.x),
-                    screenY: Double(screenPoint.y),
-                    zoom: effectiveZoom,
-                    viewportX: effectiveViewportX,
-                    viewportY: effectiveViewportY
-                )
-                if let edge = visibleEdges.first(where: { $0.id == segment.id }) {
-                    edge.controlPointX = canvasPoint.x
-                    edge.controlPointY = canvasPoint.y
-                    edge.updatedAt = .now
-                    try? modelContext.save()
-                    onStatus("Adjusted link bend")
-                }
-                transientEdgeControlPoints[segment.id] = nil
-                edgeControlDragStart[segment.id] = nil
-            }
+	                let screenPoint = CGPoint(
+	                    x: start.x + value.translation.width,
+	                    y: start.y + value.translation.height
+	                )
+	                saveEdgeControlPoint(screenPoint, for: segment, status: "Adjusted link bend")
+	                transientEdgeControlPoints[segment.id] = nil
+	                edgeControlDragStart[segment.id] = nil
+	            }
     }
 
     private func addEdgeControlPoint(for segment: CanvasEdgeSegment) {
@@ -1071,11 +1488,27 @@ struct WorkspaceCanvasView: View {
 
     private func deleteEdgeControlPoint(for segment: CanvasEdgeSegment) {
         guard let edge = visibleEdges.first(where: { $0.id == segment.id }) else { return }
+        let oldX = edge.controlPointX
+        let oldY = edge.controlPointY
+        let oldStyle = edge.style
         edge.controlPointX = nil
         edge.controlPointY = nil
         edge.style = CanvasEdgeStyleOptions.style(edge.style, controlPointLocked: false)
         edge.updatedAt = .now
-        try? modelContext.save()
+        guard saveModelChanges(failurePrefix: "Could not delete link bend") else { return }
+        undoManager?.registerUndo(withTarget: edge) { edge in
+            edge.controlPointX = oldX
+            edge.controlPointY = oldY
+            edge.style = oldStyle
+            edge.updatedAt = .now
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+                onStatus("Could not undo link bend deletion: \(error.localizedDescription)")
+            }
+        }
+        undoManager?.setActionName("Delete Link Bend")
         transientEdgeControlPoints[segment.id] = nil
         edgeControlDragStart[segment.id] = nil
         onStatus("Deleted link anchor")
@@ -1097,8 +1530,10 @@ struct WorkspaceCanvasView: View {
         }
         edge.style = CanvasEdgeStyleOptions.style(edge.style, controlPointLocked: locked)
         edge.updatedAt = .now
-        try? modelContext.save()
-        onStatus(locked ? "Locked link anchor" : "Unlocked link anchor")
+        saveModelChanges(
+            failurePrefix: "Could not save link anchor",
+            successStatus: locked ? "Locked link anchor" : "Unlocked link anchor"
+        )
     }
 
     private func saveEdgeControlPoint(_ screenPoint: CGPoint, for segment: CanvasEdgeSegment, status: String) {
@@ -1110,15 +1545,32 @@ struct WorkspaceCanvasView: View {
             viewportY: effectiveViewportY
         )
         if let edge = visibleEdges.first(where: { $0.id == segment.id }) {
+            let oldX = edge.controlPointX
+            let oldY = edge.controlPointY
             edge.controlPointX = canvasPoint.x
             edge.controlPointY = canvasPoint.y
             edge.updatedAt = .now
-            try? modelContext.save()
+            guard saveModelChanges(failurePrefix: "Could not save link bend") else { return }
+            undoManager?.registerUndo(withTarget: edge) { edge in
+                edge.controlPointX = oldX
+                edge.controlPointY = oldY
+                edge.updatedAt = .now
+                do {
+                    try modelContext.save()
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                }
+            }
+            undoManager?.setActionName("Move Link Bend")
             onStatus(status)
         }
     }
 
     private var selectionSummary: String {
+        if !selectedEdgeIDs.isEmpty {
+            return selectedEdgeIDs.count == 1 ? "1 link selected" : "\(selectedEdgeIDs.count) links selected"
+        }
         if selectedNodeIDs.isEmpty {
             return "Select a card to open, copy, alias, or delete it."
         }
@@ -1129,13 +1581,19 @@ struct WorkspaceCanvasView: View {
     }
 
     private var connectionSummary: String {
+        if !selectedEdgeIDs.isEmpty {
+            return "Delete removes only the selected link. Drag the blue handle to add or move a free bend."
+        }
         if mode == .connect {
             if let source = connectionSourceNode {
                 return "Connect mode: click the target card for \(source.title)."
             }
             return "Connect mode: click the first card, then the target card."
         }
-        return "Use Connect mode or select two cards."
+        if selectedNodeIDs.count == 2 {
+            return "Connect or delete the single link between these two cards."
+        }
+        return "Use Connect mode, select two cards, or click a line."
     }
 
     private var selectedNode: CanvasNodeModel? {
@@ -1158,6 +1616,16 @@ struct WorkspaceCanvasView: View {
         return snippetsById[objectId]
     }
 
+    private var selectedWorkspace: WorkspaceModel? {
+        guard let node = selectedNode else { return nil }
+        return workspace(for: node)
+    }
+
+    private var selectedWebURL: URL? {
+        guard let node = selectedNode else { return nil }
+        return webURL(for: node)
+    }
+
     private func resource(for node: CanvasNodeModel) -> ResourcePinModel? {
         guard node.objectType == "resourcePin", let objectId = node.objectId else { return nil }
         return resourcesById[objectId]
@@ -1166,6 +1634,16 @@ struct WorkspaceCanvasView: View {
     private func snippet(for node: CanvasNodeModel) -> SnippetModel? {
         guard node.objectType == "snippet", let objectId = node.objectId else { return nil }
         return snippetsById[objectId]
+    }
+
+    private func workspace(for node: CanvasNodeModel) -> WorkspaceModel? {
+        guard node.objectType == "workspace", let objectId = node.objectId else { return nil }
+        return workspacesById[objectId]
+    }
+
+    private func webURL(for node: CanvasNodeModel) -> URL? {
+        guard node.objectType == "webURL" else { return nil }
+        return WebCardURL.normalized(node.objectId ?? node.body)
     }
 
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
@@ -1198,11 +1676,21 @@ struct WorkspaceCanvasView: View {
         nodeDragSnapshots = Dictionary(allSnapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         nodeDragStart = Dictionary(
             draggedNodes(for: node).map { draggedNode in
-                (draggedNode.id, CGPoint(x: CGFloat(draggedNode.x), y: CGFloat(draggedNode.y)))
+                (
+                    draggedNode.id,
+                    CanvasNodeDragStart(
+                        x: draggedNode.x,
+                        y: draggedNode.y,
+                        parentNodeId: draggedNode.parentNodeId
+                    )
+                )
             },
             uniquingKeysWith: { first, _ in first }
         )
-        selectedNodeIDs = [node.id]
+        if !selectedNodeIDs.contains(node.id) || selectedNodeIDs.count <= 1 {
+            selectedNodeIDs = [node.id]
+        }
+        selectedEdgeIDs = []
     }
 
     private func nodeDragSnapshot(for node: CanvasNodeModel) -> CanvasNodeDragSnapshot {
@@ -1244,12 +1732,13 @@ struct WorkspaceCanvasView: View {
         let movedFrameOriginalRects = snapshots.values
             .filter { movedIDs.contains($0.id) && $0.nodeType == .groupFrame }
             .map(\.rect)
+        let movedControlPointStarts = edgeControlPointSnapshots(in: movedFrameOriginalRects)
         let now = Date.now
 
         for (id, start) in dragStart {
             guard let movedNode = liveNodesById[id] else { continue }
-            movedNode.x = Double(start.x) + deltaX
-            movedNode.y = Double(start.y) + deltaY
+            movedNode.x = start.x + deltaX
+            movedNode.y = start.y + deltaY
             movedNode.updatedAt = now
         }
 
@@ -1270,9 +1759,61 @@ struct WorkspaceCanvasView: View {
 
         do {
             try modelContext.save()
+            registerNodePositionUndo(dragStart, edgeControlPointSnapshots: movedControlPointStarts)
         } catch {
             modelContext.rollback()
             onStatus("Could not save canvas move: \(error.localizedDescription)")
+        }
+    }
+
+    private func registerNodePositionUndo(
+        _ dragStart: [String: CanvasNodeDragStart],
+        edgeControlPointSnapshots: [CanvasEdgeControlPointSnapshot]
+    ) {
+        for (id, start) in dragStart {
+            guard let node = workflowNodeById[id] else { continue }
+            undoManager?.registerUndo(withTarget: node) { node in
+                node.x = start.x
+                node.y = start.y
+                node.parentNodeId = start.parentNodeId
+                node.updatedAt = .now
+                do {
+                    try modelContext.save()
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Could not undo card move: \(error.localizedDescription)")
+                }
+            }
+        }
+        for snapshot in edgeControlPointSnapshots {
+            guard let edge = visibleEdges.first(where: { $0.id == snapshot.id }) else { continue }
+            undoManager?.registerUndo(withTarget: edge) { edge in
+                edge.controlPointX = snapshot.x
+                edge.controlPointY = snapshot.y
+                edge.updatedAt = .now
+                do {
+                    try modelContext.save()
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                }
+            }
+        }
+        undoManager?.setActionName(dragStart.count == 1 ? "Move Card" : "Move Cards")
+    }
+
+    private func edgeControlPointSnapshots(in frames: [CanvasFrameRect]) -> [CanvasEdgeControlPointSnapshot] {
+        guard !frames.isEmpty else { return [] }
+        return visibleEdges.compactMap { edge in
+            guard let x = edge.controlPointX,
+                  let y = edge.controlPointY else {
+                return nil
+            }
+            let point = CanvasFramePosition(id: edge.id, x: x, y: y)
+            guard frames.contains(where: { CanvasFrameGeometry.contains(point, in: $0) }) else {
+                return nil
+            }
+            return CanvasEdgeControlPointSnapshot(id: edge.id, x: x, y: y)
         }
     }
 
@@ -1354,7 +1895,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func draggedNodes(for node: CanvasNodeModel) -> [CanvasNodeModel] {
-        guard node.nodeType == .groupFrame else { return [node] }
+        guard node.nodeType == .groupFrame else {
+            guard selectedNodeIDs.contains(node.id), selectedNodeIDs.count > 1 else {
+                return [node]
+            }
+            return workflowNodes.filter { selectedNodeIDs.contains($0.id) }
+        }
 
         let cards = renderSnapshot.cardNodes
         let candidates = cards.map(frameRect(for:))
@@ -1396,6 +1942,8 @@ struct WorkspaceCanvasView: View {
         )
 
         if commit {
+            let oldWidth = node.width
+            let oldHeight = node.height
             node.width = resized.width
             node.height = resized.height
             node.updatedAt = .now
@@ -1403,8 +1951,21 @@ struct WorkspaceCanvasView: View {
             resizeStartSizes[node.id] = nil
             resizingNodeId = nil
             selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
             do {
                 try modelContext.save()
+                undoManager?.registerUndo(withTarget: node) { node in
+                    node.width = oldWidth
+                    node.height = oldHeight
+                    node.updatedAt = .now
+                    do {
+                        try modelContext.save()
+                    } catch {
+                        modelContext.rollback()
+                        onStatus("Could not undo card resize: \(error.localizedDescription)")
+                    }
+                }
+                undoManager?.setActionName("Resize Card")
                 onStatus(node.nodeType == .groupFrame ? "Resized organization frame" : "Resized card")
             } catch {
                 modelContext.rollback()
@@ -1426,7 +1987,7 @@ struct WorkspaceCanvasView: View {
         }
     }
 
-    private func backgroundDrag(in size: CGSize) -> some Gesture {
+    private func backgroundDrag(in size: CGSize, edgeSegments: [CanvasEdgeSegment]) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
                 guard !backgroundDragStartsOnNode(value.startLocation) else {
@@ -1453,13 +2014,16 @@ struct WorkspaceCanvasView: View {
                 }
                 if let rect = selectionRect {
                     selectedNodeIDs = Set(workflowNodes.filter { rect.contains(screenPoint(for: $0)) }.map(\.id))
+                    selectedEdgeIDs = []
                     selectionRect = nil
                     onStatus("Selected \(selectedNodeIDs.count) cards")
                 } else if transientViewportOffset != .zero {
                     canvas.viewportX += Double(transientViewportOffset.width)
                     canvas.viewportY += Double(transientViewportOffset.height)
                     canvas.updatedAt = .now
-                    try? modelContext.save()
+                    saveModelChanges(failurePrefix: "Could not save canvas position")
+                } else if selectEdge(at: value.location, in: edgeSegments) {
+                    transientViewportOffset = .zero
                 }
                 transientViewportOffset = .zero
             }
@@ -1472,6 +2036,7 @@ struct WorkspaceCanvasView: View {
         }
         switch mode {
         case .connect:
+            selectedEdgeIDs = []
             connectByTap(node)
         case .select, .boxSelect:
             if selectedNodeIDs.contains(node.id), selectedNodeIDs.count > 1 {
@@ -1479,11 +2044,13 @@ struct WorkspaceCanvasView: View {
             } else {
                 selectedNodeIDs = [node.id]
             }
+            selectedEdgeIDs = []
             connectionSourceNodeId = nil
         }
     }
 
     private func connectByTap(_ node: CanvasNodeModel) {
+        selectedEdgeIDs = []
         if let sourceId = connectionSourceNodeId {
             if sourceId == node.id {
                 connectionSourceNodeId = nil
@@ -1491,25 +2058,51 @@ struct WorkspaceCanvasView: View {
                 onStatus("Connection source cleared")
                 return
             }
-            createEdge(from: sourceId, to: node.id)
-            selectedNodeIDs = [sourceId, node.id]
-            connectionSourceNodeId = nil
+            if createEdge(from: sourceId, to: node.id) {
+                selectedNodeIDs = [sourceId, node.id]
+                applyConnectionCompletion(targetNodeId: node.id)
+            }
             return
         }
 
-        connectionSourceNodeId = node.id
-        selectedNodeIDs = [node.id]
+        startConnection(from: node)
+    }
+
+    private func startConnection(from node: CanvasNodeModel) {
+        let command = CanvasConnectSourcePolicy.start(from: node.id)
+        connectionSourceNodeId = command.nextSourceNodeId
+        selectedNodeIDs = command.selectedNodeIDs
+        selectedEdgeIDs = []
+        if command.entersConnectMode {
+            mode = .connect
+        }
         onStatus("Choose a target card to connect from \(node.title)")
     }
 
+    private func startLinkCommand() {
+        guard let node = selectedNode else { return }
+        selectedEdgeIDs = []
+        if let sourceId = connectionSourceNodeId, sourceId != node.id {
+            if createEdge(from: sourceId, to: node.id) {
+                selectedNodeIDs = [sourceId, node.id]
+                applyConnectionCompletion(targetNodeId: node.id)
+            }
+        } else {
+            startConnection(from: node)
+        }
+    }
+
     private func setZoom(_ value: Double) {
+        flushPendingScrollZoomCommit()
+        transientZoom = nil
+        transientZoomViewportOffset = .zero
         canvas.zoom = CanvasZoomScale.clamped(
             value,
             minimum: CanvasNodeMetrics.zoomMinimum,
             maximum: CanvasNodeMetrics.zoomMaximum
         )
         canvas.updatedAt = .now
-        try? modelContext.save()
+        saveModelChanges(failurePrefix: "Could not save canvas zoom")
     }
 
     private func zoomFromScroll(deltaY: Double, location: CGPoint) {
@@ -1538,11 +2131,52 @@ struct WorkspaceCanvasView: View {
             zoom: newZoom
         )
 
-        canvas.zoom = newZoom
-        canvas.viewportX = viewport.x
-        canvas.viewportY = viewport.y
+        transientZoom = newZoom
+        transientZoomViewportOffset = CGSize(
+            width: viewport.x - canvas.viewportX,
+            height: viewport.y - canvas.viewportY
+        )
+        scheduleScrollZoomCommit()
+    }
+
+    private func scheduleScrollZoomCommit() {
+        pendingScrollZoomCommit?.cancel()
+        pendingScrollZoomCommit = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: CanvasNodeMetrics.scrollZoomCommitDelayNanos)
+            guard !Task.isCancelled else { return }
+            commitScrollZoom()
+        }
+    }
+
+    private func flushPendingScrollZoomCommit() {
+        pendingScrollZoomCommit?.cancel()
+        pendingScrollZoomCommit = nil
+        commitScrollZoom()
+    }
+
+    private func commitScrollZoom() {
+        guard let transientZoom else { return }
+        let viewportX = canvas.viewportX + Double(transientZoomViewportOffset.width)
+        let viewportY = canvas.viewportY + Double(transientZoomViewportOffset.height)
+        let shouldPersist =
+            abs(transientZoom - canvas.zoom) >= CanvasNodeMetrics.scrollZoomCommitZoomEpsilon ||
+            abs(viewportX - canvas.viewportX) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon ||
+            abs(viewportY - canvas.viewportY) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon
+        guard shouldPersist else {
+            self.transientZoom = nil
+            transientZoomViewportOffset = .zero
+            pendingScrollZoomCommit = nil
+            return
+        }
+        canvas.zoom = transientZoom
+        canvas.viewportX = viewportX
+        canvas.viewportY = viewportY
         canvas.updatedAt = .now
-        try? modelContext.save()
+        if saveModelChanges(failurePrefix: "Could not save canvas zoom") {
+            self.transientZoom = nil
+            transientZoomViewportOffset = .zero
+        }
+        pendingScrollZoomCommit = nil
     }
 
     private func openSelectedNode() {
@@ -1556,12 +2190,25 @@ struct WorkspaceCanvasView: View {
     }
 
     private func open(_ node: CanvasNodeModel) {
+        selectedEdgeIDs = []
+        if let workspace = workspace(for: node) {
+            selectedNodeIDs = [node.id]
+            onOpenWorkspace(workspace.id)
+            onStatus("Opened workspace: \(workspace.title)")
+            return
+        }
+        if let url = webURL(for: node) {
+            NSWorkspace.shared.open(url)
+            selectedNodeIDs = [node.id]
+            onStatus("Opened web page: \(url.absoluteString)")
+            return
+        }
         guard let resource = resource(for: node) else {
             if let snippet = snippet(for: node) {
                 ClipboardService().copy(snippet.body)
                 snippet.lastCopiedAt = .now
                 snippet.updatedAt = .now
-                try? modelContext.save()
+                saveModelChanges(failurePrefix: "Could not update snippet copy time")
                 selectedNodeIDs = [node.id]
                 onStatus("Copied snippet: \(snippet.title)")
                 return
@@ -1571,8 +2218,12 @@ struct WorkspaceCanvasView: View {
             return
         }
         let bookmarkService = BookmarkService()
-        let resolved = bookmarkService.resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
         do {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
             try bookmarkService.access(resolved.url) {
                 switch ResourceFinderRouting.doubleClickAction(forTargetType: resource.targetTypeRaw) {
                 case .open:
@@ -1582,20 +2233,23 @@ struct WorkspaceCanvasView: View {
                 }
             }
             resource.lastOpenedAt = .now
-            resource.status = resolved.stale ? .staleAuthorization : .available
+            resource.status = .available
             resource.updatedAt = .now
             try modelContext.save()
             onStatus("Opened \(resource.displayName) in Finder")
             selectedNodeIDs = [node.id]
         } catch {
+            let actionError = error
             resource.status = .unavailable
-            try? modelContext.save()
-            onStatus(error.localizedDescription)
+            if saveModelChanges(failurePrefix: "Could not update resource status") {
+                onStatus(actionError.localizedDescription)
+            }
         }
     }
 
     private func inspect(_ node: CanvasNodeModel) {
         selectedNodeIDs = [node.id]
+        selectedEdgeIDs = []
         if let resource = resource(for: node) {
             onInspect(.resource(resource.id))
             onStatus("Showing info for \(resource.displayName)")
@@ -1609,18 +2263,26 @@ struct WorkspaceCanvasView: View {
     }
 
     private func copyNodePayload(_ node: CanvasNodeModel) {
+        selectedEdgeIDs = []
         if let resource = resource(for: node) {
-            let resolved = BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
-            ClipboardService().copy(resolved.url.path)
+            ClipboardService().copy(resource.displayPath)
             selectedNodeIDs = [node.id]
-            onStatus("Copied path: \(resolved.url.path)")
+            onStatus("Copied path: \(resource.displayPath)")
         } else if let snippet = snippet(for: node) {
             ClipboardService().copy(snippet.body)
             snippet.lastCopiedAt = .now
             snippet.updatedAt = .now
-            try? modelContext.save()
+            saveModelChanges(failurePrefix: "Could not update snippet copy time")
             selectedNodeIDs = [node.id]
             onStatus("Copied snippet: \(snippet.title)")
+        } else if let workspace = workspace(for: node) {
+            ClipboardService().copy(workspace.title)
+            selectedNodeIDs = [node.id]
+            onStatus("Copied workspace title: \(workspace.title)")
+        } else if let url = webURL(for: node) {
+            ClipboardService().copy(url.absoluteString)
+            selectedNodeIDs = [node.id]
+            onStatus("Copied URL: \(url.absoluteString)")
         } else {
             ClipboardService().copy(node.body.isEmpty ? node.title : node.body)
             selectedNodeIDs = [node.id]
@@ -1629,6 +2291,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func connectButtonTapped(_ node: CanvasNodeModel) {
+        selectedEdgeIDs = []
         if connectionSourceNodeId == node.id {
             connectionSourceNodeId = nil
             selectedNodeIDs = [node.id]
@@ -1637,13 +2300,12 @@ struct WorkspaceCanvasView: View {
         }
 
         if let sourceId = connectionSourceNodeId {
-            createEdge(from: sourceId, to: node.id)
-            selectedNodeIDs = [sourceId, node.id]
-            connectionSourceNodeId = nil
+            if createEdge(from: sourceId, to: node.id) {
+                selectedNodeIDs = [sourceId, node.id]
+                applyConnectionCompletion(targetNodeId: node.id)
+            }
         } else {
-            connectionSourceNodeId = node.id
-            selectedNodeIDs = [node.id]
-            onStatus("Choose a target card for \(node.title)")
+            startConnection(from: node)
         }
     }
 
@@ -1662,14 +2324,33 @@ struct WorkspaceCanvasView: View {
         guard node.title != title else { return }
         node.title = title
         node.updatedAt = .now
-        try? modelContext.save()
+        scheduleNodeTextCommit(for: node.id)
     }
 
     private func updateNodeBody(_ node: CanvasNodeModel, to body: String) {
         guard node.body != body else { return }
         node.body = body
         node.updatedAt = .now
-        try? modelContext.save()
+        scheduleNodeTextCommit(for: node.id)
+    }
+
+    private func scheduleNodeTextCommit(for nodeId: String) {
+        pendingNodeTextCommitTasks[nodeId]?.cancel()
+        pendingNodeTextCommitTasks[nodeId] = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: CanvasNodeMetrics.textEditCommitDelayNanos)
+            guard !Task.isCancelled else { return }
+            pendingNodeTextCommitTasks[nodeId] = nil
+            saveModelChanges(failurePrefix: "Could not save card text")
+        }
+    }
+
+    private func flushPendingNodeTextCommits() {
+        guard !pendingNodeTextCommitTasks.isEmpty else { return }
+        for task in pendingNodeTextCommitTasks.values {
+            task.cancel()
+        }
+        pendingNodeTextCommitTasks.removeAll()
+        saveModelChanges(failurePrefix: "Could not save card text")
     }
 
     private func updateNodeColor(_ node: CanvasNodeModel, to rawValue: String) {
@@ -1677,19 +2358,25 @@ struct WorkspaceCanvasView: View {
         guard node.accentColorRaw != normalized else { return }
         node.accentColorRaw = normalized
         node.updatedAt = .now
-        try? modelContext.save()
-        onStatus(normalized.isEmpty ? "Reset card color" : "Updated card color")
+        saveModelChanges(
+            failurePrefix: "Could not save card color",
+            successStatus: normalized.isEmpty ? "Reset card color" : "Updated card color"
+        )
     }
 
     private func createAliasForSelectedNode() {
         guard let resource = selectedResource else { return }
-        let resolved = BookmarkService().resolveBookmark(resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath)
         guard let requestedAliasURL = FileDialogs.saveAlias(defaultName: "\(resource.title) alias") else { return }
         let destination = requestedAliasURL.deletingLastPathComponent()
         let name = requestedAliasURL.lastPathComponent
         let bookmarkService = BookmarkService()
 
         do {
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
             let aliasURL = try bookmarkService.access(resolved.url) {
                 try bookmarkService.access(destination) {
                     try AliasService().createAlias(source: resolved.url, destinationDirectory: destination, name: name)
@@ -1706,10 +2393,12 @@ struct WorkspaceCanvasView: View {
             try modelContext.save()
             onStatus("Created Finder alias: \(aliasURL.path)")
         } catch {
+            let aliasError = error
             let failed = FinderAliasRecordModel(sourceObjectType: "resourcePin", sourceObjectId: resource.id, aliasDisplayPath: requestedAliasURL.path, status: .failed)
             modelContext.insert(failed)
-            try? modelContext.save()
-            onStatus(error.localizedDescription)
+            if saveModelChanges(failurePrefix: "Could not save failed alias record") {
+                onStatus(aliasError.localizedDescription)
+            }
         }
     }
 
@@ -1717,36 +2406,93 @@ struct WorkspaceCanvasView: View {
         let point = nextNodePosition()
         let node = CanvasNodeModel(canvasId: canvas.id, title: resource.effectiveName, body: resource.note, nodeType: .resource, objectType: "resourcePin", objectId: resource.id, x: point.x, y: point.y, width: CanvasNodeMetrics.cardWidth, height: CanvasNodeMetrics.cardHeight, collapsed: true)
         modelContext.insert(node)
-        try? modelContext.save()
-        selectedNodeIDs = [node.id]
-        onStatus("Added resource node")
+        if saveModelChanges(failurePrefix: "Could not add resource node", successStatus: "Added resource node") {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
     }
 
     private func addSnippetNode(_ snippet: SnippetModel) {
         let point = nextNodePosition()
         let node = CanvasNodeModel(canvasId: canvas.id, title: snippet.title, body: snippet.details, nodeType: .snippet, objectType: "snippet", objectId: snippet.id, x: point.x, y: point.y, width: CanvasNodeMetrics.cardWidth, height: CanvasNodeMetrics.cardHeight, collapsed: true)
         modelContext.insert(node)
-        try? modelContext.save()
-        selectedNodeIDs = [node.id]
-        onStatus("Added snippet node")
+        if saveModelChanges(failurePrefix: "Could not add snippet node", successStatus: "Added snippet node") {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
+    }
+
+    private func addWorkspaceNode(_ workspace: WorkspaceModel) {
+        let point = nextNodePosition()
+        let body = workspace.details.trimmingCharacters(in: .whitespacesAndNewlines)
+        let node = CanvasNodeModel(
+            canvasId: canvas.id,
+            title: workspace.title,
+            body: body.isEmpty ? "Workspace reference" : body,
+            nodeType: .snippet,
+            objectType: "workspace",
+            objectId: workspace.id,
+            x: point.x,
+            y: point.y,
+            width: CanvasNodeMetrics.cardWidth,
+            height: CanvasNodeMetrics.cardHeight,
+            collapsed: true,
+            accentColorRaw: "#8C5CF6D1"
+        )
+        modelContext.insert(node)
+        if saveModelChanges(failurePrefix: "Could not add workspace card", successStatus: "Added workspace card") {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
+    }
+
+    private func addWebNode() {
+        guard let url = WebCardURL.normalized(webCardDraft) else {
+            onStatus("Enter a valid http or https URL")
+            return
+        }
+        let point = nextNodePosition()
+        let title = url.host ?? url.absoluteString
+        let node = CanvasNodeModel(
+            canvasId: canvas.id,
+            title: title,
+            body: url.absoluteString,
+            nodeType: .snippet,
+            objectType: "webURL",
+            objectId: url.absoluteString,
+            x: point.x,
+            y: point.y,
+            width: CanvasNodeMetrics.cardWidth,
+            height: CanvasNodeMetrics.cardHeight,
+            collapsed: true,
+            accentColorRaw: "#33D499D1"
+        )
+        modelContext.insert(node)
+        if saveModelChanges(failurePrefix: "Could not add web page card", successStatus: "Added web page card") {
+            webCardDraft = ""
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
     }
 
     private func addNoteNode() {
         let point = nextNodePosition()
         let node = CanvasNodeModel(canvasId: canvas.id, title: "Note", body: "Write a workflow note here.", nodeType: .note, x: point.x, y: point.y, width: CanvasNodeMetrics.noteWidth, height: CanvasNodeMetrics.noteHeight, collapsed: false)
         modelContext.insert(node)
-        try? modelContext.save()
-        selectedNodeIDs = [node.id]
-        onStatus("Added note card")
+        if saveModelChanges(failurePrefix: "Could not add note card", successStatus: "Added note card") {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
     }
 
     private func addFrameNode() {
         let point = nextNodePosition()
         let node = CanvasNodeModel(canvasId: canvas.id, title: "Organization Frame", body: "Describe this part of the workflow.", nodeType: .groupFrame, x: point.x, y: point.y, width: CanvasNodeMetrics.frameWidth, height: CanvasNodeMetrics.frameHeight, collapsed: false, zIndex: -10)
         modelContext.insert(node)
-        try? modelContext.save()
-        selectedNodeIDs = [node.id]
-        onStatus("Added organization frame")
+        if saveModelChanges(failurePrefix: "Could not add organization frame", successStatus: "Added organization frame") {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+        }
     }
 
     private func importDroppedResources(_ urls: [URL], at dropLocation: CGPoint) {
@@ -1756,8 +2502,8 @@ struct WorkspaceCanvasView: View {
                 urls,
                 existingResources: resources,
                 into: modelContext,
-                scope: .global,
-                workspaceId: nil,
+                scope: .workspace,
+                workspaceId: canvas.workspaceId,
                 pinImported: false,
                 saveChanges: false
             )
@@ -1770,6 +2516,7 @@ struct WorkspaceCanvasView: View {
             }
             try modelContext.save()
             selectedNodeIDs = Set(addedIDs)
+            selectedEdgeIDs = []
             onStatus("Canvas drop: \(summary.statusText)")
         } catch {
             modelContext.rollback()
@@ -1792,23 +2539,109 @@ struct WorkspaceCanvasView: View {
     }
 
     private func connectSelected() {
-        let ids = Array(selectedNodeIDs)
-        guard ids.count == 2 else { return }
-        createEdge(from: ids[0], to: ids[1])
+        selectedEdgeIDs = []
+        let selected = workflowNodes
+            .filter { selectedNodeIDs.contains($0.id) }
+            .sorted {
+                if $0.x != $1.x { return $0.x < $1.x }
+                if $0.y != $1.y { return $0.y < $1.y }
+                return $0.id < $1.id
+            }
+        guard selected.count == 2 else { return }
+        let sourceId = selected[0].id
+        let targetId = selected[1].id
+        if createEdge(from: sourceId, to: targetId) {
+            selectedNodeIDs = [sourceId, targetId]
+            applyConnectionCompletion(targetNodeId: targetId)
+        }
     }
 
-    private func createEdge(from sourceId: String, to targetId: String) {
-        guard sourceId != targetId else { return }
+    private func createEdge(from sourceId: String, to targetId: String) -> Bool {
+        guard sourceId != targetId else { return false }
         let identities = visibleEdges.map { CanvasEdgeIdentity(sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId) }
         let exists = CanvasEdgeIdentity.exists(sourceNodeId: sourceId, targetNodeId: targetId, in: identities)
         guard !exists else {
             onStatus("Cards are already connected in that direction")
-            return
+            return false
         }
         let edge = CanvasEdgeModel(canvasId: canvas.id, sourceNodeId: sourceId, targetNodeId: targetId, targetArrowRaw: "arrow", animated: shouldAnimateGlow, animationThemeRaw: canvas.linkAnimationThemeRaw)
         modelContext.insert(edge)
-        try? modelContext.save()
-        onStatus("Connected cards with arrow")
+        do {
+            try modelContext.save()
+            onStatus("Connected cards with arrow")
+            return true
+        } catch {
+            modelContext.rollback()
+            onStatus(error.localizedDescription)
+            return false
+        }
+    }
+
+    private func reverseSelectedLink() {
+        guard selectedEdgeIDs.count == 1,
+              let id = selectedEdgeIDs.first,
+              let edge = visibleEdges.first(where: { $0.id == id }) else {
+            return
+        }
+
+        let record = CanvasEdgeDirectionRecord(
+            id: edge.id,
+            sourceNodeId: edge.sourceNodeId,
+            targetNodeId: edge.targetNodeId,
+            sourceArrow: edge.sourceArrowRaw,
+            targetArrow: edge.targetArrowRaw
+        )
+        let endpoints = visibleEdges.map {
+            CanvasEdgeEndpointRecord(id: $0.id, sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId)
+        }
+        guard CanvasEdgeDirectionPolicy.canReverse(record, existingEdges: endpoints) else {
+            onStatus("A reverse link already exists. Select that link instead.")
+            return
+        }
+
+        let previousSource = edge.sourceNodeId
+        let previousTarget = edge.targetNodeId
+        let previousSourceArrow = edge.sourceArrowRaw
+        let previousTargetArrow = edge.targetArrowRaw
+        let reversed = CanvasEdgeDirectionPolicy.reversed(record)
+        edge.sourceNodeId = reversed.sourceNodeId
+        edge.targetNodeId = reversed.targetNodeId
+        edge.sourceArrowRaw = reversed.sourceArrow
+        edge.targetArrowRaw = reversed.targetArrow
+        edge.updatedAt = .now
+
+        do {
+            try modelContext.save()
+            undoManager?.registerUndo(withTarget: edge) { edge in
+                edge.sourceNodeId = previousSource
+                edge.targetNodeId = previousTarget
+                edge.sourceArrowRaw = previousSourceArrow
+                edge.targetArrowRaw = previousTargetArrow
+                edge.updatedAt = .now
+                do {
+                    try modelContext.save()
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Could not undo link reversal: \(error.localizedDescription)")
+                }
+            }
+            undoManager?.setActionName("Reverse Link")
+            selectedEdgeIDs = [edge.id]
+            selectedNodeIDs = []
+            connectionSourceNodeId = nil
+            onStatus("Reversed link direction")
+        } catch {
+            modelContext.rollback()
+            onStatus(error.localizedDescription)
+        }
+    }
+
+    private func applyConnectionCompletion(targetNodeId: String) {
+        let completion = CanvasConnectionPolicy.completion(targetNodeId: targetNodeId, singleShot: connectSingleShot)
+        connectionSourceNodeId = completion.nextSourceNodeId
+        if completion.returnsToSelectMode {
+            mode = .select
+        }
     }
 
     private func alignLeft() {
@@ -1817,8 +2650,9 @@ struct WorkspaceCanvasView: View {
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
-        apply(CanvasLayoutEngine.alignLeft(layout))
-        onStatus("Aligned left")
+        if apply(CanvasLayoutEngine.alignLeft(layout)) {
+            onStatus("Aligned left")
+        }
     }
 
     private func alignTop() {
@@ -1827,8 +2661,9 @@ struct WorkspaceCanvasView: View {
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
-        apply(CanvasLayoutEngine.alignTop(layout))
-        onStatus("Aligned top")
+        if apply(CanvasLayoutEngine.alignTop(layout)) {
+            onStatus("Aligned top")
+        }
     }
 
     private func autoArrange() {
@@ -1839,66 +2674,220 @@ struct WorkspaceCanvasView: View {
         let layoutEdges = visibleEdges.map {
             CanvasLayoutEdge(sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId)
         }
-        apply(CanvasLayoutEngine.autoArrange(
+        if apply(CanvasLayoutEngine.autoArrange(
             layout,
             edges: layoutEdges,
             horizontalSpacing: 96,
             verticalSpacing: 56,
             disconnectedColumns: 3
-        ))
-        onStatus("Auto arranged canvas")
+        )) {
+            onStatus("Auto arranged canvas")
+        }
     }
 
-    private func apply(_ layout: [CanvasLayoutNode]) {
+    private func apply(_ layout: [CanvasLayoutNode]) -> Bool {
         for item in layout {
             guard let node = workflowNodeById[item.id] else { continue }
             node.x = item.x
             node.y = item.y
             node.updatedAt = .now
         }
-        try? modelContext.save()
+        return saveModelChanges(failurePrefix: "Could not save canvas layout")
     }
 
     private func toggleNote(for node: CanvasNodeModel) {
         node.collapsed.toggle()
         node.updatedAt = .now
-        try? modelContext.save()
+        saveModelChanges(failurePrefix: "Could not save note state")
     }
 
     private func delete(_ node: CanvasNodeModel) {
         selectedNodeIDs = [node.id]
+        selectedEdgeIDs = []
         deleteSelectedNodes()
     }
 
     private func deleteSelectedNodes() {
+        flushPendingNodeTextCommits()
         let ids = selectedNodeIDs
         guard !ids.isEmpty else { return }
-        for edge in visibleEdges where ids.contains(edge.sourceNodeId) || ids.contains(edge.targetNodeId) {
-            modelContext.delete(edge)
-        }
-        for node in workflowNodes where ids.contains(node.id) {
-            modelContext.delete(node)
-        }
-        selectedNodeIDs = []
-        connectionSourceNodeId = nil
-        try? modelContext.save()
-        onStatus("Deleted \(ids.count) card\(ids.count == 1 ? "" : "s")")
-    }
-
-    private func deleteSelectedConnections() {
-        let ids = selectedNodeIDs
-        guard !ids.isEmpty else { return }
-        let removedEdges = visibleEdges.filter { edge in
-            if ids.count >= 2 {
-                return ids.contains(edge.sourceNodeId) && ids.contains(edge.targetNodeId)
+        let edgeIds = Set(CanvasNodeDeletionPolicy.incidentEdgeIDs(
+            selectedNodeIDs: ids,
+            edges: visibleEdges.map {
+                CanvasEdgeEndpointRecord(id: $0.id, sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId)
             }
-            return ids.contains(edge.sourceNodeId) || ids.contains(edge.targetNodeId)
+        ))
+        let removedNodes = workflowNodes.filter { ids.contains($0.id) }
+        let removedEdges = visibleEdges.filter { edgeIds.contains($0.id) }
+        let childParentSnapshots = workflowNodes
+            .filter { node in
+                guard let parentNodeId = node.parentNodeId else { return false }
+                return ids.contains(parentNodeId) && !ids.contains(node.id)
+            }
+            .map(CanvasChildParentSnapshot.init)
+        let nodeSnapshots = removedNodes.map(CanvasNodeDeletionSnapshot.init)
+        let edgeSnapshots = removedEdges.map(CanvasEdgeDeletionSnapshot.init)
+
+        for child in workflowNodes where childParentSnapshots.contains(where: { $0.id == child.id }) {
+            child.parentNodeId = nil
+            child.updatedAt = .now
         }
         for edge in removedEdges {
             modelContext.delete(edge)
         }
-        try? modelContext.save()
-        onStatus("Deleted \(removedEdges.count) link\(removedEdges.count == 1 ? "" : "s")")
+        for node in removedNodes {
+            modelContext.delete(node)
+        }
+        if saveModelChanges(
+            failurePrefix: "Could not delete cards",
+            successStatus: "Deleted \(ids.count) card\(ids.count == 1 ? "" : "s")"
+        ) {
+            registerCanvasNodeDeletionUndo(
+                nodes: nodeSnapshots,
+                edges: edgeSnapshots,
+                childParents: childParentSnapshots
+            )
+            selectedNodeIDs = []
+            selectedEdgeIDs = []
+            connectionSourceNodeId = nil
+        }
+    }
+
+    private func deleteSelectedConnections() {
+        flushPendingNodeTextCommits()
+        let endpointRecords = visibleEdges.map {
+            CanvasEdgeEndpointRecord(id: $0.id, sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId)
+        }
+        let idsToDelete = Set(CanvasEdgeDeletionPolicy.edgeIDsToDelete(
+            selectedEdgeIDs: selectedEdgeIDs,
+            selectedNodeIDs: selectedNodeIDs,
+            edges: endpointRecords
+        ))
+        guard !idsToDelete.isEmpty else {
+            if selectedNodeIDs.count == 1 {
+                onStatus("Select a link directly to delete a single connection.")
+            } else if selectedNodeIDs.count == 2 {
+                onStatus("Select one line when multiple directions exist between the cards.")
+            }
+            return
+        }
+        let removedEdges = visibleEdges.filter { idsToDelete.contains($0.id) }
+        let edgeSnapshots = removedEdges.map(CanvasEdgeDeletionSnapshot.init)
+        for edge in removedEdges {
+            modelContext.delete(edge)
+        }
+        if saveModelChanges(
+            failurePrefix: "Could not delete links",
+            successStatus: "Deleted \(removedEdges.count) link\(removedEdges.count == 1 ? "" : "s")"
+        ) {
+            registerCanvasEdgeDeletionUndo(edgeSnapshots)
+            selectedEdgeIDs.subtract(idsToDelete)
+        }
+    }
+
+    private func registerCanvasNodeDeletionUndo(
+        nodes: [CanvasNodeDeletionSnapshot],
+        edges: [CanvasEdgeDeletionSnapshot],
+        childParents: [CanvasChildParentSnapshot]
+    ) {
+        guard !nodes.isEmpty || !edges.isEmpty || !childParents.isEmpty else { return }
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            for snapshot in nodes {
+                context.insert(snapshot.makeModel())
+            }
+            for snapshot in childParents {
+                if let child = fetchCanvasNodeForUndo(id: snapshot.id, in: context) {
+                    child.parentNodeId = snapshot.parentNodeId
+                    child.updatedAt = .now
+                }
+            }
+            for snapshot in edges {
+                context.insert(snapshot.makeModel())
+            }
+            do {
+                try context.save()
+                onStatus("Restored deleted cards")
+            } catch {
+                context.rollback()
+                onStatus("Could not undo card deletion: \(error.localizedDescription)")
+            }
+        }
+        undoManager?.setActionName(nodes.count == 1 ? "Delete Card" : "Delete Cards")
+    }
+
+    private func registerCanvasEdgeDeletionUndo(_ edges: [CanvasEdgeDeletionSnapshot]) {
+        guard !edges.isEmpty else { return }
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            for snapshot in edges {
+                context.insert(snapshot.makeModel())
+            }
+            do {
+                try context.save()
+                onStatus("Restored deleted links")
+            } catch {
+                context.rollback()
+                onStatus("Could not undo link deletion: \(error.localizedDescription)")
+            }
+        }
+        undoManager?.setActionName(edges.count == 1 ? "Delete Link" : "Delete Links")
+    }
+
+    private func handleDeleteCommand() {
+        if !selectedEdgeIDs.isEmpty {
+            deleteSelectedConnections()
+            return
+        }
+        if selectedNodeIDs.count == 2 {
+            let matchingEdges = visibleEdges.filter {
+                selectedNodeIDs.contains($0.sourceNodeId) &&
+                    selectedNodeIDs.contains($0.targetNodeId)
+            }
+            guard matchingEdges.isEmpty else {
+                deleteSelectedConnections()
+                return
+            }
+        }
+        deleteSelectedNodes()
+    }
+
+    private func selectEdge(_ id: String) {
+        guard visibleEdges.contains(where: { $0.id == id }) else { return }
+        selectedEdgeIDs = [id]
+        selectedNodeIDs = []
+        connectionSourceNodeId = nil
+        onStatus("Selected link")
+    }
+
+    @discardableResult
+    private func selectEdge(at location: CGPoint, in edgeSegments: [CanvasEdgeSegment]) -> Bool {
+        let records = edgeSegments.map(edgeHitRecord(for:))
+        let point = CanvasEdgePoint(x: Double(location.x), y: Double(location.y))
+        guard let id = CanvasEdgeHitTesting.nearestEdgeID(
+            at: point,
+            edges: records,
+            threshold: max(10, 12 * Double(zoom))
+        ) else {
+            return false
+        }
+        selectEdge(id)
+        return true
+    }
+
+    private func edgeHitRecord(for segment: CanvasEdgeSegment) -> CanvasEdgeHitRecord {
+        var points = [edgePoint(segment.start)]
+        if segment.routePoints.isEmpty {
+            if let control = transientEdgeControlPoints[segment.id] ?? segment.control {
+                points.append(edgePoint(control))
+            }
+        } else {
+            points.append(contentsOf: segment.routePoints.map { edgePoint($0) })
+        }
+        points.append(edgePoint(segment.end))
+        return CanvasEdgeHitRecord(id: segment.id, points: points)
+    }
+
+    private func edgePoint(_ point: CGPoint) -> CanvasEdgePoint {
+        CanvasEdgePoint(x: Double(point.x), y: Double(point.y))
     }
 
     private func nextNodePosition(offset additionalOffset: Int = 0) -> (x: Double, y: Double) {
@@ -2073,6 +3062,8 @@ struct CanvasNodeCard: View {
     let node: CanvasNodeModel
     let resource: ResourcePinModel?
     let snippet: SnippetModel?
+    let workspace: WorkspaceModel?
+    let webURL: URL?
     let isSelected: Bool
     let isConnectionSource: Bool
     let isConnected: Bool
@@ -2082,6 +3073,7 @@ struct CanvasNodeCard: View {
     let onOpen: () -> Void
     let onInfo: () -> Void
     let onCopy: () -> Void
+    let onStartLink: () -> Void
     let onConnect: () -> Void
     let onToggleNote: () -> Void
     let onDelete: () -> Void
@@ -2122,6 +3114,7 @@ struct CanvasNodeCard: View {
                 }
             }
             Button("Show Details") { onInfo() }
+            Button("Start Link From This Card") { onStartLink() }
             Button("Connect") { onConnect() }
             Button("Toggle Note") { onToggleNote() }
             Button("Delete Card", role: .destructive) { onDelete() }
@@ -2196,7 +3189,7 @@ struct CanvasNodeCard: View {
                     .frame(width: 13, height: 13)
             }
             .buttonStyle(CardIconButtonStyle())
-            .help(resource == nil ? "Copy text" : "Copy full path")
+            .help(copyHelpText)
             Button(action: onInfo) {
                 CanvasSharpSymbol(systemName: "info.circle", pointSize: 12, weight: .semibold)
                     .frame(width: 13, height: 13)
@@ -2325,6 +3318,12 @@ struct CanvasNodeCard: View {
     }
 
     private var icon: String {
+        if workspace != nil {
+            return "rectangle.3.group"
+        }
+        if webURL != nil {
+            return "globe"
+        }
         if let resource {
             return resource.targetType == .folder ? "folder" : "doc"
         }
@@ -2369,6 +3368,12 @@ struct CanvasNodeCard: View {
     }
 
     private var subtitle: String {
+        if workspace != nil {
+            return "Workspace"
+        }
+        if webURL != nil {
+            return "Web Page"
+        }
         if let resource {
             return resource.targetType == .folder ? "Folder" : "File"
         }
@@ -2379,7 +3384,20 @@ struct CanvasNodeCard: View {
     }
 
     private var detailTitle: String {
-        snippet == nil ? "Note" : "Details"
+        snippet == nil && workspace == nil && webURL == nil ? "Note" : "Details"
+    }
+
+    private var copyHelpText: String {
+        if resource != nil {
+            return "Copy full path"
+        }
+        if webURL != nil {
+            return "Copy URL"
+        }
+        if workspace != nil {
+            return "Copy workspace title"
+        }
+        return "Copy text"
     }
 
     private var notePreview: String {
@@ -2709,12 +3727,22 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context _: Context) {
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
+        context.coordinator.update(text: $text, modelText: text)
+        if !context.coordinator.isEditing, textView.string != text {
             textView.string = text
+            context.coordinator.acceptModelText(text)
         }
         configureTextView(textView)
+    }
+
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        if let textView = nsView.documentView as? NSTextView {
+            coordinator.commitDeferred(textView.string)
+        } else {
+            coordinator.cancelPendingCommit()
+        }
     }
 
     private func configureTextView(_ textView: NSTextView) {
@@ -2723,16 +3751,77 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
         textView.insertionPointColor = textColor
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private var text: Binding<String>
+        private var latestText: String
+        private var pendingCommitTask: Task<Void, Never>?
+        private(set) var isEditing = false
 
         init(text: Binding<String>) {
             self.text = text
+            latestText = text.wrappedValue
+        }
+
+        func update(text: Binding<String>, modelText: String) {
+            self.text = text
+            if !isEditing {
+                latestText = modelText
+            }
+        }
+
+        func acceptModelText(_ value: String) {
+            latestText = value
+        }
+
+        func textDidBeginEditing(_: Notification) {
+            isEditing = true
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            text.wrappedValue = textView.string
+            latestText = textView.string
+            scheduleCommit()
+        }
+
+        func textDidEndEditing(_ notification: Notification) {
+            isEditing = false
+            if let textView = notification.object as? NSTextView {
+                commitImmediately(textView.string)
+            } else {
+                commitImmediately(latestText)
+            }
+        }
+
+        func commitImmediately(_ value: String) {
+            cancelPendingCommit()
+            latestText = value
+            guard text.wrappedValue != value else { return }
+            text.wrappedValue = value
+        }
+
+        func commitDeferred(_ value: String) {
+            cancelPendingCommit()
+            latestText = value
+            Task { @MainActor [weak self] in
+                self?.commitImmediately(value)
+            }
+        }
+
+        func cancelPendingCommit() {
+            pendingCommitTask?.cancel()
+            pendingCommitTask = nil
+        }
+
+        private func scheduleCommit() {
+            pendingCommitTask?.cancel()
+            let value = latestText
+            pendingCommitTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: CanvasNodeMetrics.textEditCommitDelayNanos)
+                guard !Task.isCancelled else { return }
+                self?.pendingCommitTask = nil
+                self?.commitImmediately(value)
+            }
         }
     }
 }
@@ -2937,6 +4026,9 @@ private final class ScrollWheelMonitorView: NSView {
             guard bounds.contains(location) else {
                 return event
             }
+            guard !shouldPassThroughScrollEvent(event) else {
+                return event
+            }
 
             let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY * 10
             guard abs(deltaY) > 0.01 else {
@@ -2946,6 +4038,24 @@ private final class ScrollWheelMonitorView: NSView {
             onScroll?(deltaY, location)
             return nil
         }
+    }
+
+    private func shouldPassThroughScrollEvent(_ event: NSEvent) -> Bool {
+        guard let hitView = window?.contentView?.hitTest(event.locationInWindow) else {
+            return false
+        }
+
+        var current: NSView? = hitView
+        while let view = current {
+            if view is NSTextView || view is NSTextField || view is NSScroller {
+                return true
+            }
+            if let scrollView = view as? NSScrollView, scrollView.documentView is NSTextView {
+                return true
+            }
+            current = view.superview
+        }
+        return false
     }
 
     func removeMonitor() {
@@ -2994,6 +4104,7 @@ struct CanvasFrameCard: View {
     let isConnectionSource: Bool
     let onInfo: () -> Void
     let onCopy: () -> Void
+    let onStartLink: () -> Void
     let onConnect: () -> Void
     let onDelete: () -> Void
     let onTitleChange: (String) -> Void
@@ -3078,6 +4189,7 @@ struct CanvasFrameCard: View {
                 }
             }
             Button("Show Details", action: onInfo)
+            Button("Start Link From This Frame", action: onStartLink)
             Button("Connect", action: onConnect)
             Button("Delete Frame", role: .destructive, action: onDelete)
         }
@@ -3134,6 +4246,96 @@ struct CanvasFrameCard: View {
 
 }
 
+private struct CanvasEdgeStrokeLayer: View {
+    let segments: [CanvasEdgeSegment]
+    let transientControlPoints: [String: CGPoint]
+    let selectedEdgeIDs: Set<String>
+    let theme: CanvasGlowTheme
+    let dashPhase: Double?
+    let lineScale: CGFloat
+    let canvasSize: CGSize
+
+    var body: some View {
+        Canvas { context, _ in
+            for segment in segments {
+                let curve = EdgePathFactory.curve(
+                    start: segment.start,
+                    end: segment.end,
+                    startDirection: segment.startDirection,
+                    endDirection: segment.endDirection,
+                    control: transientControlPoints[segment.id] ?? segment.control,
+                    routePoints: segment.routePoints
+                )
+
+                context.stroke(
+                    curve,
+                    with: .color(Color.secondary.opacity(0.36)),
+                    style: StrokeStyle(lineWidth: 1.7 * lineScale, lineCap: .round, lineJoin: .round)
+                )
+
+                if selectedEdgeIDs.contains(segment.id) {
+                    context.stroke(
+                        curve,
+                        with: .color(Color.accentColor.opacity(0.92)),
+                        style: StrokeStyle(lineWidth: max(2.6, 3.2 * lineScale), lineCap: .round, lineJoin: .round)
+                    )
+                }
+
+                if let dashPhase {
+                    context.stroke(
+                        curve,
+                        with: .color(flowColor.opacity(theme == .blue ? 1 : 0.9)),
+                        style: StrokeStyle(
+                            lineWidth: (theme == .blue ? 3.4 : 2.4) * lineScale,
+                            lineCap: .round,
+                            lineJoin: .round,
+                            dash: [24 * lineScale, 148 * lineScale],
+                            dashPhase: dashPhase * lineScale
+                        )
+                    )
+                }
+            }
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private var flowColor: Color {
+        theme == .blue ? .blue : .accentColor
+    }
+}
+
+private struct CanvasEdgeArrowHeadLayer: View {
+    let segments: [CanvasEdgeSegment]
+    let transientControlPoints: [String: CGPoint]
+    let selectedEdgeIDs: Set<String>
+    let theme: CanvasGlowTheme
+    let isAnimated: Bool
+    let arrowScale: CGFloat
+    let canvasSize: CGSize
+
+    var body: some View {
+        Canvas { context, _ in
+            for segment in segments {
+                let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: segment.endDirection, scale: arrowScale)
+                context.fill(arrow, with: .color(arrowColor(isSelected: selectedEdgeIDs.contains(segment.id))))
+            }
+        }
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .allowsHitTesting(false)
+    }
+
+    private func arrowColor(isSelected: Bool) -> Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.95)
+        }
+        guard isAnimated, theme != .off else {
+            return Color.primary.opacity(0.72)
+        }
+        return (theme == .blue ? Color.blue : Color.accentColor).opacity(1)
+    }
+}
+
 struct FlowingArrowEdge: View {
     let start: CGPoint
     let end: CGPoint
@@ -3142,26 +4344,13 @@ struct FlowingArrowEdge: View {
     let control: CGPoint?
     let routePoints: [CGPoint]
     let theme: CanvasGlowTheme
-    let isAnimated: Bool
+    let dashPhase: Double?
+    let isSelected: Bool
     let lineScale: CGFloat
     let canvasSize: CGSize
 
     var body: some View {
-        Group {
-            if isAnimated {
-                TimelineView(.animation) { context in
-                    edgeCanvas(
-                        dashPhase: CanvasEdgeFlowPhase.dashPhase(
-                            elapsed: context.date.timeIntervalSinceReferenceDate,
-                            duration: 1.6,
-                            cycleLength: 172
-                        )
-                    )
-                }
-            } else {
-                edgeCanvas(dashPhase: nil)
-            }
-        }
+        edgeCanvas(dashPhase: dashPhase)
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
         .allowsHitTesting(false)
     }
@@ -3186,6 +4375,14 @@ struct FlowingArrowEdge: View {
                 with: .color(Color.secondary.opacity(0.36)),
                 style: StrokeStyle(lineWidth: 1.7 * lineScale, lineCap: .round, lineJoin: .round)
             )
+
+            if isSelected {
+                context.stroke(
+                    curve,
+                    with: .color(Color.accentColor.opacity(0.92)),
+                    style: StrokeStyle(lineWidth: max(2.6, 3.2 * lineScale), lineCap: .round, lineJoin: .round)
+                )
+            }
 
             if let dashPhase {
                 context.stroke(
@@ -3212,6 +4409,7 @@ struct FlowingArrowHead: View {
     let control: CGPoint?
     let theme: CanvasGlowTheme
     let isAnimated: Bool
+    let isSelected: Bool
     let arrowScale: CGFloat
     let canvasSize: CGSize
 
@@ -3225,6 +4423,9 @@ struct FlowingArrowHead: View {
     }
 
     private var arrowColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.95)
+        }
         guard isAnimated, theme != .off else {
             return Color.primary.opacity(0.72)
         }

@@ -2,29 +2,38 @@
 set -euo pipefail
 
 MODE="${1:-run}"
-APP_NAME="MyDesk"
-BUNDLE_ID="studio.qiushan.mydesk"
+APP_NAME="MindDesk"
+APP_DISPLAY_NAME="MindDesk"
+LEGACY_APP_NAME="My""Desk"
+BUNDLE_ID="studio.qiushan.minddesk"
 MIN_SYSTEM_VERSION="14.0"
 COPYRIGHT="Copyright © 2026 Qiushan Huang. All rights reserved."
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(tr -d '[:space:]' <"$ROOT_DIR/VERSION")"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "VERSION must be semantic x.y.z, got: ${VERSION:-<empty>}" >&2
+  exit 1
+fi
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 BUILD_NUMBER="${BUILD_NUMBER:-$((VERSION_MAJOR * 10000 + VERSION_MINOR * 100 + VERSION_PATCH))}"
 DIST_DIR="$ROOT_DIR/dist"
-APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
+APP_BUNDLE="$DIST_DIR/$APP_DISPLAY_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
 APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
-SOURCE_RESOURCES="$ROOT_DIR/Sources/MyDesk/Resources"
+SOURCE_RESOURCES="$ROOT_DIR/Sources/MindDesk/Resources"
 
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
+pkill -x "$LEGACY_APP_NAME" >/dev/null 2>&1 || true
 
 cd "$ROOT_DIR"
 swift build
-BUILD_BINARY="$(swift build --show-bin-path)/$APP_NAME"
+BUILD_DIR="$(swift build --show-bin-path)"
+BUILD_BINARY="$BUILD_DIR/$APP_NAME"
+RESOURCE_BUNDLE="$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle"
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"
@@ -32,6 +41,11 @@ mkdir -p "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$SOURCE_RESOURCES/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
+if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
+  echo "Missing SwiftPM resource bundle: $RESOURCE_BUNDLE" >&2
+  exit 1
+fi
+cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,7 +57,9 @@ cat >"$INFO_PLIST" <<PLIST
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
   <key>CFBundleName</key>
-  <string>$APP_NAME</string>
+  <string>$APP_DISPLAY_NAME</string>
+  <key>CFBundleDisplayName</key>
+  <string>$APP_DISPLAY_NAME</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>
@@ -59,11 +75,11 @@ cat >"$INFO_PLIST" <<PLIST
   <key>NSHumanReadableCopyright</key>
   <string>$COPYRIGHT</string>
   <key>NSAppleEventsUsageDescription</key>
-  <string>MyDesk uses Automation only after confirmation to create Finder aliases and run commands in Terminal.</string>
+  <string>MindDesk uses Automation only after confirmation to create Finder aliases and run commands in Terminal.</string>
   <key>NSDesktopFolderUsageDescription</key>
-  <string>MyDesk can create Finder aliases in folders you choose.</string>
+  <string>MindDesk can create Finder aliases in folders you choose.</string>
   <key>NSDocumentsFolderUsageDescription</key>
-  <string>MyDesk can create Finder aliases in folders you choose.</string>
+  <string>MindDesk can create Finder aliases in folders you choose.</string>
 </dict>
 </plist>
 PLIST

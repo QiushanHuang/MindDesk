@@ -53,12 +53,171 @@ public enum WorkspaceSidebarOrdering {
         }
         return moved
     }
+
+    public static func movedIDs(
+        _ ids: [String],
+        fromOffsets source: IndexSet,
+        toOffset destination: Int
+    ) -> [String] {
+        guard !source.isEmpty else { return ids }
+
+        let moving = source.sorted().compactMap { index in
+            ids.indices.contains(index) ? ids[index] : nil
+        }
+        guard !moving.isEmpty else { return ids }
+
+        var remaining = ids
+        for index in source.sorted(by: >) where remaining.indices.contains(index) {
+            remaining.remove(at: index)
+        }
+
+        let removedBeforeDestination = source.filter { $0 < destination }.count
+        let insertionIndex = min(max(destination - removedBeforeDestination, 0), remaining.count)
+        remaining.insert(contentsOf: moving, at: insertionIndex)
+        return remaining
+    }
+
+    public static func keepsPinnedPrefix(_ ids: [String], pinnedIDs: Set<String>) -> Bool {
+        var hasSeenUnpinned = false
+        for id in ids {
+            if pinnedIDs.contains(id) {
+                guard !hasSeenUnpinned else { return false }
+            } else {
+                hasSeenUnpinned = true
+            }
+        }
+        return true
+    }
+}
+
+public struct WorkspaceDeletionCanvasRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var workspaceId: String
+
+    public init(id: String, workspaceId: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+    }
+}
+
+public struct WorkspaceDeletionNodeRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var canvasId: String
+    public var objectType: String?
+    public var objectId: String?
+
+    public init(id: String, canvasId: String, objectType: String?, objectId: String?) {
+        self.id = id
+        self.canvasId = canvasId
+        self.objectType = objectType
+        self.objectId = objectId
+    }
+}
+
+public struct WorkspaceDeletionEdgeRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var canvasId: String
+    public var sourceNodeId: String
+    public var targetNodeId: String
+
+    public init(id: String, canvasId: String, sourceNodeId: String, targetNodeId: String) {
+        self.id = id
+        self.canvasId = canvasId
+        self.sourceNodeId = sourceNodeId
+        self.targetNodeId = targetNodeId
+    }
+}
+
+public struct WorkspaceDeletionSnippetRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var workingDirectoryRef: String?
+
+    public init(id: String, workingDirectoryRef: String?) {
+        self.id = id
+        self.workingDirectoryRef = workingDirectoryRef
+    }
+}
+
+public struct WorkspaceDeletionPlan: Equatable, Sendable {
+    public var nodeIds: [String]
+    public var edgeIds: [String]
+    public var snippetIdsClearingWorkingDirectory: [String]
+
+    public init(
+        nodeIds: [String],
+        edgeIds: [String],
+        snippetIdsClearingWorkingDirectory: [String]
+    ) {
+        self.nodeIds = nodeIds
+        self.edgeIds = edgeIds
+        self.snippetIdsClearingWorkingDirectory = snippetIdsClearingWorkingDirectory
+    }
+}
+
+public enum WorkspaceDeletionPolicy {
+    public static func plan(
+        workspaceId: String,
+        canvases: [WorkspaceDeletionCanvasRecord],
+        nodes: [WorkspaceDeletionNodeRecord],
+        edges: [WorkspaceDeletionEdgeRecord],
+        snippets: [WorkspaceDeletionSnippetRecord],
+        resourceIds: Set<String>,
+        snippetIds: Set<String>
+    ) -> WorkspaceDeletionPlan {
+        let workspaceCanvasIds = Set(canvases.filter { $0.workspaceId == workspaceId }.map(\.id))
+        let nodeIds = Set(nodes.compactMap { node -> String? in
+            if workspaceCanvasIds.contains(node.canvasId) {
+                return node.id
+            }
+            if node.objectType == "workspace", node.objectId == workspaceId {
+                return node.id
+            }
+            if node.objectType == "resourcePin",
+               let objectId = node.objectId,
+               resourceIds.contains(objectId) {
+                return node.id
+            }
+            if node.objectType == "snippet",
+               let objectId = node.objectId,
+               snippetIds.contains(objectId) {
+                return node.id
+            }
+            return nil
+        })
+        let edgeIds = Set(edges.compactMap { edge -> String? in
+            workspaceCanvasIds.contains(edge.canvasId) ||
+                nodeIds.contains(edge.sourceNodeId) ||
+                nodeIds.contains(edge.targetNodeId)
+                ? edge.id
+                : nil
+        })
+        let snippetIdsClearingWorkingDirectory = Set(snippets.compactMap { snippet -> String? in
+            guard let ref = snippet.workingDirectoryRef, resourceIds.contains(ref) else { return nil }
+            return snippet.id
+        })
+
+        return WorkspaceDeletionPlan(
+            nodeIds: nodeIds.sorted(),
+            edgeIds: edgeIds.sorted(),
+            snippetIdsClearingWorkingDirectory: snippetIdsClearingWorkingDirectory.sorted()
+        )
+    }
 }
 
 public enum WorkbenchSidebarMetrics {
     public static let minimumWidth: Double = 208
     public static let idealWidth: Double = 224
     public static let maximumWidth: Double = 300
+}
+
+public enum CanvasSideRailLayout {
+    public static let leftRailWidth: Double = 196
+    public static let rightRailMinimumWidth: Double = 180
+    public static let rightRailIdealWidth: Double = 244
+
+    public static func rightRailWidth(availableWidth: Double) -> Double {
+        min(rightRailIdealWidth, max(rightRailMinimumWidth, floor(availableWidth * 0.22)))
+    }
 }
 
 public struct ResourceLibraryRecord: Equatable, Identifiable, Sendable {
@@ -207,6 +366,39 @@ public enum SnippetLibraryFiltering {
     }
 }
 
+public enum CommandRunConfirmationPolicy {
+    public static func shouldConfirm(kind: String, requiresConfirmation _: Bool) -> Bool {
+        kind == "command"
+    }
+}
+
+public enum SnippetImportTrustPolicy {
+    public static func requiresConfirmation(kind: String, exportedRequiresConfirmation: Bool) -> Bool {
+        kind == "command" ? true : exportedRequiresConfirmation
+    }
+}
+
+public enum ResourceAuthorizationPolicy {
+    public static func canAccessFileSystem(status: String, hasBookmarkData: Bool) -> Bool {
+        hasBookmarkData && status == "available"
+    }
+
+    public static func acceptsReauthorization(existingTargetType: String, selectedTargetType: String) -> Bool {
+        existingTargetType == selectedTargetType
+    }
+}
+
+public enum SnippetWorkingDirectoryOptions {
+    public static func folders(in records: [ResourceLibraryRecord]) -> [ResourceLibraryRecord] {
+        ResourceLibraryFiltering.folders(in: records)
+    }
+
+    public static func validSelection(_ id: String?, in records: [ResourceLibraryRecord]) -> String? {
+        guard let id else { return nil }
+        return folders(in: records).contains { $0.id == id } ? id : nil
+    }
+}
+
 public struct FolderPreviewItemRecord: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
@@ -239,13 +431,29 @@ public enum CanvasEdgeAnimationPolicy {
         theme: String,
         animationsEnabled: Bool,
         reduceMotion: Bool,
-        edgeCount: Int
+        edgeCount: Int,
+        isInteracting: Bool = false
     ) -> Bool {
         animationsEnabled &&
         !reduceMotion &&
+        !isInteracting &&
         theme != "off" &&
         edgeCount > 0 &&
-        edgeCount <= 120
+        edgeCount <= CanvasPerformancePolicy.maximumAnimatedEdgeCount
+    }
+}
+
+public enum CanvasPerformancePolicy {
+    public static let maximumAnimatedEdgeCount = 24
+    public static let maximumRoutedEdgeCount = 40
+    public static let maximumRoutingObstacleCount = 80
+    public static let maximumRoutingWorkload = 2_000
+
+    public static func usesObstacleRouting(edgeCount: Int, obstacleCount: Int, isInteracting: Bool) -> Bool {
+        !isInteracting &&
+            edgeCount <= maximumRoutedEdgeCount &&
+            obstacleCount <= maximumRoutingObstacleCount &&
+            edgeCount * obstacleCount <= maximumRoutingWorkload
     }
 }
 
@@ -323,6 +531,196 @@ public struct CanvasEdgeIdentity: Equatable, Sendable {
         in edges: [CanvasEdgeIdentity]
     ) -> Bool {
         edges.contains { $0.sourceNodeId == sourceNodeId && $0.targetNodeId == targetNodeId }
+    }
+}
+
+public struct CanvasEdgeEndpointRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var sourceNodeId: String
+    public var targetNodeId: String
+
+    public init(id: String, sourceNodeId: String, targetNodeId: String) {
+        self.id = id
+        self.sourceNodeId = sourceNodeId
+        self.targetNodeId = targetNodeId
+    }
+}
+
+public struct CanvasEdgeDirectionRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var sourceNodeId: String
+    public var targetNodeId: String
+    public var sourceArrow: String
+    public var targetArrow: String
+
+    public init(
+        id: String,
+        sourceNodeId: String,
+        targetNodeId: String,
+        sourceArrow: String,
+        targetArrow: String
+    ) {
+        self.id = id
+        self.sourceNodeId = sourceNodeId
+        self.targetNodeId = targetNodeId
+        self.sourceArrow = sourceArrow
+        self.targetArrow = targetArrow
+    }
+}
+
+public enum CanvasEdgeDirectionPolicy {
+    public static func canReverse(
+        _ record: CanvasEdgeDirectionRecord,
+        existingEdges: [CanvasEdgeEndpointRecord]
+    ) -> Bool {
+        !existingEdges.contains { edge in
+            edge.id != record.id &&
+            edge.sourceNodeId == record.targetNodeId &&
+            edge.targetNodeId == record.sourceNodeId
+        }
+    }
+
+    public static func reversed(_ record: CanvasEdgeDirectionRecord) -> CanvasEdgeDirectionRecord {
+        CanvasEdgeDirectionRecord(
+            id: record.id,
+            sourceNodeId: record.targetNodeId,
+            targetNodeId: record.sourceNodeId,
+            sourceArrow: "none",
+            targetArrow: record.targetArrow == "none" ? "arrow" : record.targetArrow
+        )
+    }
+}
+
+public enum CanvasEdgeDeletionPolicy {
+    public static func edgeIDsToDelete(
+        selectedEdgeIDs: Set<String>,
+        selectedNodeIDs: Set<String>,
+        edges: [CanvasEdgeEndpointRecord]
+    ) -> [String] {
+        if !selectedEdgeIDs.isEmpty {
+            return edges.filter { selectedEdgeIDs.contains($0.id) }.map(\.id)
+        }
+
+        guard selectedNodeIDs.count == 2 else { return [] }
+        let selected = Array(selectedNodeIDs)
+        let matches = edges.filter { edge in
+            selectedNodeIDs.contains(edge.sourceNodeId) &&
+            selectedNodeIDs.contains(edge.targetNodeId) &&
+            edge.sourceNodeId != edge.targetNodeId
+        }
+        guard matches.count == 1,
+              let edge = matches.first,
+              selected.contains(edge.sourceNodeId),
+              selected.contains(edge.targetNodeId) else {
+            return []
+        }
+        return [edge.id]
+    }
+}
+
+public enum CanvasNodeDeletionPolicy {
+    public static func incidentEdgeIDs(
+        selectedNodeIDs: Set<String>,
+        edges: [CanvasEdgeEndpointRecord]
+    ) -> [String] {
+        guard !selectedNodeIDs.isEmpty else { return [] }
+        return edges
+            .filter { selectedNodeIDs.contains($0.sourceNodeId) || selectedNodeIDs.contains($0.targetNodeId) }
+            .map(\.id)
+    }
+}
+
+public enum CanvasNodeObjectReferenceMapper {
+    public static func mappedObjectId(
+        objectType: String?,
+        objectId: String?,
+        body: String = "",
+        resourceMap: [String: String],
+        snippetMap: [String: String],
+        workspaceMap: [String: String]
+    ) -> String? {
+        switch objectType {
+        case "resourcePin":
+            objectId.flatMap { resourceMap[$0] }
+        case "snippet":
+            objectId.flatMap { snippetMap[$0] }
+        case "workspace":
+            objectId.flatMap { workspaceMap[$0] }
+        case "webURL":
+            objectId.flatMap(WebCardURL.normalized(_:))?.absoluteString ??
+                WebCardURL.normalized(body)?.absoluteString
+        case nil:
+            nil
+        default:
+            objectId
+        }
+    }
+}
+
+public enum CanvasManifestParentMapper {
+    public static func mappedParentNodeId(
+        _ parentNodeId: String?,
+        nodeMap: [String: String]
+    ) -> String? {
+        parentNodeId.flatMap { nodeMap[$0] }
+    }
+}
+
+public struct CanvasEdgeHitRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var points: [CanvasEdgePoint]
+
+    public init(id: String, points: [CanvasEdgePoint]) {
+        self.id = id
+        self.points = points
+    }
+}
+
+public enum CanvasEdgeHitTesting {
+    public static func nearestEdgeID(
+        at point: CanvasEdgePoint,
+        edges: [CanvasEdgeHitRecord],
+        threshold: Double
+    ) -> String? {
+        var best: (id: String, distance: Double)?
+        for edge in edges {
+            let distance = distanceToPolyline(point, points: edge.points)
+            guard distance <= threshold else { continue }
+            if best == nil || distance < best!.distance {
+                best = (edge.id, distance)
+            }
+        }
+        return best?.id
+    }
+
+    private static func distanceToPolyline(_ point: CanvasEdgePoint, points: [CanvasEdgePoint]) -> Double {
+        guard points.count >= 2 else { return .greatestFiniteMagnitude }
+        return points.indices.dropLast().map { index in
+            distanceFromPoint(point, toSegmentStart: points[index], end: points[index + 1])
+        }.min() ?? .greatestFiniteMagnitude
+    }
+
+    private static func distanceFromPoint(
+        _ point: CanvasEdgePoint,
+        toSegmentStart start: CanvasEdgePoint,
+        end: CanvasEdgePoint
+    ) -> Double {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0.0001 else {
+            return distance(point, start)
+        }
+        let rawT = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+        let t = min(max(rawT, 0), 1)
+        let projected = CanvasEdgePoint(x: start.x + t * dx, y: start.y + t * dy)
+        return distance(point, projected)
+    }
+
+    private static func distance(_ lhs: CanvasEdgePoint, _ rhs: CanvasEdgePoint) -> Double {
+        let dx = rhs.x - lhs.x
+        let dy = rhs.y - lhs.y
+        return sqrt(dx * dx + dy * dy)
     }
 }
 
@@ -832,6 +1230,11 @@ public enum CanvasEdgeRoutePlanner {
     }
 }
 
+public enum CanvasEdgeRouteDefaults {
+    public static let targetClearance = 0.0
+    public static let routingClearance = 2.0
+}
+
 public enum CanvasViewportProjection {
     public static func screenPoint(
         x: Double,
@@ -1162,10 +1565,52 @@ public enum CanvasDropPlacement {
 public enum AppPreferenceKeys {
     public static let canvasScrollZoomDirection = "canvasScrollZoomDirection"
     public static let canvasDefaultZoomPercent = "canvasDefaultZoomPercent"
+    public static let canvasConnectSingleShot = "canvasConnectSingleShot"
     public static let workspaceCanvasTodoPanelDefaultOpen = "workspaceCanvasTodoPanelDefaultOpen"
     public static let workspaceCanvasTodoDoneColumnDefaultOpen = "workspaceCanvasTodoDoneColumnDefaultOpen"
     public static let workspaceCanvasTodoDoneColumnOpen = "workspaceCanvasTodoDoneColumnOpen"
     public static let workspaceCanvasTodoColumnRatio = "workspaceCanvasTodoColumnRatio"
+}
+
+public struct CanvasConnectionCompletion: Equatable, Sendable {
+    public var nextSourceNodeId: String?
+    public var returnsToSelectMode: Bool
+
+    public init(nextSourceNodeId: String?, returnsToSelectMode: Bool) {
+        self.nextSourceNodeId = nextSourceNodeId
+        self.returnsToSelectMode = returnsToSelectMode
+    }
+}
+
+public struct CanvasConnectSourceCommand: Equatable, Sendable {
+    public var nextSourceNodeId: String?
+    public var selectedNodeIDs: Set<String>
+    public var entersConnectMode: Bool
+
+    public init(nextSourceNodeId: String?, selectedNodeIDs: Set<String>, entersConnectMode: Bool) {
+        self.nextSourceNodeId = nextSourceNodeId
+        self.selectedNodeIDs = selectedNodeIDs
+        self.entersConnectMode = entersConnectMode
+    }
+}
+
+public enum CanvasConnectSourcePolicy {
+    public static func start(from nodeId: String) -> CanvasConnectSourceCommand {
+        CanvasConnectSourceCommand(
+            nextSourceNodeId: nodeId,
+            selectedNodeIDs: [nodeId],
+            entersConnectMode: true
+        )
+    }
+}
+
+public enum CanvasConnectionPolicy {
+    public static func completion(targetNodeId: String, singleShot: Bool) -> CanvasConnectionCompletion {
+        CanvasConnectionCompletion(
+            nextSourceNodeId: singleShot ? nil : targetNodeId,
+            returnsToSelectMode: singleShot
+        )
+    }
 }
 
 public enum TodoBoardColumnSplit {
@@ -1214,6 +1659,148 @@ public enum TodoBoardOrdering {
         let insertionIndex = sourceIndex < targetIndex ? adjustedTargetIndex + 1 : adjustedTargetIndex
         result.insert(moved, at: min(insertionIndex, result.count))
         return result
+    }
+}
+
+public struct TodoGroupDeletionPlan: Equatable, Sendable {
+    public var todoTargetGroupId: String?
+    public var nextSelectedGroupId: String?
+    public var deletesGroup: Bool
+
+    public init(todoTargetGroupId: String?, nextSelectedGroupId: String?, deletesGroup: Bool) {
+        self.todoTargetGroupId = todoTargetGroupId
+        self.nextSelectedGroupId = nextSelectedGroupId
+        self.deletesGroup = deletesGroup
+    }
+}
+
+public enum TodoGroupDeletionPolicy {
+    public static func plan(
+        deletingGroupId: String,
+        defaultGroupId: String,
+        orderedGroupIds: [String]
+    ) -> TodoGroupDeletionPlan {
+        if deletingGroupId == defaultGroupId {
+            return TodoGroupDeletionPlan(
+                todoTargetGroupId: nil,
+                nextSelectedGroupId: deletingGroupId,
+                deletesGroup: false
+            )
+        }
+
+        return TodoGroupDeletionPlan(
+            todoTargetGroupId: defaultGroupId,
+            nextSelectedGroupId: defaultGroupId,
+            deletesGroup: true
+        )
+    }
+}
+
+public enum TodoBoardTaskSummary {
+    public static func inlineDetail(_ details: String) -> String? {
+        let cleaned = details
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return cleaned.isEmpty ? nil : cleaned
+    }
+}
+
+public enum WebCardURL {
+    public static func normalized(_ rawValue: String) -> URL? {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else { return nil }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              let host = components.host,
+              !host.isEmpty,
+              let url = components.url else {
+            return nil
+        }
+        return url
+    }
+}
+
+public enum QuickOpenRecordKind: String, Sendable {
+    case workspace
+    case resource
+    case webCard
+    case snippet
+}
+
+public struct QuickOpenRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var kind: QuickOpenRecordKind
+    public var title: String
+    public var subtitle: String
+
+    public init(id: String, kind: QuickOpenRecordKind, title: String, subtitle: String) {
+        self.id = id
+        self.kind = kind
+        self.title = title
+        self.subtitle = subtitle
+    }
+
+    var searchText: String {
+        "\(title) \(subtitle) \(kind.rawValue)".lowercased()
+    }
+}
+
+public enum QuickOpenIndex {
+    public static func results(
+        for query: String,
+        in records: [QuickOpenRecord],
+        limit: Int = 12
+    ) -> [QuickOpenRecord] {
+        let tokens = query
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+        guard !tokens.isEmpty else {
+            return Array(records.prefix(max(limit, 0)))
+        }
+        let scored = records.enumerated().compactMap { offset, record -> (offset: Int, score: Int, record: QuickOpenRecord)? in
+            var totalScore = 0
+            for token in tokens {
+                guard let tokenScore = score(record, token: token) else { return nil }
+                totalScore += tokenScore
+            }
+            return (offset, totalScore, record)
+        }
+        .sorted {
+            if $0.score != $1.score { return $0.score < $1.score }
+            return $0.offset < $1.offset
+        }
+        .map(\.record)
+        return Array(scored.prefix(max(limit, 0)))
+    }
+
+    private static func score(_ record: QuickOpenRecord, token: String) -> Int? {
+        let title = record.title.lowercased()
+        let subtitle = record.subtitle.lowercased()
+        let kind = record.kind.rawValue.lowercased()
+        if title == token { return 0 }
+        if title.hasPrefix(token) { return 1 }
+        if title.contains(token) { return 2 }
+        if subtitle.hasPrefix(token) { return 3 }
+        if subtitle.contains(token) { return 4 }
+        if kind.contains(token) { return 5 }
+        return nil
+    }
+}
+
+public enum QuickOpenSelectionPolicy {
+    public static func normalizedIndex(_ index: Int, resultCount: Int) -> Int {
+        guard resultCount > 0 else { return 0 }
+        return min(max(index, 0), resultCount - 1)
+    }
+
+    public static func movedIndex(current: Int, delta: Int, resultCount: Int) -> Int {
+        guard resultCount > 0 else { return 0 }
+        let next = (normalizedIndex(current, resultCount: resultCount) + delta) % resultCount
+        return next >= 0 ? next : next + resultCount
     }
 }
 

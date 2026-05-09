@@ -1,5 +1,5 @@
 import AppKit
-import MyDeskCore
+import MindDeskCore
 import SwiftData
 import SwiftUI
 
@@ -11,7 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 @main
-struct MyDeskApp: App {
+struct MindDeskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     private let modelContainerResult = Result { try PersistentStoreBootstrap.makeModelContainer() }
 
@@ -29,6 +29,17 @@ struct MyDeskApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) { }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+                }
+                .keyboardShortcut("z", modifiers: .command)
+
+                Button("Redo") {
+                    NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+                }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+            }
         }
 
         Settings {
@@ -45,12 +56,12 @@ private struct StorageFailureView: View {
             Image(systemName: "externaldrive.badge.exclamationmark")
                 .font(.system(size: 34, weight: .semibold))
                 .foregroundStyle(.orange)
-            Text("MyDesk could not open its data store.")
+            Text("MindDesk could not open its data store.")
                 .font(.title2.weight(.semibold))
             Text(error.localizedDescription)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
-            Text("Storage path: ~/Library/Application Support/\(MyDeskStoreLayout.bundleIdentifier)/Stores/MyDesk.store")
+            Text("Storage path: ~/Library/Application Support/\(MindDeskStoreLayout.bundleIdentifier)/Stores/MindDesk.store")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)

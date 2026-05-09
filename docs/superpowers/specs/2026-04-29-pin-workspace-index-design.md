@@ -1,10 +1,10 @@
-# MyDesk Pin, Workspace, Index, and Preview Design
+# MindDesk Pin, Workspace, Index, and Preview Design
 
 Date: 2026-04-29
 
 ## Purpose
 
-This design upgrades MyDesk from a basic file/workflow board into a reliable daily desktop workbench. The app should make files and folders easy to pin in batches, easy to open from the canvas, easy to preview, and safe to manage without changing the user's real Finder contents.
+This design upgrades MindDesk from a basic file/workflow board into a reliable daily desktop workbench. The app should make files and folders easy to pin in batches, easy to open from the canvas, easy to preview, and safe to manage without changing the user's real Finder contents.
 
 The design also introduces a controlled hidden Finder index file and an internal operation log. The hidden file is an opt-in local cache and recovery hint. It is not the source of truth, does not replace SwiftData, and does not bypass macOS security-scoped bookmark permissions.
 
@@ -13,9 +13,9 @@ The design also introduces a controlled hidden Finder index file and an internal
 - Add first-class main-sidebar sections for pinned folders and pinned files.
 - Support Finder drag-and-drop batch pinning.
 - Add high-frequency file actions directly to canvas cards: open/reveal, info, Quick Look where supported, and copy full path.
-- Add workspace rename and delete inside MyDesk.
-- Keep real Finder file management out of scope: MyDesk will not delete, rename, move, or reorganize the user's actual files, folders, packages, or symlink targets.
-- Treat `.mydesk-index.json` as the only approved Finder write in this iteration, and only for opt-in create/update/read in an authorized folder root. This iteration will not automatically delete hidden index files from Finder.
+- Add workspace rename and delete inside MindDesk.
+- Keep real Finder file management out of scope: MindDesk will not delete, rename, move, or reorganize the user's actual files, folders, packages, or symlink targets.
+- Treat `.minddesk-index.json` as the only approved Finder write in this iteration, and only for opt-in create/update/read in an authorized folder root. This iteration will not automatically delete hidden index files from Finder.
 - Record every hidden index operation in app-owned local logs so future cleanup and cache audits are possible.
 - Preserve prompt and command snippet workflows while improving file/folder resource workflows.
 - Prepare the data model for later true sync and system-wide hotkeys, but do not combine those two larger systems with this implementation pass.
@@ -31,7 +31,7 @@ The main sidebar gains two library entries next to Home, Global Library, and Sni
 
 Both views reuse `ResourcePinModel` and filter by resource classification. They provide search, add, drag-and-drop import, open/reveal, Quick Look where applicable, copy full path, info, reauthorize, and unpin.
 
-Pinned Folders is not a separate data store. It displays folder-like resource pins from the global scope. Pinned Files displays file-like and package resource pins from the global scope. If a user drops mixed files and folders on either page, MyDesk imports all valid items into the correct global pin category and then shows a summary of where each item landed.
+Pinned Folders is not a separate data store. It displays folder-like resource pins from the global scope. Pinned Files displays file-like and package resource pins from the global scope. If a user drops mixed files and folders on either page, MindDesk imports all valid items into the correct global pin category and then shows a summary of where each item landed.
 
 ### Import Entry Matrix
 
@@ -48,9 +48,9 @@ Inaccessible dropped URLs fail the import item and do not create new pins. Exist
 
 ### Resource Classification
 
-MyDesk must not use `url.hasDirectoryPath` as the source of truth for resource type. Classification uses `FileManager` resource values.
+MindDesk must not use `url.hasDirectoryPath` as the source of truth for resource type. Classification uses `FileManager` resource values.
 
-| File system classification | MyDesk target type | Resource kind | Rules |
+| File system classification | MindDesk target type | Resource kind | Rules |
 |---|---|---|---|
 | `isDirectory == true` and `isPackage != true` | `folder` | `folder` | Can be a pinned folder or workspace root. |
 | `isRegularFile == true` | `file` | `regularFile` | Can be revealed, copied, and previewed with Quick Look when supported. |
@@ -154,7 +154,7 @@ Resource pin work must not turn snippets into file resources.
 
 ### Workspace Rename and Delete
 
-Workspace rename edits MyDesk metadata only:
+Workspace rename edits MindDesk metadata only:
 
 - `WorkspaceModel.title`
 - `WorkspaceModel.details`
@@ -162,7 +162,7 @@ Workspace rename edits MyDesk metadata only:
 
 It keeps the current workspace, canvas selection, sidebar selection, and open sheets/popovers stable unless the user closes them.
 
-Workspace delete uses a confirmation dialog. The dialog must say that MyDesk deletes only internal workspace metadata and will not delete, rename, or move Finder files, folders, packages, symlinks, Finder aliases, or alias targets.
+Workspace delete uses a confirmation dialog. The dialog must say that MindDesk deletes only internal workspace metadata and will not delete, rename, or move Finder files, folders, packages, symlinks, Finder aliases, or alias targets.
 
 The confirmation dialog shows at least these counts:
 
@@ -173,7 +173,7 @@ The confirmation dialog shows at least these counts:
 | Canvases | Canvas records owned by the workspace. |
 | Canvas nodes | Nodes grouped by resource/snippet/note. |
 | Canvas edges | Edges owned by the workspace canvases. |
-| Alias/index records | MyDesk alias/index records that will be marked orphaned/tombstoned or removed from live queries. |
+| Alias/index records | MindDesk alias/index records that will be marked orphaned/tombstoned or removed from live queries. |
 | Global references retained | Global pins/snippets referenced by this workspace that will remain. |
 | Finder items affected | Always `0`, with explicit text that real Finder contents are untouched. |
 
@@ -215,7 +215,7 @@ If the selected item does not match, the UI must treat the action as Replace Tar
 
 ### Internal Mapping and Cleanup
 
-MyDesk adds a shared cleanup service so string-based references do not drift. Views must not directly delete workspaces, resources, snippets, canvas nodes, or index records with ad hoc `modelContext.delete(...)`.
+MindDesk adds a shared cleanup service so string-based references do not drift. Views must not directly delete workspaces, resources, snippets, canvas nodes, or index records with ad hoc `modelContext.delete(...)`.
 
 Cleanup must run in one `ModelContext`, fetch affected records, clean references, save once, and return a visible error on failure. Any retained audit data that contains a deleted id must be named and treated as a snapshot, not as a live foreign key.
 
@@ -229,16 +229,16 @@ Cleanup must run in one `ModelContext`, fetch affected records, clean references
 
 ### Hidden Finder Index File
 
-The hidden index file is named `.mydesk-index.json`.
+The hidden index file is named `.minddesk-index.json`.
 
-This iteration allows only create, update, and read in Finder. MyDesk does not automatically delete `.mydesk-index.json` from Finder during workspace delete, resource delete, unpin, index disable, or cleanup scans. Cleanup only records `candidate`, `orphan`, or `tombstone` state inside MyDesk for a future explicit cleanup UI.
+This iteration allows only create, update, and read in Finder. MindDesk does not automatically delete `.minddesk-index.json` from Finder during workspace delete, resource delete, unpin, index disable, or cleanup scans. Cleanup only records `candidate`, `orphan`, or `tombstone` state inside MindDesk for a future explicit cleanup UI.
 
 The index file may be written only when all conditions are true:
 
 - Hidden indexing is globally enabled.
 - Hidden indexing is enabled for that specific authorized folder.
 - The target is a user-authorized folder root from a pinned folder or workspace root.
-- MyDesk currently has write access through bookmark access or direct user selection.
+- MindDesk currently has write access through bookmark access or direct user selection.
 - The target is not blocked by package, symlink, hardlink, Git, cloud-sync, or ownership rules below.
 
 The index file must not be written recursively to child folders. It must not be written next to ordinary pinned files. It must not be treated as a portable sync payload.
@@ -248,7 +248,7 @@ Index file field rules:
 | Field | Allowed | Rule |
 |---|---|---|
 | `schemaVersion` | Yes | Must match a supported index schema. |
-| `appNamespace` | Yes | Fixed MyDesk app namespace/bundle identifier, validated on read. |
+| `appNamespace` | Yes | Fixed MindDesk app namespace/bundle identifier, validated on read. |
 | `indexFileId` | Yes | Opaque local id meaningful only to this installation. |
 | `ownershipMarker` | Yes | Includes local installation id, bundle id, and creating app version. |
 | `folderIndexRecordId` | Yes | Opaque local id pointing to local SwiftData. |
@@ -261,7 +261,7 @@ Index file field rules:
 
 ### Hidden Index Trust and File-System Safety
 
-`.mydesk-index.json` is untrusted input. Reading it may assist recovery and diagnostics, but it cannot override SwiftData, cannot bypass bookmark reauthorization, cannot create pins by itself, and cannot trigger Finder delete/move/rename.
+`.minddesk-index.json` is untrusted input. Reading it may assist recovery and diagnostics, but it cannot override SwiftData, cannot bypass bookmark reauthorization, cannot create pins by itself, and cannot trigger Finder delete/move/rename.
 
 `FolderIndexService.readIndex` must validate schema, `appNamespace`, `ownershipMarker`, `indexFileId`, and checksum. Validation failure records a failed or cleanup-candidate log and ignores the payload.
 
@@ -269,7 +269,7 @@ File-system safety rules:
 
 | Risk | Rule |
 |---|---|
-| Symlink | Use `lstat` before and after write. Do not follow an existing `.mydesk-index.json` symlink. Reject paths that escape the authorized folder root. |
+| Symlink | Use `lstat` before and after write. Do not follow an existing `.minddesk-index.json` symlink. Reject paths that escape the authorized folder root. |
 | Hardlink/non-regular file | Refuse to overwrite if the existing index path is not a regular file or appears as a multi-link file. |
 | Package | Do not write inside `.app`, `.photoslibrary`, or other packages by default. |
 | Git repo | Default to blocked for Git worktrees and `.git` directories. Do not modify `.gitignore`. |
@@ -278,7 +278,7 @@ File-system safety rules:
 
 ### Hidden Index Logs
 
-All hidden index operations are recorded inside MyDesk local storage, not in pinned folders.
+All hidden index operations are recorded inside MindDesk local storage, not in pinned folders.
 
 Logs are local-only and not part of default sync or default export. Full paths and raw error details are diagnostic fields and must support retention/redaction.
 
@@ -332,14 +332,14 @@ The current work should make sync possible later by separating:
 
 - Portable metadata: titles, notes, tags, ids, relationships, timestamps.
 - Local-only authorization: security-scoped bookmark data.
-- Local-only index data: `.mydesk-index.json`, index paths, ownership markers, HMAC fingerprints, checksums, and logs.
+- Local-only index data: `.minddesk-index.json`, index paths, ownership markers, HMAC fingerprints, checksums, and logs.
 - Conflict state: future revisions, tombstones, and device ids.
 
 Bookmark data, index files, index logs, local full paths, HMAC secrets, HMAC fingerprints, checksums, and cleanup state must not be treated as portable sync payloads. Default JSON export also excludes them. A future diagnostic export must be explicit and redacted by default.
 
 ### Finder Real File Management
 
-MyDesk will not rename, delete, move, or reorganize real Finder files as part of this feature. MyDesk may create or update `.mydesk-index.json` only under the opt-in hidden index rules above. Automatic physical deletion of `.mydesk-index.json` is deferred to a future cleanup UI with explicit user confirmation.
+MindDesk will not rename, delete, move, or reorganize real Finder files as part of this feature. MindDesk may create or update `.minddesk-index.json` only under the opt-in hidden index rules above. Automatic physical deletion of `.minddesk-index.json` is deferred to a future cleanup UI with explicit user confirmation.
 
 ## Data Model Changes
 
@@ -437,7 +437,7 @@ Owns Quick Look preview coordination and long-lived scoped access sessions for p
 
 ### FolderIndexService
 
-Owns `.mydesk-index.json` create, update, read, validation, blocked-path checks, atomic write, and cleanup marking. It records every operation through `IndexOperationLogModel`.
+Owns `.minddesk-index.json` create, update, read, validation, blocked-path checks, atomic write, and cleanup marking. It records every operation through `IndexOperationLogModel`.
 
 This service does not physically delete hidden index files from Finder in this iteration.
 
@@ -470,7 +470,7 @@ Automated checks:
 - Index payload tests confirming allowed fields exist and forbidden fields are absent.
 - Index validation tests for schema, namespace, ownership marker, and checksum failures.
 - HMAC fingerprint tests for same-secret stability and different-secret difference.
-- Hidden index cleanup tests confirming only `candidate`, `orphan`, or `tombstone` state is recorded and no real `.mydesk-index.json` is deleted.
+- Hidden index cleanup tests confirming only `candidate`, `orphan`, or `tombstone` state is recorded and no real `.minddesk-index.json` is deleted.
 - Safety tests for symlink, hardlink, package, Git repo, and cloud-sync blocked paths.
 - Atomic write tests confirming failure does not leave corrupted JSON or delete the previous index.
 - Export tests confirming bookmark, index, log, path, fingerprint, checksum, and HMAC secret data are excluded from default export.
@@ -485,12 +485,12 @@ Manual smoke checks:
 - Preview a supported file with Quick Look, keep preview open, then close it and confirm no crash or stale access.
 - Rename and delete a workspace and confirm Finder files remain untouched.
 - Delete a workspace and confirm global pins/snippets remain.
-- Enable hidden indexing for an authorized folder and confirm only one `.mydesk-index.json` appears at the authorized folder root.
-- Delete the workspace/resource and confirm Finder `.mydesk-index.json` is not automatically deleted, while MyDesk records cleanup candidate/orphan/tombstone state.
-- Tamper with `.mydesk-index.json` namespace, schema, or checksum and confirm MyDesk ignores it and records a failure log.
+- Enable hidden indexing for an authorized folder and confirm only one `.minddesk-index.json` appears at the authorized folder root.
+- Delete the workspace/resource and confirm Finder `.minddesk-index.json` is not automatically deleted, while MindDesk records cleanup candidate/orphan/tombstone state.
+- Tamper with `.minddesk-index.json` namespace, schema, or checksum and confirm MindDesk ignores it and records a failure log.
 - Attempt hidden indexing in Git repo and cloud-sync folders and confirm the app blocks by default with a visible reason.
 - Trigger log retention/redaction and confirm paths/error details are redacted while audit records remain understandable.
-- Confirm app-local shortcuts work only while MyDesk is active and focused.
+- Confirm app-local shortcuts work only while MindDesk is active and focused.
 
 ## Acceptance Criteria
 
@@ -504,7 +504,7 @@ Manual smoke checks:
 - Workspace rename and delete are metadata-only and preserve global pins/snippets.
 - Workspace delete leaves no live orphan canvas nodes, edges, alias refs, index refs, or snippet working-directory refs.
 - Quick Look works for supported pinned files and fails safely for unsupported, missing, or unauthorized targets.
-- Hidden index files are opt-in, folder-root-only, minimal, validated as untrusted input, and fully logged inside MyDesk.
-- MyDesk does not automatically delete `.mydesk-index.json` from Finder in this iteration.
+- Hidden index files are opt-in, folder-root-only, minimal, validated as untrusted input, and fully logged inside MindDesk.
+- MindDesk does not automatically delete `.minddesk-index.json` from Finder in this iteration.
 - Hidden index/log/bookmark/path/fingerprint/checksum data is local-only and excluded from default sync/export.
 - No user Finder file, folder, package, symlink target, or Finder alias target is deleted, renamed, moved, or reorganized by this feature.

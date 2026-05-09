@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import MyDeskCore
+import MindDeskCore
 import SwiftData
 
 enum WorkbenchError: LocalizedError {
@@ -10,6 +10,9 @@ enum WorkbenchError: LocalizedError {
     case appleScript(String)
     case cancelled
     case unsupportedManifestVersion(Int)
+    case reauthorizationRequired(String)
+    case resourceTypeMismatch(expected: String, selected: String)
+    case invalidManifestReferences(String)
 
     var errorDescription: String? {
         switch self {
@@ -25,6 +28,12 @@ enum WorkbenchError: LocalizedError {
             return "Operation cancelled."
         case .unsupportedManifestVersion(let version):
             return "Unsupported manifest version: \(version)"
+        case .reauthorizationRequired(let path):
+            return "Reauthorize this resource before accessing the file system: \(path)"
+        case .resourceTypeMismatch(let expected, let selected):
+            return "Selected \(selected) does not match this resource's \(expected) type."
+        case .invalidManifestReferences(let message):
+            return message
         }
     }
 }
@@ -66,11 +75,16 @@ struct FolderPreviewService {
     private let bookmarkService = BookmarkService()
 
     func contents(of resource: ResourcePinModel, limit: Int = 200) throws -> [FolderPreviewItem] {
-        try contents(bookmarkData: resource.securityScopedBookmarkData, fallbackPath: resource.lastResolvedPath, limit: limit)
+        try contents(
+            bookmarkData: resource.securityScopedBookmarkData,
+            fallbackPath: resource.lastResolvedPath,
+            statusRaw: resource.statusRaw,
+            limit: limit
+        )
     }
 
-    func contents(bookmarkData: Data?, fallbackPath: String, limit: Int = 200) throws -> [FolderPreviewItem] {
-        let resolved = bookmarkService.resolveBookmark(bookmarkData, fallbackPath: fallbackPath)
+    func contents(bookmarkData: Data?, fallbackPath: String, statusRaw: String, limit: Int = 200) throws -> [FolderPreviewItem] {
+        let resolved = try bookmarkService.resolveAuthorizedBookmark(bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
         let folderURL = resolved.url
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -126,6 +140,17 @@ struct BookmarkService {
         } catch {
             return (URL(fileURLWithPath: fallbackPath), true)
         }
+    }
+
+    func resolveAuthorizedBookmark(_ data: Data?, fallbackPath: String, statusRaw: String) throws -> (url: URL, stale: Bool) {
+        guard ResourceAuthorizationPolicy.canAccessFileSystem(status: statusRaw, hasBookmarkData: data != nil) else {
+            throw WorkbenchError.reauthorizationRequired(fallbackPath)
+        }
+        let resolved = resolveBookmark(data, fallbackPath: fallbackPath)
+        guard !resolved.stale else {
+            throw WorkbenchError.reauthorizationRequired(resolved.url.path)
+        }
+        return resolved
     }
 
     func access<T>(_ url: URL, perform: () throws -> T) rethrows -> T {
@@ -352,7 +377,7 @@ struct ImportExportService {
     }
 
     func decodeManifest(from data: Data) throws -> ExportManifest {
-        let manifest = try JSONDecoder.mydesk.decode(ExportManifest.self, from: data)
+        let manifest = try JSONDecoder.minddesk.decode(ExportManifest.self, from: data)
         guard manifest.schemaVersion == Self.schemaVersion else {
             throw WorkbenchError.unsupportedManifestVersion(manifest.schemaVersion)
         }
@@ -367,7 +392,7 @@ struct FileDialogs {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a file or folder to pin in MyDesk."
+        panel.message = "Choose a file or folder to pin in MindDesk."
         return panel.runModal() == .OK ? panel.url : nil
     }
 
@@ -404,8 +429,8 @@ struct FileDialogs {
     static func saveJSON() -> URL? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = "MyDesk-Backup.json"
-        panel.message = "Export MyDesk metadata. Bookmark authorization data is not exported."
+        panel.nameFieldStringValue = "MindDesk-Backup.json"
+        panel.message = "Export MindDesk metadata. Bookmark authorization data is not exported."
         return panel.runModal() == .OK ? panel.url : nil
     }
 
@@ -416,7 +441,7 @@ struct FileDialogs {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = "Import a MyDesk JSON manifest."
+        panel.message = "Import a MindDesk JSON manifest."
         return panel.runModal() == .OK ? panel.url : nil
     }
 }

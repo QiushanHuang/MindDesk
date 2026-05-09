@@ -3,29 +3,29 @@
 import PackageDescription
 
 let package = Package(
-    name: "MyDesk",
+    name: "MindDesk",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .library(name: "MyDeskCore", targets: ["MyDeskCore"]),
-        .executable(name: "MyDesk", targets: ["MyDesk"])
+        .library(name: "MindDeskCore", targets: ["MindDeskCore"]),
+        .executable(name: "MindDesk", targets: ["MindDesk"])
     ],
     targets: [
         .target(
-            name: "MyDeskCore",
-            path: "Sources/MyDeskCore"
+            name: "MindDeskCore",
+            path: "Sources/MindDeskCore"
         ),
         .executableTarget(
-            name: "MyDesk",
-            dependencies: ["MyDeskCore"],
-            path: "Sources/MyDesk",
+            name: "MindDesk",
+            dependencies: ["MindDeskCore"],
+            path: "Sources/MindDesk",
             resources: [.copy("Resources")]
         ),
         .testTarget(
-            name: "MyDeskCoreTests",
-            dependencies: ["MyDeskCore"],
-            path: "Tests/MyDeskCoreTests"
+            name: "MindDeskCoreTests",
+            dependencies: ["MindDeskCore"],
+            path: "Tests/MindDeskCoreTests"
         )
     ]
 )

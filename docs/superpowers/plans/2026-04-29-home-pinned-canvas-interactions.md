@@ -13,8 +13,8 @@
 ### Task 1: Core Interaction Rules
 
 **Files:**
-- Modify: `Sources/MyDeskCore/WorkbenchOrdering.swift`
-- Modify: `Tests/MyDeskCoreTests/CoreBehaviorTests.swift`
+- Modify: `Sources/MindDeskCore/WorkbenchOrdering.swift`
+- Modify: `Tests/MindDeskCoreTests/CoreBehaviorTests.swift`
 
 - [ ] Add tests for folder preview ordering and directional edge animation eligibility.
 
@@ -34,9 +34,9 @@ Expected red first if helpers are missing, then green after adding helpers.
 ### Task 2: Home And Pinned Resource Actions
 
 **Files:**
-- Modify: `Sources/MyDesk/Views/ContentView.swift`
-- Modify: `Sources/MyDesk/Views/ResourceSnippetViews.swift`
-- Modify: `Sources/MyDesk/Services/SystemServices.swift`
+- Modify: `Sources/MindDesk/Views/ContentView.swift`
+- Modify: `Sources/MindDesk/Views/ResourceSnippetViews.swift`
+- Modify: `Sources/MindDesk/Services/SystemServices.swift`
 
 - [ ] Add `ResourceActionSet` closures in `ContentView` for open/reveal/copy/inspect/rename/pin/remove.
 - [ ] Replace Home pinned resource `DashboardCard` with `HomeResourceCard`.
@@ -54,9 +54,9 @@ Expected: build succeeds.
 ### Task 3: Resource Preview Detail Page
 
 **Files:**
-- Modify: `Sources/MyDesk/Views/ContentView.swift`
-- Modify: `Sources/MyDesk/Views/ResourceSnippetViews.swift`
-- Modify: `Sources/MyDesk/Services/SystemServices.swift`
+- Modify: `Sources/MindDesk/Views/ContentView.swift`
+- Modify: `Sources/MindDesk/Views/ResourceSnippetViews.swift`
+- Modify: `Sources/MindDesk/Services/SystemServices.swift`
 
 - [ ] Replace `.resource(id)` one-row table with `ResourcePreviewView`.
 - [ ] Folder preview reads first-level contents only, sorted by folder-first then localized name.
@@ -74,9 +74,9 @@ Expected: build succeeds.
 ### Task 4: Canvas Connection, Frame, Selection, And Edge Flow
 
 **Files:**
-- Modify: `Sources/MyDesk/Canvas/WorkspaceCanvasView.swift`
-- Modify: `Sources/MyDeskCore/WorkbenchOrdering.swift`
-- Modify: `Tests/MyDeskCoreTests/CoreBehaviorTests.swift`
+- Modify: `Sources/MindDesk/Canvas/WorkspaceCanvasView.swift`
+- Modify: `Sources/MindDeskCore/WorkbenchOrdering.swift`
+- Modify: `Tests/MindDeskCoreTests/CoreBehaviorTests.swift`
 
 - [ ] Fix selection to update immediately on pointer down/tap without waiting for double-click recognition.
 - [ ] Keep double-click open behavior without clearing connection state.
@@ -103,7 +103,7 @@ Expected: tests pass, build succeeds, app process launches.
 - [ ] Run:
 
 ```bash
-git diff --check -- Desktop/Qiushan_Studio/6_Personal/MyDesk
+git diff --check -- Desktop/Qiushan_Studio/6_Personal/MindDesk
 swift test
 swift build
 ./script/build_and_run.sh --verify

@@ -1,4 +1,4 @@
-# MyDesk
+# MindDesk
 
 > A native macOS visual workbench for reconnecting files, folders, prompts, commands, and project thinking across complex work systems.
 
@@ -6,7 +6,7 @@
 [![English](https://img.shields.io/badge/Language-English-24292f)](#english)
 
 <p align="center">
-  <img src="Sources/MyDesk/Resources/AppIcon.png" alt="MyDesk logo" width="128">
+  <img src="Sources/MindDesk/Resources/AppIcon.png" alt="MindDesk logo" width="128">
 </p>
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-111827)
@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v1.3.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v1.4.0-0A84FF)
 
 ---
 
@@ -27,23 +27,23 @@
 - [Product Positioning](#product-positioning)
 - [Problem](#problem)
 - [Core Idea](#core-idea)
-- [What MyDesk Provides](#what-mydesk-provides)
+- [What MindDesk Provides](#what-minddesk-provides)
 - [Use Cases](#use-cases)
 - [Install the App Package](#install-the-app-package)
 - [Use the Source Package](#use-the-source-package)
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v1.3.0](#whats-new-in-v130)
+- [What's New in v1.4.0](#whats-new-in-v140)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
 
 ### Product Positioning
 
-MyDesk is a macOS workbench for people who already maintain disciplined file systems, project names, folder structures, and research or production archives, but still need a faster way to understand how the same resources are reused across different projects.
+MindDesk is a macOS workbench for people who already maintain disciplined file systems, project names, folder structures, and research or production archives, but still need a faster way to understand how the same resources are reused across different projects.
 
-Traditional folders are excellent for storage. They are less effective for explaining relationships: which dataset belongs to which experiment, which script generated which output, which prompt supports which workflow, and why the same file matters in multiple project contexts. MyDesk adds a visual layer above the file system without replacing the file system.
+Traditional folders are excellent for storage. They are less effective for explaining relationships: which dataset belongs to which experiment, which script generated which output, which prompt supports which workflow, and why the same file matters in multiple project contexts. MindDesk adds a visual layer above the file system without replacing the file system.
 
 The goal is to turn a well-organized local archive into a reusable visual knowledge base: one source file can appear in multiple project workspaces, with different notes, links, frames, and workflow meaning each time.
 
@@ -58,11 +58,11 @@ Complex projects often create three kinds of friction:
 | Project thinking is scattered | Files live in Finder, commands live in Terminal history, prompts live in notes, and workflow logic lives in memory. |
 | Re-entry is expensive | Returning to a complex project requires remembering paths, decisions, dependencies, and next actions. |
 
-MyDesk is designed to reduce that re-entry cost. It gives each project a visual workspace where resources are not merely listed, but placed, connected, annotated, and grouped.
+MindDesk is designed to reduce that re-entry cost. It gives each project a visual workspace where resources are not merely listed, but placed, connected, annotated, and grouped.
 
 ### Core Idea
 
-MyDesk keeps your real files where they are. It stores lightweight metadata that maps those files into visual workspaces.
+MindDesk keeps your real files where they are. It stores lightweight metadata that maps those files into visual workspaces.
 
 ```mermaid
 flowchart LR
@@ -83,7 +83,7 @@ This creates a practical middle layer between strict file classification and fre
 - Connections show direction, dependency, or workflow flow.
 - Reusable snippets keep common prompts and commands close to the project.
 
-### What MyDesk Provides
+### What MindDesk Provides
 
 | Area | Capability |
 | --- | --- |
@@ -111,22 +111,22 @@ This creates a practical middle layer between strict file classification and fre
 
 ### Install the App Package
 
-Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases).
+Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases).
 
 Recommended app package:
 
-1. Download `MyDesk-v1.3.0-macOS.dmg`.
+1. Download `MindDesk-v1.4.0-macOS.dmg`.
 2. Open the DMG.
-3. Drag `MyDesk.app` into `Applications`.
-4. Launch `MyDesk` from Applications.
+3. Drag `MindDesk.app` into `Applications`.
+4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download `MyDesk-v1.3.0-macOS.zip`.
+1. Download `MindDesk-v1.4.0-macOS.zip`.
 2. Unzip it.
-3. Move `MyDesk.app` to `Applications`.
+3. Move `MindDesk.app` to `Applications`.
 
-The current public build is ad-hoc signed and not notarized because this repository does not yet have a configured Developer ID certificate. If macOS blocks the first launch, right-click `MyDesk.app` and choose **Open**, or allow it in **System Settings > Privacy & Security**.
+Public release artifacts are expected to be Developer ID signed, notarized, stapled, and Gatekeeper-assessed before upload. Internal ad-hoc packages are allowed only when explicitly built with `--mode adhoc --allow-adhoc`, and those artifacts include an `-adhoc` suffix.
 
 ### Use the Source Package
 
@@ -140,8 +140,8 @@ Use the source package when you want to inspect the implementation, build locall
 You can also clone the repository directly:
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### Build From Source
@@ -156,6 +156,17 @@ Run tests:
 
 ```bash
 swift test
+```
+
+Create a notarized release package:
+
+```bash
+xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id <TEAMID>
+./script/package_release.sh \
+  --mode notarized \
+  --identity "Developer ID Application: Qiushan Huang (TEAMID)" \
+  --team-id TEAMID \
+  --notary-profile minddesk-notary
 ```
 
 Build and launch a local app bundle:
@@ -179,59 +190,88 @@ Create release artifacts locally:
 Release artifacts are written to:
 
 ```text
-dist/release/MyDesk-v1.3.0-macOS/artifacts/
+dist/release/MindDesk-v1.4.0-macOS/artifacts/
 ```
 
 The release script creates:
 
-- `MyDesk-v1.3.0-macOS.dmg`
-- `MyDesk-v1.3.0-macOS.zip`
+- `MindDesk-v1.4.0-macOS.dmg`
+- `MindDesk-v1.4.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
 
+### GitHub Actions Release Environment
+
+The repository includes two workflows:
+
+- `.github/workflows/ci.yml` runs Swift tests, release script syntax checks, entitlements validation, release guardrail checks, and `git diff --check`.
+- `.github/workflows/release.yml` is a manual workflow that imports a Developer ID certificate, builds the app, signs it, submits the app and DMG to Apple notarization, staples both artifacts, uploads workflow artifacts, and can create a draft GitHub Release.
+
+Configure these repository secrets before running the Release workflow:
+
+| Secret | Purpose |
+| --- | --- |
+| `DEVELOPER_ID_CERTIFICATE_BASE64` | Base64-encoded `.p12` Developer ID Application certificate. |
+| `DEVELOPER_ID_CERTIFICATE_PASSWORD` | Password for the `.p12` certificate. |
+| `DEVELOPER_ID_IDENTITY` | Full signing identity, for example `Developer ID Application: Qiushan Huang (TEAMID)`. |
+| `APPLE_TEAM_ID` | Apple Developer Team ID that matches the certificate. |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | Base64-encoded App Store Connect API key `.p8`. |
+| `APP_STORE_CONNECT_KEY_ID` | App Store Connect API key ID. |
+| `APP_STORE_CONNECT_ISSUER_ID` | App Store Connect issuer ID. |
+| `SIGNING_KEYCHAIN_PASSWORD` | Temporary keychain password used by the workflow runner. |
+
+One way to set the binary secrets from local files is:
+
+```bash
+gh secret set DEVELOPER_ID_CERTIFICATE_BASE64 --body "$(base64 -i DeveloperIDApplication.p12)"
+gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID.p8)"
+```
+
 ### Data, Privacy, and Reliability
 
-MyDesk does not move or delete your real Finder files when you remove app metadata. It stores references, notes, layout positions, snippets, and workspace relationships in local app data.
+MindDesk does not move or delete your real Finder files when you remove app metadata. It stores references, notes, layout positions, snippets, and workspace relationships in local app data.
 
 Current data model principles:
 
 - Real files and folders stay in their original Finder locations.
-- MyDesk stores lightweight metadata and visual mapping.
-- Resource deletion inside MyDesk removes MyDesk metadata, not the original file.
+- MindDesk stores lightweight metadata and visual mapping.
+- Resource deletion inside MindDesk removes MindDesk metadata, not the original file.
 - Finder alias creation and command execution require explicit confirmation.
 - SwiftData uses an app-specific storage location:
 
 ```text
-~/Library/Application Support/studio.qiushan.mydesk/Stores/MyDesk.store
+~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store
 ```
 
 ### Release Notes
 
-Current release: `v1.3.0`
+Current release: `v1.4.0`
 
 Highlights:
 
-- Workspace todo groups with task details, pinned tasks, DDL dates, and linked resources.
-- Global Library workspace-usage display with filtering by selected workspace.
-- Safer resource import deduplication across global and workspace scopes.
-- Canvas resource menus that can add global, current-workspace, and other-workspace resources.
-- Refined navigation titles, detail layout, status bar spacing, and README release guidance.
-- Added the new MyDesk logo to the README and release documentation.
+- MindDesk package, executable, bundle identifier, store layout, release scripts, and UI naming.
+- Workspace reference cards, Web Page cards, and the fuller Cmd+K Quick Open command palette.
+- Workspace sidebar drag sorting using existing sort indexes.
+- Inline task detail summaries with one-line truncation.
+- Single-use Connect setting for Canvas link creation.
+- Responsive, scrollable Canvas right rail.
+- Direct link selection/deletion, deletion undo, lower edge-routing clearance, and paused link animation during active Canvas interactions.
+- Developer ID notarization scripting, CI, a manual GitHub Release workflow, and release environment documentation.
 
-Full release notes are available in [`docs/releases/v1.3.0.md`](docs/releases/v1.3.0.md).
+Full release notes are available in [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md).
 
-### What's New in v1.3.0
+### What's New in v1.4.0
 
-This release makes MyDesk more useful when the same source material appears across several workspaces. Global Library now shows workspace usage, canvas references count as usage, and the library can be filtered to a specific workspace. Resource import also keeps global and workspace-scoped records separate, so the same path can be reused intentionally without corrupting scope meaning.
+This release completes the MindDesk naming migration for the app package and storage layout, with a startup migration path from the previous local store. It also improves daily Canvas work with Workspace reference cards, Web Page cards, Cmd+K Quick Open, Workspace sidebar drag sorting, inline task detail previews, a Single-use Connect preference, right-rail scrolling, direct link selection/deletion, lower link-routing clearance, and paused link animation during active Canvas interactions.
 
-The workspace todo board is now closer to a project planning surface: tasks can be grouped, pinned, edited with details, assigned optional DDL dates, and linked back to resources. This keeps next actions attached to the same visual workspace where files, prompts, notes, and workflow connections already live.
+The Canvas keeps schema changes conservative: Workspace and Web Page cards reuse existing node object references, while link free-bend controls reuse existing edge control points.
 
 ### Project Structure
 
 ```text
-Sources/MyDesk/       macOS SwiftUI application target
-Sources/MyDeskCore/   testable core layout, routing, export, storage, and utility logic
+Sources/MindDesk/       macOS SwiftUI application target
+Sources/MindDeskCore/   testable core layout, routing, export, storage, and utility logic
 Tests/                XCTest coverage for core behavior
 docs/                 release notes, design notes, and feature checklist
 script/               build, run, and release packaging helpers
@@ -265,16 +305,16 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v1.3.0 新增内容](#v130-新增内容)
+- [v1.4.0 新增内容](#v140-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
 
 ### 产品定位
 
-MyDesk 是一个原生 macOS 可视化工作台，用来在严谨的文件分类、项目命名和本地归档体系之上，重新组织文件、文件夹、Prompt、命令、笔记和项目思路之间的关系。
+MindDesk 是一个原生 macOS 可视化工作台，用来在严谨的文件分类、项目命名和本地归档体系之上，重新组织文件、文件夹、Prompt、命令、笔记和项目思路之间的关系。
 
-它不是要替代 Finder，也不是把一切都变成复杂标签。MyDesk 的目标是在现有文件系统上增加一个“可视化关系层”：真实文件仍然保持原来的路径和结构，但同一套文件可以在不同项目中以不同方式被引用、连接、注释和分组。
+它不是要替代 Finder，也不是把一切都变成复杂标签。MindDesk 的目标是在现有文件系统上增加一个“可视化关系层”：真实文件仍然保持原来的路径和结构，但同一套文件可以在不同项目中以不同方式被引用、连接、注释和分组。
 
 这适合把个人或团队已有的资料库，逐步组织成一个可复用的标准数据库。你可以围绕项目来管理资源关系，而不是只靠文件夹层级或不断膨胀的 tag 系统来回忆上下文。
 
@@ -289,11 +329,11 @@ MyDesk 是一个原生 macOS 可视化工作台，用来在严谨的文件分类
 | 项目思路散落在不同地方 | 文件在 Finder，命令在 Terminal 历史，Prompt 在笔记，工作流逻辑留在记忆里。 |
 | 重新进入项目成本高 | 过一段时间再回来，需要重新找路径、想依赖关系、回忆为什么这样组织。 |
 
-MyDesk 试图降低“重新进入项目”的成本。每个 Workspace 都可以成为一个项目框架：你看到的不只是资源列表，而是文件、命令、Prompt、说明、组织框和连接关系。
+MindDesk 试图降低“重新进入项目”的成本。每个 Workspace 都可以成为一个项目框架：你看到的不只是资源列表，而是文件、命令、Prompt、说明、组织框和连接关系。
 
 ### 核心思路
 
-MyDesk 保留你的真实文件位置，只在应用中保存轻量 metadata，用可视化方式映射这些资源。
+MindDesk 保留你的真实文件位置，只在应用中保存轻量 metadata，用可视化方式映射这些资源。
 
 ```mermaid
 flowchart LR
@@ -342,22 +382,22 @@ flowchart LR
 
 ### 安装 App 包
 
-从 [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases) 下载最新版本。
+从 [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases) 下载最新版本。
 
 推荐安装方式：
 
-1. 下载 `MyDesk-v1.3.0-macOS.dmg`。
+1. 下载 `MindDesk-v1.4.0-macOS.dmg`。
 2. 打开 DMG。
-3. 将 `MyDesk.app` 拖入 `Applications`。
-4. 从 Applications 启动 MyDesk。
+3. 将 `MindDesk.app` 拖入 `Applications`。
+4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载 `MyDesk-v1.3.0-macOS.zip`。
+1. 下载 `MindDesk-v1.4.0-macOS.zip`。
 2. 解压。
-3. 将 `MyDesk.app` 移动到 `Applications`。
+3. 将 `MindDesk.app` 移动到 `Applications`。
 
-当前公开构建为 ad-hoc signed，尚未 notarized，因为此仓库还没有配置 Developer ID 证书。如果 macOS 首次启动时拦截，可以右键 `MyDesk.app` 选择 **Open**，或在 **System Settings > Privacy & Security** 中允许打开。
+公开发布产物必须在上传前完成 Developer ID 签名、notarization、stapling 和 Gatekeeper `spctl` 评估。内部 ad-hoc 包只允许显式使用 `--mode adhoc --allow-adhoc` 构建，产物名会带 `-adhoc` 后缀，不能作为公开发布包使用。
 
 ### 使用源码包
 
@@ -371,8 +411,8 @@ GitHub Releases 会同时提供源码包：
 也可以直接克隆仓库：
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### 从源码构建
@@ -401,68 +441,107 @@ swift test
 ./script/build_and_run.sh --verify
 ```
 
-创建发布包：
+创建正式发布包前，先把 notarytool 凭据保存到钥匙串：
 
 ```bash
-./script/package_release.sh
+xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id TEAMID
+```
+
+创建 Developer ID 签名并 notarized 的正式发布包：
+
+```bash
+./script/package_release.sh \
+  --mode notarized \
+  --identity "Developer ID Application: Qiushan Huang (TEAMID)" \
+  --team-id TEAMID \
+  --notary-profile minddesk-notary
 ```
 
 发布产物会生成在：
 
 ```text
-dist/release/MyDesk-v1.3.0-macOS/artifacts/
+dist/release/MindDesk-v1.4.0-macOS/artifacts/
 ```
 
 其中包括：
 
-- `MyDesk-v1.3.0-macOS.dmg`
-- `MyDesk-v1.3.0-macOS.zip`
+- `MindDesk-v1.4.0-macOS.dmg`
+- `MindDesk-v1.4.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
 
+### GitHub Actions 发布环境
+
+仓库已补齐两个工作流：
+
+- `.github/workflows/ci.yml`：在 PR 和 Push 时运行 Swift 测试、脚本语法检查、entitlements 校验、发布保护分支检查和 `git diff --check`。
+- `.github/workflows/release.yml`：手动触发，导入 Developer ID 证书，构建、签名、notarize、staple app 与 DMG，上传产物，并可创建 draft GitHub Release。
+
+运行 Release workflow 前，需要在 GitHub 仓库 Secrets 中配置：
+
+| Secret | 用途 |
+| --- | --- |
+| `DEVELOPER_ID_CERTIFICATE_BASE64` | base64 编码的 `.p12` Developer ID Application 证书。 |
+| `DEVELOPER_ID_CERTIFICATE_PASSWORD` | `.p12` 证书密码。 |
+| `DEVELOPER_ID_IDENTITY` | 完整签名身份，例如 `Developer ID Application: Qiushan Huang (TEAMID)`。 |
+| `APPLE_TEAM_ID` | 与证书匹配的 Apple Developer Team ID。 |
+| `APP_STORE_CONNECT_API_KEY_BASE64` | base64 编码的 App Store Connect API key `.p8`。 |
+| `APP_STORE_CONNECT_KEY_ID` | App Store Connect API key ID。 |
+| `APP_STORE_CONNECT_ISSUER_ID` | App Store Connect issuer ID。 |
+| `SIGNING_KEYCHAIN_PASSWORD` | GitHub Actions 临时 keychain 密码。 |
+
+二进制 Secret 可以这样从本地文件写入：
+
+```bash
+gh secret set DEVELOPER_ID_CERTIFICATE_BASE64 --body "$(base64 -i DeveloperIDApplication.p12)"
+gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID.p8)"
+```
+
 ### 数据、隐私与稳定性
 
-在 MyDesk 里删除资源时，只删除 MyDesk 的 metadata，不会删除 Finder 中的真实文件。MyDesk 保存的是资源引用、说明、布局、Snippet 和工作区关系。
+在 MindDesk 里删除资源时，只删除 MindDesk 的 metadata，不会删除 Finder 中的真实文件。MindDesk 保存的是资源引用、说明、布局、Snippet 和工作区关系。
 
 当前数据规则：
 
 - 文件和文件夹保持原始 Finder 位置。
-- MyDesk 只保存轻量映射和可视化关系。
-- 删除 MyDesk 资源不会删除原始文件。
+- MindDesk 只保存轻量映射和可视化关系。
+- 删除 MindDesk 资源不会删除原始文件。
 - 创建 Finder alias、运行命令等外部操作需要确认。
 - SwiftData 使用应用专属存储路径：
 
 ```text
-~/Library/Application Support/studio.qiushan.mydesk/Stores/MyDesk.store
+~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store
 ```
 
 ### 版本更新
 
-当前版本：`v1.3.0`
+当前版本：`v1.4.0`
 
 重点更新：
 
-- Workspace Todo Board 支持 Group、任务详情、Pinned、DDL 日期和关联资源。
-- Global Library 会显示资源被哪些 Workspace 使用，并支持按 Workspace 筛选。
-- 修复资源导入去重逻辑，避免全局资源和工作区资源因为相同路径被错误合并。
-- Canvas 添加资源时可以从全局库、当前 Workspace 和其他 Workspace 的资源分组中选择。
-- 改进导航标题、详情页布局、底部状态栏密度和 README 发布说明。
-- 在 README 和更新说明中加入新的 MyDesk logo 说明。
+- 完成 MindDesk 包名、可执行文件、Bundle ID、存储路径、脚本和界面命名迁移，并保留旧本地存储启动迁移路径。
+- 增加 Workspace 引用卡、Web Page 卡和完整 Cmd+K Quick Open command palette。
+- Workspace 边栏支持拖拽排序。
+- 任务行显示单行详情摘要，并按可用宽度截断。
+- Canvas 增加单次 Connect 设置。
+- Canvas 右侧栏支持响应式宽度和内部滚动。
+- 支持单独选中/删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、调低连线避让阈值，并在 Canvas 交互中暂停连线动画、降低文本编辑与路由刷新压力。
+- 补齐正式 release notarization 脚本、GitHub Actions CI、手动 Release workflow 和发布环境说明。
 
-完整更新内容见 [`docs/releases/v1.3.0.md`](docs/releases/v1.3.0.md)。
+完整更新内容见 [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md)。
 
-### v1.3.0 新增内容
+### v1.4.0 新增内容
 
-这个版本重点解决“同一资源在多个 Workspace 中被复用时难以追踪”的问题。Global Library 现在会展示资源的 Workspace 使用关系，Canvas 上引用过的资源也会计入使用关系，并且可以按 Workspace 快速筛选。资源导入时也会区分 global scope 和 workspace scope，避免相同路径在不同语境下被错误合并。
+本版本完成 MindDesk 命名迁移，并在启动时从旧本地存储路径迁移已有数据。同时补齐图片中整理出的 Canvas 日常使用体验：Workspace 引用卡、Web Page 卡、完整 Cmd+K Quick Open command palette、Workspace 边栏拖拽排序、任务行详情摘要、单次 Connect 偏好、右侧栏滚动、单独选中和删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、较低的连线避让阈值，以及 Canvas 交互时暂停连线动画、减少文本编辑和路由计算带来的卡顿。发布侧补齐默认 fail-closed 的 notarization 流程和 GitHub Actions 发布环境。
 
-Workspace Todo Board 也从简单任务列表扩展为更接近项目计划的工作区页面。任务可以分组、置顶、填写详情、设置 DDL，并关联到具体资源，让下一步行动和项目里的文件、Prompt、笔记、连接线保持在同一个上下文里。
+这些更新作为 v1.4.0 小版本完成：Workspace 和 Web Page 卡复用已有节点对象引用，连线自由弯点复用已有边控制点，避免引入破坏性数据结构变更。
 
 ### 项目结构
 
 ```text
-Sources/MyDesk/       macOS SwiftUI app target
-Sources/MyDeskCore/   可测试的布局、连线路由、导出、存储和工具逻辑
+Sources/MindDesk/       macOS SwiftUI app target
+Sources/MindDeskCore/   可测试的布局、连线路由、导出、存储和工具逻辑
 Tests/                XCTest 核心行为测试
 docs/                 发布说明、设计文档和功能回归清单
 script/               构建、启动和发布打包脚本
@@ -487,4 +566,4 @@ Built and maintained by **Qiushan Huang**.
 
 ## License
 
-MyDesk is released under the [MIT License](LICENSE).
+MindDesk is released under the [MIT License](LICENSE).

@@ -1,11 +1,116 @@
-import MyDeskCore
+import MindDeskCore
 import SwiftData
 import SwiftUI
 
 private let defaultTodoGroupTitle = "Default"
 
+private struct TodoDeletionSnapshot {
+    let id: String
+    let workspaceId: String
+    let groupId: String?
+    let title: String
+    let details: String
+    let isCompleted: Bool
+    let isPinned: Bool
+    let sortIndex: Int
+    let createdAt: Date
+    let updatedAt: Date
+    let completedAt: Date?
+    let dueAt: Date?
+    let linkedResourceId: String?
+
+    init(_ todo: WorkspaceTodoModel) {
+        id = todo.id
+        workspaceId = todo.workspaceId
+        groupId = todo.groupId
+        title = todo.title
+        details = todo.details
+        isCompleted = todo.isCompleted
+        isPinned = todo.isPinned
+        sortIndex = todo.sortIndex
+        createdAt = todo.createdAt
+        updatedAt = todo.updatedAt
+        completedAt = todo.completedAt
+        dueAt = todo.dueAt
+        linkedResourceId = todo.linkedResourceId
+    }
+
+    func makeModel() -> WorkspaceTodoModel {
+        WorkspaceTodoModel(
+            id: id,
+            workspaceId: workspaceId,
+            groupId: groupId,
+            title: title,
+            details: details,
+            isCompleted: isCompleted,
+            isPinned: isPinned,
+            sortIndex: sortIndex,
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            completedAt: completedAt,
+            dueAt: dueAt,
+            linkedResourceId: linkedResourceId
+        )
+    }
+}
+
+private struct TodoGroupDeletionSnapshot {
+    let id: String
+    let workspaceId: String
+    let title: String
+    let isPinned: Bool
+    let sortIndex: Int
+    let createdAt: Date
+    let updatedAt: Date
+
+    init(_ group: WorkspaceTodoGroupModel) {
+        id = group.id
+        workspaceId = group.workspaceId
+        title = group.title
+        isPinned = group.isPinned
+        sortIndex = group.sortIndex
+        createdAt = group.createdAt
+        updatedAt = group.updatedAt
+    }
+
+    func makeModel() -> WorkspaceTodoGroupModel {
+        WorkspaceTodoGroupModel(
+            id: id,
+            workspaceId: workspaceId,
+            title: title,
+            isPinned: isPinned,
+            sortIndex: sortIndex,
+            createdAt: createdAt,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+private struct TodoGroupMembershipSnapshot {
+    let todoId: String
+    let groupId: String?
+    let updatedAt: Date
+
+    init(_ todo: WorkspaceTodoModel) {
+        todoId = todo.id
+        groupId = todo.groupId
+        updatedAt = todo.updatedAt
+    }
+}
+
+private func fetchTodoForUndo(id: String, in context: ModelContext) -> WorkspaceTodoModel? {
+    let todoId = id
+    let descriptor = FetchDescriptor<WorkspaceTodoModel>(
+        predicate: #Predicate { todo in
+            todo.id == todoId
+        }
+    )
+    return try? context.fetch(descriptor).first
+}
+
 struct WorkspaceTodoBoardView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.undoManager) private var undoManager
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoColumnRatio) private var columnRatio = TodoBoardColumnSplit.defaultRatio
 
     let workspaceId: String
@@ -73,8 +178,7 @@ struct WorkspaceTodoBoardView: View {
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear {
-            let group = ensureDefaultGroup()
-            if selectedGroupId == nil {
+            if let group = ensureDefaultGroup(), selectedGroupId == nil {
                 selectedGroupId = group.id
             }
         }
@@ -311,6 +415,13 @@ struct WorkspaceTodoBoardView: View {
                     Text(todo.title)
                         .lineLimit(1)
                         .strikethrough(todo.isCompleted)
+                        .layoutPriority(1)
+                    if let detail = TodoBoardTaskSummary.inlineDetail(todo.details) {
+                        Text(detail)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
 
                 HStack(spacing: 8) {
@@ -401,14 +512,20 @@ struct WorkspaceTodoBoardView: View {
     }
 
     @discardableResult
-    private func ensureDefaultGroup() -> WorkspaceTodoGroupModel {
+    private func ensureDefaultGroup() -> WorkspaceTodoGroupModel? {
         if let existing = groups.first(where: { $0.title == defaultTodoGroupTitle }) {
             return existing
         }
         let group = WorkspaceTodoGroupModel(workspaceId: workspaceId, title: defaultTodoGroupTitle, sortIndex: nextGroupSortIndex())
         modelContext.insert(group)
-        try? modelContext.save()
-        return group
+        do {
+            try modelContext.save()
+            return group
+        } catch {
+            modelContext.rollback()
+            onStatus(error.localizedDescription)
+            return nil
+        }
     }
 
     private func addGroup() {
@@ -420,7 +537,7 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func addTodo() {
-        let group = selectedGroup ?? ensureDefaultGroup()
+        guard let group = selectedGroup ?? ensureDefaultGroup() else { return }
         let todo = WorkspaceTodoModel(
             workspaceId: workspaceId,
             groupId: group.id,
@@ -441,23 +558,75 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func delete(_ todo: WorkspaceTodoModel) {
+        let snapshot = TodoDeletionSnapshot(todo)
         modelContext.delete(todo)
-        save(status: "Deleted task")
+        if save(status: "Deleted task") {
+            registerTodoDeletionUndo(snapshot)
+        }
     }
 
     private func deleteGroup(_ group: WorkspaceTodoGroupModel) {
-        let fallback = ensureDefaultGroup()
+        guard let fallback = ensureDefaultGroup() else { return }
+        let orderedIds = orderedGroups.map(\.id)
+        let plan = TodoGroupDeletionPolicy.plan(
+            deletingGroupId: group.id,
+            defaultGroupId: fallback.id,
+            orderedGroupIds: orderedIds
+        )
+        guard plan.deletesGroup else {
+            onStatus("Default group cannot be deleted")
+            return
+        }
+        let groupSnapshot = TodoGroupDeletionSnapshot(group)
+        let membershipSnapshots = todos
+            .filter { $0.groupId == group.id }
+            .map(TodoGroupMembershipSnapshot.init)
         for todo in todos where todo.groupId == group.id {
-            todo.groupId = fallback.id == group.id ? nil : fallback.id
+            todo.groupId = plan.todoTargetGroupId
             todo.updatedAt = .now
         }
         if selectedGroupId == group.id {
-            selectedGroupId = fallback.id == group.id ? orderedGroups.first { $0.id != group.id }?.id : fallback.id
+            selectedGroupId = plan.nextSelectedGroupId
         }
-        if group.id != fallback.id {
-            modelContext.delete(group)
+        modelContext.delete(group)
+        if save(status: "Deleted group") {
+            registerTodoGroupDeletionUndo(group: groupSnapshot, memberships: membershipSnapshots)
         }
-        save(status: "Deleted group")
+    }
+
+    private func registerTodoDeletionUndo(_ snapshot: TodoDeletionSnapshot) {
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            context.insert(snapshot.makeModel())
+            do {
+                try context.save()
+                onStatus("Restored task")
+            } catch {
+                context.rollback()
+                onStatus("Could not undo task deletion: \(error.localizedDescription)")
+            }
+        }
+        undoManager?.setActionName("Delete Task")
+    }
+
+    private func registerTodoGroupDeletionUndo(group: TodoGroupDeletionSnapshot, memberships: [TodoGroupMembershipSnapshot]) {
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            context.insert(group.makeModel())
+            for snapshot in memberships {
+                if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {
+                    todo.groupId = snapshot.groupId
+                    todo.updatedAt = snapshot.updatedAt
+                }
+            }
+            do {
+                try context.save()
+                selectedGroupId = group.id
+                onStatus("Restored group")
+            } catch {
+                context.rollback()
+                onStatus("Could not undo group deletion: \(error.localizedDescription)")
+            }
+        }
+        undoManager?.setActionName("Delete Group")
     }
 
     private func moveGroup(id movingID: String, to targetID: String) {
@@ -524,13 +693,16 @@ struct WorkspaceTodoBoardView: View {
         return resources.first { $0.id == linkedResourceId }
     }
 
-    private func save(status: String) {
+    @discardableResult
+    private func save(status: String) -> Bool {
         do {
             try modelContext.save()
             onStatus(status)
+            return true
         } catch {
             modelContext.rollback()
             onStatus(error.localizedDescription)
+            return false
         }
     }
 }
