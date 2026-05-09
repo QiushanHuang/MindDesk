@@ -111,18 +111,18 @@ This creates a practical middle layer between strict file classification and fre
 
 ### Install the App Package
 
-Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases).
+Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases).
 
 Recommended app package:
 
-1. Download `MindDesk-v1.4.0-macOS.dmg`.
+1. Download the DMG for your architecture, for example `MindDesk-v1.4.0-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download `MindDesk-v1.4.0-macOS.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v1.4.0-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -140,8 +140,8 @@ Use the source package when you want to inspect the implementation, build locall
 You can also clone the repository directly:
 
 ```bash
-git clone https://github.com/QiushanHuang/MindDesk.git
-cd MindDesk
+git clone https://github.com/QiushanHuang/MyDesk.git
+cd MyDesk
 ```
 
 ### Build From Source
@@ -181,10 +181,20 @@ Verify that the app launches:
 ./script/build_and_run.sh --verify
 ```
 
-Create release artifacts locally:
+Create release artifacts locally after configuring the notarization credentials:
 
 ```bash
-./script/package_release.sh
+./script/package_release.sh \
+  --mode notarized \
+  --identity "Developer ID Application: Qiushan Huang (TEAMID)" \
+  --team-id TEAMID \
+  --notary-profile minddesk-notary
+```
+
+Internal ad-hoc packages must be explicit and are not for public release:
+
+```bash
+./script/package_release.sh --mode adhoc --allow-adhoc
 ```
 
 Release artifacts are written to:
@@ -192,6 +202,8 @@ Release artifacts are written to:
 ```text
 dist/release/MindDesk-v1.4.0-macOS/artifacts/
 ```
+
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v1.4.0-macOS-arm64.dmg`.
 
 The release script creates:
 
@@ -205,8 +217,8 @@ The release script creates:
 
 The repository includes two workflows:
 
-- `.github/workflows/ci.yml` runs Swift tests, release script syntax checks, entitlements validation, release guardrail checks, and `git diff --check`.
-- `.github/workflows/release.yml` is a manual workflow that imports a Developer ID certificate, builds the app, signs it, submits the app and DMG to Apple notarization, staples both artifacts, uploads workflow artifacts, and can create a draft GitHub Release.
+- `.github/workflows/ci.yml` runs Swift tests, release script syntax checks, entitlements validation, release guardrail checks, and `git diff --check` on pull requests plus pushes to `main` and `codex/**`.
+- `.github/workflows/release.yml` is a manual workflow for `main` or pushed version tags. It imports a Developer ID certificate, builds the app, signs it, submits the app and DMG to Apple notarization, staples both artifacts, uploads runner-native workflow artifacts with an architecture suffix, and can create a draft GitHub Release pinned to the workflow commit.
 
 Configure these repository secrets before running the Release workflow:
 
@@ -238,6 +250,10 @@ Current data model principles:
 - MindDesk stores lightweight metadata and visual mapping.
 - Resource deletion inside MindDesk removes MindDesk metadata, not the original file.
 - Finder alias creation and command execution require explicit confirmation.
+- The local SwiftData store migrates from the previous MyDesk location when the new MindDesk store is missing.
+- Raw SQLite startup backups are throttled to avoid copying the whole store on every launch; migration and startup backups are written through hidden incomplete folders and published only after the file set is copied.
+- MindDesk keeps the newest 20 timestamped raw store backups; legacy timestamped backups without a `.complete` marker remain recoverable when they contain `MindDesk.store`. Portable project-level backups should still use JSON manifest export.
+- If the primary store cannot open, MindDesk quarantines the failing SQLite file set under `Quarantine/` before attempting restore from the newest verified backup candidate.
 - SwiftData uses an app-specific storage location:
 
 ```text
@@ -257,6 +273,7 @@ Highlights:
 - Single-use Connect setting for Canvas link creation.
 - Responsive, scrollable Canvas right rail.
 - Direct link selection/deletion, deletion undo, lower edge-routing clearance, and paused link animation during active Canvas interactions.
+- Store migration/recovery now throttles raw startup backups, publishes only complete backups, quarantines failed-open stores, and restores from the newest verified backup candidate.
 - Developer ID notarization scripting, CI, a manual GitHub Release workflow, and release environment documentation.
 
 Full release notes are available in [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md).
@@ -382,18 +399,18 @@ flowchart LR
 
 ### 安装 App 包
 
-从 [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases) 下载最新版本。
+从 [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases) 下载最新版本。
 
 推荐安装方式：
 
-1. 下载 `MindDesk-v1.4.0-macOS.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v1.4.0-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载 `MindDesk-v1.4.0-macOS.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v1.4.0-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -411,8 +428,8 @@ GitHub Releases 会同时提供源码包：
 也可以直接克隆仓库：
 
 ```bash
-git clone https://github.com/QiushanHuang/MindDesk.git
-cd MindDesk
+git clone https://github.com/QiushanHuang/MyDesk.git
+cd MyDesk
 ```
 
 ### 从源码构建
@@ -463,6 +480,8 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 dist/release/MindDesk-v1.4.0-macOS/artifacts/
 ```
 
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v1.4.0-macOS-arm64.dmg` 的架构后缀。
+
 其中包括：
 
 - `MindDesk-v1.4.0-macOS.dmg`
@@ -475,8 +494,8 @@ dist/release/MindDesk-v1.4.0-macOS/artifacts/
 
 仓库已补齐两个工作流：
 
-- `.github/workflows/ci.yml`：在 PR 和 Push 时运行 Swift 测试、脚本语法检查、entitlements 校验、发布保护分支检查和 `git diff --check`。
-- `.github/workflows/release.yml`：手动触发，导入 Developer ID 证书，构建、签名、notarize、staple app 与 DMG，上传产物，并可创建 draft GitHub Release。
+- `.github/workflows/ci.yml`：在 PR，以及 `main` / `codex/**` push 时运行 Swift 测试、脚本语法检查、entitlements 校验、发布保护分支检查和 `git diff --check`。
+- `.github/workflows/release.yml`：只能从 `main` 或已推送版本 tag 手动触发，导入 Developer ID 证书，构建、签名、notarize、staple app 与 DMG，上传带架构后缀的 runner-native 产物，并可创建绑定到 workflow commit 的 draft GitHub Release。
 
 运行 Release workflow 前，需要在 GitHub 仓库 Secrets 中配置：
 
@@ -508,6 +527,10 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 - MindDesk 只保存轻量映射和可视化关系。
 - 删除 MindDesk 资源不会删除原始文件。
 - 创建 Finder alias、运行命令等外部操作需要确认。
+- 新版 MindDesk store 缺失时，会从旧 MyDesk 本地 store 迁移；普通启动不会每次复制完整 SQLite。
+- 启动备份有最小间隔，迁移和启动备份先写入隐藏 incomplete 目录，复制完成后才发布为可恢复备份。
+- MindDesk 会保留最新 20 个带时间戳的底层 store 备份；旧版没有 `.complete` marker 但包含 `MindDesk.store` 的备份也可以作为恢复候选。项目级可移植备份仍建议使用 JSON manifest 导出。
+- 如果主 store 打不开，MindDesk 会先把失败的 SQLite 文件集隔离到 `Quarantine/`，再按时间顺序尝试最新且可打开的备份候选。
 - SwiftData 使用应用专属存储路径：
 
 ```text
@@ -527,13 +550,14 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 - Canvas 增加单次 Connect 设置。
 - Canvas 右侧栏支持响应式宽度和内部滚动。
 - 支持单独选中/删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、调低连线避让阈值，并在 Canvas 交互中暂停连线动画、降低文本编辑与路由刷新压力。
+- 存储迁移/恢复补齐启动备份节流、完整备份发布、失败 store 隔离，以及从最新可验证备份候选恢复。
 - 补齐正式 release notarization 脚本、GitHub Actions CI、手动 Release workflow 和发布环境说明。
 
 完整更新内容见 [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md)。
 
 ### v1.4.0 新增内容
 
-本版本完成 MindDesk 命名迁移，并在启动时从旧本地存储路径迁移已有数据。同时补齐图片中整理出的 Canvas 日常使用体验：Workspace 引用卡、Web Page 卡、完整 Cmd+K Quick Open command palette、Workspace 边栏拖拽排序、任务行详情摘要、单次 Connect 偏好、右侧栏滚动、单独选中和删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、较低的连线避让阈值，以及 Canvas 交互时暂停连线动画、减少文本编辑和路由计算带来的卡顿。发布侧补齐默认 fail-closed 的 notarization 流程和 GitHub Actions 发布环境。
+本版本完成 MindDesk 命名迁移，并在启动时从旧本地存储路径迁移已有数据。同时补齐图片中整理出的 Canvas 日常使用体验：Workspace 引用卡、Web Page 卡、完整 Cmd+K Quick Open command palette、Workspace 边栏拖拽排序、任务行详情摘要、单次 Connect 偏好、右侧栏滚动、单独选中和删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、较低的连线避让阈值，以及 Canvas 交互时暂停连线动画、减少文本编辑和路由计算带来的卡顿。存储侧补齐启动备份节流、完整备份发布、失败 store 隔离和最新可验证备份恢复；发布侧补齐默认 fail-closed 的 notarization 流程和 GitHub Actions 发布环境。
 
 这些更新作为 v1.4.0 小版本完成：Workspace 和 Web Page 卡复用已有节点对象引用，连线自由弯点复用已有边控制点，避免引入破坏性数据结构变更。
 

@@ -595,35 +595,39 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoDeletionUndo(_ snapshot: TodoDeletionSnapshot) {
-        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
-            context.insert(snapshot.makeModel())
-            do {
-                try context.save()
-                onStatus("Restored task")
-            } catch {
-                context.rollback()
-                onStatus("Could not undo task deletion: \(error.localizedDescription)")
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            MainActor.assumeIsolated {
+                context.insert(snapshot.makeModel())
+                do {
+                    try context.save()
+                    onStatus("Restored task")
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo task deletion: \(error.localizedDescription)")
+                }
             }
         }
         undoManager?.setActionName("Delete Task")
     }
 
     private func registerTodoGroupDeletionUndo(group: TodoGroupDeletionSnapshot, memberships: [TodoGroupMembershipSnapshot]) {
-        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
-            context.insert(group.makeModel())
-            for snapshot in memberships {
-                if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {
-                    todo.groupId = snapshot.groupId
-                    todo.updatedAt = snapshot.updatedAt
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            MainActor.assumeIsolated {
+                context.insert(group.makeModel())
+                for snapshot in memberships {
+                    if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {
+                        todo.groupId = snapshot.groupId
+                        todo.updatedAt = snapshot.updatedAt
+                    }
                 }
-            }
-            do {
-                try context.save()
-                selectedGroupId = group.id
-                onStatus("Restored group")
-            } catch {
-                context.rollback()
-                onStatus("Could not undo group deletion: \(error.localizedDescription)")
+                do {
+                    try context.save()
+                    selectedGroupId = group.id
+                    onStatus("Restored group")
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo group deletion: \(error.localizedDescription)")
+                }
             }
         }
         undoManager?.setActionName("Delete Group")

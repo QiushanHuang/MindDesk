@@ -6,11 +6,16 @@ APP_DISPLAY_NAME="MindDesk"
 BUNDLE_ID="studio.qiushan.minddesk"
 MIN_SYSTEM_VERSION="14.0"
 COPYRIGHT="Copyright © 2026 Qiushan Huang. All rights reserved."
+RELEASE_PLATFORM_SUFFIX="${RELEASE_PLATFORM_SUFFIX:-macOS}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(tr -d '[:space:]' <"$ROOT_DIR/VERSION")"
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "VERSION must be semantic x.y.z, got: ${VERSION:-<empty>}" >&2
+  exit 1
+fi
+if [[ ! "$RELEASE_PLATFORM_SUFFIX" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo "RELEASE_PLATFORM_SUFFIX may contain only letters, numbers, dots, underscores, and hyphens." >&2
   exit 1
 fi
 
@@ -45,7 +50,7 @@ Options:
 Environment fallbacks:
   RELEASE_MODE, CODESIGN_IDENTITY, TEAM_ID, NOTARY_KEYCHAIN_PROFILE,
   NOTARY_KEY, NOTARY_KEY_ID, NOTARY_ISSUER, NOTARY_TIMEOUT,
-  ALLOW_ADHOC_RELEASE=1
+  RELEASE_PLATFORM_SUFFIX, ALLOW_ADHOC_RELEASE=1
 USAGE
 }
 
@@ -217,7 +222,7 @@ fi
 
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
 BUILD_NUMBER="${BUILD_NUMBER:-$((VERSION_MAJOR * 10000 + VERSION_MINOR * 100 + VERSION_PATCH))}"
-RELEASE_NAME="$APP_DISPLAY_NAME-v$VERSION-macOS"
+RELEASE_NAME="$APP_DISPLAY_NAME-v$VERSION-$RELEASE_PLATFORM_SUFFIX"
 if [[ "$MODE" == "adhoc" ]]; then
   RELEASE_NAME="$RELEASE_NAME-adhoc"
 fi

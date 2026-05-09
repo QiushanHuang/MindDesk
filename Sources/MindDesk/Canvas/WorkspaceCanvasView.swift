@@ -188,6 +188,16 @@ private func fetchCanvasNodeForUndo(id: String, in context: ModelContext) -> Can
     return try? context.fetch(descriptor).first
 }
 
+private func fetchCanvasEdgeForUndo(id: String, in context: ModelContext) -> CanvasEdgeModel? {
+    let edgeId = id
+    let descriptor = FetchDescriptor<CanvasEdgeModel>(
+        predicate: #Predicate { edge in
+            edge.id == edgeId
+        }
+    )
+    return try? context.fetch(descriptor).first
+}
+
 enum CanvasGlowTheme: String, CaseIterable, Identifiable {
     case blue
     case minimal
@@ -1488,6 +1498,7 @@ struct WorkspaceCanvasView: View {
 
     private func deleteEdgeControlPoint(for segment: CanvasEdgeSegment) {
         guard let edge = visibleEdges.first(where: { $0.id == segment.id }) else { return }
+        let edgeID = edge.id
         let oldX = edge.controlPointX
         let oldY = edge.controlPointY
         let oldStyle = edge.style
@@ -1496,16 +1507,22 @@ struct WorkspaceCanvasView: View {
         edge.style = CanvasEdgeStyleOptions.style(edge.style, controlPointLocked: false)
         edge.updatedAt = .now
         guard saveModelChanges(failurePrefix: "Could not delete link bend") else { return }
-        undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
-            edge.controlPointX = oldX
-            edge.controlPointY = oldY
-            edge.style = oldStyle
-            edge.updatedAt = .now
-            do {
-                try modelContext.save()
-            } catch {
-                modelContext.rollback()
-                onStatus("Could not undo link bend deletion: \(error.localizedDescription)")
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            MainActor.assumeIsolated {
+                guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
+                    onStatus("Could not undo link bend deletion: link no longer exists")
+                    return
+                }
+                edge.controlPointX = oldX
+                edge.controlPointY = oldY
+                edge.style = oldStyle
+                edge.updatedAt = .now
+                do {
+                    try context.save()
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo link bend deletion: \(error.localizedDescription)")
+                }
             }
         }
         undoManager?.setActionName("Delete Link Bend")
@@ -1545,21 +1562,28 @@ struct WorkspaceCanvasView: View {
             viewportY: effectiveViewportY
         )
         if let edge = visibleEdges.first(where: { $0.id == segment.id }) {
+            let edgeID = edge.id
             let oldX = edge.controlPointX
             let oldY = edge.controlPointY
             edge.controlPointX = canvasPoint.x
             edge.controlPointY = canvasPoint.y
             edge.updatedAt = .now
             guard saveModelChanges(failurePrefix: "Could not save link bend") else { return }
-            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
-                edge.controlPointX = oldX
-                edge.controlPointY = oldY
-                edge.updatedAt = .now
-                do {
-                    try modelContext.save()
-                } catch {
-                    modelContext.rollback()
-                    onStatus("Could not undo link bend move: \(error.localizedDescription)")
+            undoManager?.registerUndo(withTarget: modelContext) { context in
+                MainActor.assumeIsolated {
+                    guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
+                        onStatus("Could not undo link bend move: link no longer exists")
+                        return
+                    }
+                    edge.controlPointX = oldX
+                    edge.controlPointY = oldY
+                    edge.updatedAt = .now
+                    do {
+                        try context.save()
+                    } catch {
+                        context.rollback()
+                        onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                    }
                 }
             }
             undoManager?.setActionName("Move Link Bend")
@@ -1771,31 +1795,43 @@ struct WorkspaceCanvasView: View {
         edgeControlPointSnapshots: [CanvasEdgeControlPointSnapshot]
     ) {
         for (id, start) in dragStart {
-            guard let node = workflowNodeById[id] else { continue }
-            undoManager?.registerUndo(withTarget: node) { @MainActor node in
-                node.x = start.x
-                node.y = start.y
-                node.parentNodeId = start.parentNodeId
-                node.updatedAt = .now
-                do {
-                    try modelContext.save()
-                } catch {
-                    modelContext.rollback()
-                    onStatus("Could not undo card move: \(error.localizedDescription)")
+            guard workflowNodeById[id] != nil else { continue }
+            undoManager?.registerUndo(withTarget: modelContext) { context in
+                MainActor.assumeIsolated {
+                    guard let node = fetchCanvasNodeForUndo(id: id, in: context) else {
+                        onStatus("Could not undo card move: card no longer exists")
+                        return
+                    }
+                    node.x = start.x
+                    node.y = start.y
+                    node.parentNodeId = start.parentNodeId
+                    node.updatedAt = .now
+                    do {
+                        try context.save()
+                    } catch {
+                        context.rollback()
+                        onStatus("Could not undo card move: \(error.localizedDescription)")
+                    }
                 }
             }
         }
         for snapshot in edgeControlPointSnapshots {
-            guard let edge = visibleEdges.first(where: { $0.id == snapshot.id }) else { continue }
-            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
-                edge.controlPointX = snapshot.x
-                edge.controlPointY = snapshot.y
-                edge.updatedAt = .now
-                do {
-                    try modelContext.save()
-                } catch {
-                    modelContext.rollback()
-                    onStatus("Could not undo link bend move: \(error.localizedDescription)")
+            guard visibleEdges.contains(where: { $0.id == snapshot.id }) else { continue }
+            undoManager?.registerUndo(withTarget: modelContext) { context in
+                MainActor.assumeIsolated {
+                    guard let edge = fetchCanvasEdgeForUndo(id: snapshot.id, in: context) else {
+                        onStatus("Could not undo link bend move: link no longer exists")
+                        return
+                    }
+                    edge.controlPointX = snapshot.x
+                    edge.controlPointY = snapshot.y
+                    edge.updatedAt = .now
+                    do {
+                        try context.save()
+                    } catch {
+                        context.rollback()
+                        onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                    }
                 }
             }
         }
@@ -1942,6 +1978,7 @@ struct WorkspaceCanvasView: View {
         )
 
         if commit {
+            let nodeID = node.id
             let oldWidth = node.width
             let oldHeight = node.height
             node.width = resized.width
@@ -1954,15 +1991,21 @@ struct WorkspaceCanvasView: View {
             selectedEdgeIDs = []
             do {
                 try modelContext.save()
-                undoManager?.registerUndo(withTarget: node) { @MainActor node in
-                    node.width = oldWidth
-                    node.height = oldHeight
-                    node.updatedAt = .now
-                    do {
-                        try modelContext.save()
-                    } catch {
-                        modelContext.rollback()
-                        onStatus("Could not undo card resize: \(error.localizedDescription)")
+                undoManager?.registerUndo(withTarget: modelContext) { context in
+                    MainActor.assumeIsolated {
+                        guard let node = fetchCanvasNodeForUndo(id: nodeID, in: context) else {
+                            onStatus("Could not undo card resize: card no longer exists")
+                            return
+                        }
+                        node.width = oldWidth
+                        node.height = oldHeight
+                        node.updatedAt = .now
+                        do {
+                            try context.save()
+                        } catch {
+                            context.rollback()
+                            onStatus("Could not undo card resize: \(error.localizedDescription)")
+                        }
                     }
                 }
                 undoManager?.setActionName("Resize Card")
@@ -2599,6 +2642,7 @@ struct WorkspaceCanvasView: View {
             return
         }
 
+        let edgeID = edge.id
         let previousSource = edge.sourceNodeId
         let previousTarget = edge.targetNodeId
         let previousSourceArrow = edge.sourceArrowRaw
@@ -2612,17 +2656,23 @@ struct WorkspaceCanvasView: View {
 
         do {
             try modelContext.save()
-            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
-                edge.sourceNodeId = previousSource
-                edge.targetNodeId = previousTarget
-                edge.sourceArrowRaw = previousSourceArrow
-                edge.targetArrowRaw = previousTargetArrow
-                edge.updatedAt = .now
-                do {
-                    try modelContext.save()
-                } catch {
-                    modelContext.rollback()
-                    onStatus("Could not undo link reversal: \(error.localizedDescription)")
+            undoManager?.registerUndo(withTarget: modelContext) { context in
+                MainActor.assumeIsolated {
+                    guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
+                        onStatus("Could not undo link reversal: link no longer exists")
+                        return
+                    }
+                    edge.sourceNodeId = previousSource
+                    edge.targetNodeId = previousTarget
+                    edge.sourceArrowRaw = previousSourceArrow
+                    edge.targetArrowRaw = previousTargetArrow
+                    edge.updatedAt = .now
+                    do {
+                        try context.save()
+                    } catch {
+                        context.rollback()
+                        onStatus("Could not undo link reversal: \(error.localizedDescription)")
+                    }
                 }
             }
             undoManager?.setActionName("Reverse Link")
@@ -2791,25 +2841,27 @@ struct WorkspaceCanvasView: View {
         childParents: [CanvasChildParentSnapshot]
     ) {
         guard !nodes.isEmpty || !edges.isEmpty || !childParents.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
-            for snapshot in nodes {
-                context.insert(snapshot.makeModel())
-            }
-            for snapshot in childParents {
-                if let child = fetchCanvasNodeForUndo(id: snapshot.id, in: context) {
-                    child.parentNodeId = snapshot.parentNodeId
-                    child.updatedAt = .now
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            MainActor.assumeIsolated {
+                for snapshot in nodes {
+                    context.insert(snapshot.makeModel())
                 }
-            }
-            for snapshot in edges {
-                context.insert(snapshot.makeModel())
-            }
-            do {
-                try context.save()
-                onStatus("Restored deleted cards")
-            } catch {
-                context.rollback()
-                onStatus("Could not undo card deletion: \(error.localizedDescription)")
+                for snapshot in childParents {
+                    if let child = fetchCanvasNodeForUndo(id: snapshot.id, in: context) {
+                        child.parentNodeId = snapshot.parentNodeId
+                        child.updatedAt = .now
+                    }
+                }
+                for snapshot in edges {
+                    context.insert(snapshot.makeModel())
+                }
+                do {
+                    try context.save()
+                    onStatus("Restored deleted cards")
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo card deletion: \(error.localizedDescription)")
+                }
             }
         }
         undoManager?.setActionName(nodes.count == 1 ? "Delete Card" : "Delete Cards")
@@ -2817,16 +2869,18 @@ struct WorkspaceCanvasView: View {
 
     private func registerCanvasEdgeDeletionUndo(_ edges: [CanvasEdgeDeletionSnapshot]) {
         guard !edges.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
-            for snapshot in edges {
-                context.insert(snapshot.makeModel())
-            }
-            do {
-                try context.save()
-                onStatus("Restored deleted links")
-            } catch {
-                context.rollback()
-                onStatus("Could not undo link deletion: \(error.localizedDescription)")
+        undoManager?.registerUndo(withTarget: modelContext) { context in
+            MainActor.assumeIsolated {
+                for snapshot in edges {
+                    context.insert(snapshot.makeModel())
+                }
+                do {
+                    try context.save()
+                    onStatus("Restored deleted links")
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo link deletion: \(error.localizedDescription)")
+                }
             }
         }
         undoManager?.setActionName(edges.count == 1 ? "Delete Link" : "Delete Links")

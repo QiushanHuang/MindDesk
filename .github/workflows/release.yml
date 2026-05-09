@@ -21,6 +21,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate release ref
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' <VERSION)"
+          if [[ "$GITHUB_REF_TYPE" != "tag" && "$GITHUB_REF_NAME" != "main" ]]; then
+            echo "::error::Release workflow must run from main or from a pushed version tag."
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
+            echo "::error::Release tag $GITHUB_REF_NAME does not match VERSION v${VERSION}."
+            exit 1
+          fi
+
+      - name: Set release artifact suffix
+        run: |
+          set -euo pipefail
+          ARCH="$(printf '%s' "${RUNNER_ARCH:-unknown}" | tr '[:upper:]' '[:lower:]')"
+          echo "RELEASE_PLATFORM_SUFFIX=macOS-${ARCH}" >>"$GITHUB_ENV"
+
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
@@ -76,23 +95,23 @@ jobs:
         env:
           CODESIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          NOTARY_KEY: ${{ env.API_KEY_PATH }}
           NOTARY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           set -euo pipefail
+          : "${API_KEY_PATH:?Missing decoded App Store Connect API key path}"
           ./script/package_release.sh \
             --mode notarized \
             --identity "$CODESIGN_IDENTITY" \
             --team-id "$TEAM_ID" \
-            --notary-key "$NOTARY_KEY" \
+            --notary-key "$API_KEY_PATH" \
             --notary-key-id "$NOTARY_KEY_ID" \
             --notary-issuer "$NOTARY_ISSUER"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: minddesk-macos-release
+          name: minddesk-macos-${{ runner.arch }}-release
           path: |
             dist/release/*/artifacts/*.zip
             dist/release/*/artifacts/*.dmg
@@ -108,13 +127,14 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(tr -d '[:space:]' <VERSION)"
-          ARTIFACT_DIR="dist/release/MindDesk-v${VERSION}-macOS/artifacts"
+          ARTIFACT_DIR="dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}/artifacts"
           gh release create "v${VERSION}" \
-            "$ARTIFACT_DIR/MindDesk-v${VERSION}-macOS.zip" \
-            "$ARTIFACT_DIR/MindDesk-v${VERSION}-macOS.dmg" \
+            "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.zip" \
+            "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.dmg" \
             "$ARTIFACT_DIR/SHA256SUMS.txt" \
             "$ARTIFACT_DIR/INSTALL.txt" \
             "$ARTIFACT_DIR/RELEASE-NOTES.md" \
             --draft \
+            --target "$GITHUB_SHA" \
             --title "MindDesk v${VERSION}" \
             --notes-file "$ARTIFACT_DIR/RELEASE-NOTES.md"

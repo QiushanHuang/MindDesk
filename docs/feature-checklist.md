@@ -87,6 +87,11 @@
 - [ ] 拖动卡片期间不频繁写入 SwiftData，只在结束后保存。
 - [ ] 缩放和平移时不导致 SwiftData 崩溃。
 - [ ] 隐藏索引/alias/cache 的创建和清理有日志可查。
+- [ ] 普通启动不会每次复制完整 SQLite store；30 分钟内已有备份时跳过 startup backup。
+- [ ] 旧 MyDesk store 迁移后生成带 `-migration` 后缀的备份，且不会立即重复生成 startup backup。
+- [ ] 启动备份先写隐藏 incomplete 目录，完整复制后才发布为时间戳备份。
+- [ ] 没有 `.complete` marker 但目录名合法且包含 `MindDesk.store` 的旧备份仍可作为恢复候选。
+- [ ] 主 store 打不开时，当前 SQLite 文件集被移动到 `Quarantine/`，再按时间顺序从最新可验证备份候选恢复。
 
 ## 发布前命令
 
@@ -97,6 +102,7 @@
 - [ ] `plutil -lint script/release.entitlements`
 - [ ] GitHub Actions CI 通过。
 - [ ] 正式发布必须用 `./script/package_release.sh --mode notarized ...` 生成已签名、notarized、stapled 的 DMG。
-- [ ] GitHub Actions Release workflow 已配置 Developer ID 和 App Store Connect API key Secrets 后再手动触发。
+- [ ] GitHub Actions Release workflow 已配置 Developer ID 和 App Store Connect API key Secrets 后，再从 `main` 或匹配版本 tag 手动触发。
+- [ ] GitHub Release workflow 产物名包含 runner 架构后缀，例如 `macOS-arm64`。
 - [ ] 只有内部测试包可以使用 `--mode adhoc --allow-adhoc`，并确认产物名带 `-adhoc`。
 - [ ] 用 Computer Use 或手动操作检查 Canvas 点击、拖动、缩放、连接、Settings。

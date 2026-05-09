@@ -83,6 +83,25 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
+    func testPersistentStoreDefaultBackupRetentionKeepsNewestTwentyFolders() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let folders = (0..<22).map { minute in
+            backupRoot.appendingPathComponent(
+                String(format: "20260430-09%02d00-startup", minute),
+                isDirectory: true
+            )
+        }
+
+        XCTAssertEqual(MindDeskStoreLayout.backupRetentionCount, 20)
+        XCTAssertEqual(
+            MindDeskStoreLayout.backupFoldersToPrune(
+                folders,
+                keepingNewest: MindDeskStoreLayout.backupRetentionCount
+            ).map(\.lastPathComponent),
+            ["20260430-090000-startup", "20260430-090100-startup"]
+        )
+    }
+
     func testPersistentStoreStartupBackupPolicySkipsRecentBackup() {
         let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
         let now = Date(timeIntervalSince1970: 1_800_000)
@@ -130,12 +149,36 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
+    func testPersistentStoreStartupBackupPolicyIsThrottledByRecentMigrationBackup() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let now = Date(timeIntervalSince1970: 1_800_000)
+        let recentMigrationBackup = backupRoot.appendingPathComponent(
+            MindDeskStoreLayout.backupFolderName(
+                for: now.addingTimeInterval(-5 * 60),
+                reason: .migration
+            ),
+            isDirectory: true
+        )
+
+        XCTAssertFalse(
+            MindDeskStoreLayout.shouldCreateStartupBackup(
+                storeExists: true,
+                backupFolders: [recentMigrationBackup],
+                now: now
+            )
+        )
+    }
+
     func testPersistentStoreBackupFolderNameSupportsMigrationReasonSuffix() {
         let date = Date(timeIntervalSince1970: 1_800_000)
 
         XCTAssertEqual(
             MindDeskStoreLayout.backupFolderName(for: date, reason: .migration),
             "19700121-200000-migration"
+        )
+        XCTAssertEqual(
+            MindDeskStoreLayout.backupFolderName(for: date, reason: .failedOpen),
+            "19700121-200000-failed-open"
         )
     }
 
@@ -145,6 +188,7 @@ final class CoreBehaviorTests: XCTestCase {
             backupRoot.appendingPathComponent("20260430-091100-startup", isDirectory: true),
             backupRoot.appendingPathComponent("20260430-091500-migration", isDirectory: true),
             backupRoot.appendingPathComponent("not-a-backup", isDirectory: true),
+            backupRoot.appendingPathComponent(".20260430-091700-startup.incomplete-abcd", isDirectory: true),
             backupRoot.appendingPathComponent("20260430-091300-restore", isDirectory: true)
         ]
 
@@ -152,6 +196,14 @@ final class CoreBehaviorTests: XCTestCase {
             MindDeskStoreLayout.recoveryCandidateFolders(folders).map(\.lastPathComponent),
             ["20260430-091500-migration", "20260430-091300-restore", "20260430-091100-startup"]
         )
+    }
+
+    func testPersistentStoreIncompleteBackupFolderNamesAreStrict() {
+        XCTAssertTrue(MindDeskStoreLayout.isIncompleteBackupFolderName(".20260430-091700-startup.incomplete-abcd"))
+        XCTAssertTrue(MindDeskStoreLayout.isIncompleteBackupFolderName(".20260430-091700.incomplete-abcd"))
+        XCTAssertFalse(MindDeskStoreLayout.isIncompleteBackupFolderName("20260430-091700-startup.incomplete-abcd"))
+        XCTAssertFalse(MindDeskStoreLayout.isIncompleteBackupFolderName(".not-a-backup.incomplete-abcd"))
+        XCTAssertFalse(MindDeskStoreLayout.isIncompleteBackupFolderName(".20260430-091700-startup.incomplete-"))
     }
 
     func testCanvasAutoArrangeProducesGridPositions() {

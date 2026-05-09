@@ -103,6 +103,14 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
     }
 
+    public static func isIncompleteBackupFolderName(_ name: String) -> Bool {
+        guard name.hasPrefix(".") else { return false }
+        let body = String(name.dropFirst())
+        let parts = body.components(separatedBy: ".incomplete-")
+        guard parts.count == 2, !parts[1].isEmpty else { return false }
+        return isTimestampedBackupFolder(parts[0])
+    }
+
     private static func latestBackupDate(in folders: [URL], timeZone: TimeZone) -> Date? {
         recoveryCandidateFolders(folders)
             .compactMap { backupDate(fromFolderName: $0.lastPathComponent, timeZone: timeZone) }

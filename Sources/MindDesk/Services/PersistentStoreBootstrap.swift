@@ -5,25 +5,25 @@ import SwiftData
 enum PersistentStoreBootstrap {
     static func makeModelContainer(fileManager: FileManager = .default) throws -> ModelContainer {
         let layout = try makeLayout(fileManager: fileManager)
-        let preparation = try prepareStore(at: layout, fileManager: fileManager)
-
         let schema = Schema(modelTypes)
+        let preparation = try prepareStore(at: layout, schema: schema, fileManager: fileManager)
         let configuration = ModelConfiguration(schema: schema, url: layout.storeURL)
         do {
             let container = try ModelContainer(for: schema, configurations: [configuration])
             postOpenMaintenance(preparation: preparation, layout: layout, fileManager: fileManager)
             return container
         } catch {
-            guard try recoverFromOpenFailure(layout: layout, fileManager: fileManager) else {
+            guard let restoredStoreURL = try recoverFromOpenFailure(layout: layout, schema: schema, fileManager: fileManager) else {
                 throw error
             }
-            let container = try ModelContainer(for: schema, configurations: [configuration])
+            try publishRecoveredStore(from: restoredStoreURL, to: layout.storeURL, layout: layout, fileManager: fileManager)
+            let finalContainer = try ModelContainer(for: schema, configurations: [configuration])
             postOpenMaintenance(
                 preparation: PersistentStorePreparation(didMigrateStore: false, didRestoreStore: true),
                 layout: layout,
                 fileManager: fileManager
             )
-            return container
+            return finalContainer
         }
     }
 
@@ -56,11 +56,16 @@ enum PersistentStoreBootstrap {
         return MindDeskStoreLayout(applicationSupportDirectory: support)
     }
 
-    private static func prepareStore(at layout: MindDeskStoreLayout, fileManager: FileManager) throws -> PersistentStorePreparation {
+    private static func prepareStore(
+        at layout: MindDeskStoreLayout,
+        schema: Schema,
+        fileManager: FileManager
+    ) throws -> PersistentStorePreparation {
         try fileManager.createDirectory(at: layout.appDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: layout.storeDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: layout.backupDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: layout.quarantineDirectory, withIntermediateDirectories: true)
+        try cleanIncompleteBackupFolders(layout: layout, fileManager: fileManager)
         try recoverInterruptedMigrationIfNeeded(layout: layout, fileManager: fileManager)
 
         var preparation = PersistentStorePreparation(didMigrateStore: false, didRestoreStore: false)
@@ -72,7 +77,14 @@ enum PersistentStoreBootstrap {
                 try migrateSQLiteFileSet(from: layout.legacyDefaultStoreURL, to: layout.storeURL, layout: layout, fileManager: fileManager)
                 preparation.didMigrateStore = true
             } else {
-                preparation.didRestoreStore = try restoreLatestBackupIfPresent(layout: layout, fileManager: fileManager)
+                if let restoredStoreURL = try restoreLatestBackupToStagingIfPresent(
+                    layout: layout,
+                    schema: schema,
+                    fileManager: fileManager
+                ) {
+                    try publishRecoveredStore(from: restoredStoreURL, to: layout.storeURL, layout: layout, fileManager: fileManager)
+                    preparation.didRestoreStore = true
+                }
             }
         }
 
@@ -193,49 +205,119 @@ enum PersistentStoreBootstrap {
         folderName: String,
         fileManager: FileManager
     ) -> URL {
-        var backupFolder = layout.backupDirectory.appendingPathComponent(folderName, isDirectory: true)
+        uniqueBackupFolder(parentDirectory: layout.backupDirectory, folderName: folderName, fileManager: fileManager)
+    }
+
+    private static func uniqueBackupFolder(
+        parentDirectory: URL,
+        folderName: String,
+        fileManager: FileManager
+    ) -> URL {
+        var backupFolder = parentDirectory.appendingPathComponent(folderName, isDirectory: true)
         if fileManager.fileExists(atPath: backupFolder.path) {
-            backupFolder = layout.backupDirectory.appendingPathComponent("\(folderName)-\(UUID().uuidString.prefix(8))", isDirectory: true)
+            backupFolder = parentDirectory.appendingPathComponent("\(folderName)-\(UUID().uuidString.prefix(8))", isDirectory: true)
         }
         return backupFolder
     }
 
-    private static func restoreLatestBackupIfPresent(layout: MindDeskStoreLayout, fileManager: FileManager) throws -> Bool {
+    private static func restoreLatestBackupToStagingIfPresent(
+        layout: MindDeskStoreLayout,
+        schema: Schema,
+        fileManager: FileManager
+    ) throws -> URL? {
         for folder in MindDeskStoreLayout.recoveryCandidateFolders(try existingBackupFolders(layout: layout, fileManager: fileManager)) {
+            guard isRecoverableBackupFolder(folder, fileManager: fileManager) else { continue }
             let backupStore = folder.appendingPathComponent(MindDeskStoreLayout.storeFileName, isDirectory: false)
             guard fileManager.fileExists(atPath: backupStore.path) else { continue }
+            let stagingDirectory = layout.storeDirectory.appendingPathComponent(".restore-\(UUID().uuidString)", isDirectory: true)
+            let stagingStore = stagingDirectory.appendingPathComponent(MindDeskStoreLayout.storeFileName, isDirectory: false)
             do {
-                try copySQLiteFileSet(from: backupStore, to: layout.storeURL, fileManager: fileManager)
-                return true
+                try fileManager.createDirectory(at: stagingDirectory, withIntermediateDirectories: false)
+                try copySQLiteFileSet(from: backupStore, to: stagingStore, fileManager: fileManager)
+                try validateStore(at: stagingStore, schema: schema)
+                return stagingStore
             } catch {
-                removeSQLiteFileSet(for: layout.storeURL, fileManager: fileManager)
+                try? fileManager.removeItem(at: stagingDirectory)
                 continue
             }
         }
-        return false
+        return nil
     }
 
-    private static func recoverFromOpenFailure(layout: MindDeskStoreLayout, fileManager: FileManager) throws -> Bool {
-        guard fileManager.fileExists(atPath: layout.storeURL.path) else { return false }
-        let quarantineFolder = layout.quarantineDirectory.appendingPathComponent(
-            MindDeskStoreLayout.backupFolderName(for: .now, reason: .failedOpen),
-            isDirectory: true
+    private static func recoverFromOpenFailure(
+        layout: MindDeskStoreLayout,
+        schema: Schema,
+        fileManager: FileManager
+    ) throws -> URL? {
+        guard fileManager.fileExists(atPath: layout.storeURL.path) else { return nil }
+        return try restoreLatestBackupToStagingIfPresent(layout: layout, schema: schema, fileManager: fileManager)
+    }
+
+    private static func publishRecoveredStore(
+        from restoredStoreURL: URL,
+        to destinationStoreURL: URL,
+        layout: MindDeskStoreLayout,
+        fileManager: FileManager
+    ) throws {
+        guard fileManager.fileExists(atPath: restoredStoreURL.path) else { return }
+        let quarantineFolder = uniqueBackupFolder(
+            parentDirectory: layout.quarantineDirectory,
+            folderName: MindDeskStoreLayout.backupFolderName(for: .now, reason: .failedOpen),
+            fileManager: fileManager
         )
-        try fileManager.createDirectory(at: quarantineFolder, withIntermediateDirectories: true)
-        for source in MindDeskStoreLayout.sqliteFileSet(for: layout.storeURL) where fileManager.fileExists(atPath: source.path) {
+        let existingStoreFiles = MindDeskStoreLayout.sqliteFileSet(for: destinationStoreURL)
+            .filter { fileManager.fileExists(atPath: $0.path) }
+        if !existingStoreFiles.isEmpty {
+            try fileManager.createDirectory(at: quarantineFolder, withIntermediateDirectories: true)
+        }
+        for source in existingStoreFiles {
             let destination = quarantineFolder.appendingPathComponent(source.lastPathComponent, isDirectory: false)
             try fileManager.moveItem(at: source, to: destination)
         }
-        return try restoreLatestBackupIfPresent(layout: layout, fileManager: fileManager)
+        try copySQLiteFileSet(from: restoredStoreURL, to: destinationStoreURL, fileManager: fileManager)
+        try? fileManager.removeItem(at: restoredStoreURL.deletingLastPathComponent())
+    }
+
+    private static func validateStore(at storeURL: URL, schema: Schema) throws {
+        let configuration = ModelConfiguration(schema: schema, url: storeURL)
+        _ = try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private static func isRecoverableBackupFolder(_ folder: URL, fileManager: FileManager) -> Bool {
+        if fileManager.fileExists(atPath: folder.appendingPathComponent(".complete", isDirectory: false).path) {
+            return true
+        }
+        return fileManager.fileExists(
+            atPath: folder.appendingPathComponent(MindDeskStoreLayout.storeFileName, isDirectory: false).path
+        )
+    }
+
+    private static func cleanIncompleteBackupFolders(layout: MindDeskStoreLayout, fileManager: FileManager) throws {
+        guard fileManager.fileExists(atPath: layout.backupDirectory.path) else { return }
+        let folders = try fileManager.contentsOfDirectory(
+            at: layout.backupDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: []
+        )
+        for folder in folders {
+            let isDirectory = (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            guard isDirectory, MindDeskStoreLayout.isIncompleteBackupFolderName(folder.lastPathComponent) else {
+                continue
+            }
+            try? fileManager.removeItem(at: folder)
+        }
     }
 
     private static func existingBackupFolders(layout: MindDeskStoreLayout, fileManager: FileManager) throws -> [URL] {
         guard fileManager.fileExists(atPath: layout.backupDirectory.path) else { return [] }
         return try fileManager.contentsOfDirectory(
             at: layout.backupDirectory,
-            includingPropertiesForKeys: nil,
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
+        .filter { url in
+            (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        }
     }
 
     private static func pruneOldBackups(layout: MindDeskStoreLayout, fileManager: FileManager) throws {
