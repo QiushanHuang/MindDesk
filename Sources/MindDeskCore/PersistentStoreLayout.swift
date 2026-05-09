@@ -10,7 +10,7 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
     public static let bundleIdentifier = "studio.qiushan.minddesk"
     public static let storeFileName = "MindDesk.store"
     public static let backupRetentionCount = 20
-    public static let startupBackupMinimumInterval: TimeInterval = 24 * 60 * 60
+    public static let startupBackupMinimumInterval: TimeInterval = 30 * 60
     private static let previousBundleIdentifier = ["studio", "qiushan", "my" + "desk"].joined(separator: ".")
     private static let previousStoreFileName = "My" + "Desk.store"
 

@@ -10,7 +10,7 @@ on:
 jobs:
   test:
     name: Swift tests and release script checks
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Check out repository
