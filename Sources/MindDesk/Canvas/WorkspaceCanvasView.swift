@@ -4,6 +4,10 @@ import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
+private struct MainActorUndoContext: @unchecked Sendable {
+    let context: ModelContext
+}
+
 private enum CanvasInteractionMode: String, CaseIterable, Identifiable {
     case select
     case connect
@@ -1507,8 +1511,10 @@ struct WorkspaceCanvasView: View {
         edge.style = CanvasEdgeStyleOptions.style(edge.style, controlPointLocked: false)
         edge.updatedAt = .now
         guard saveModelChanges(failurePrefix: "Could not delete link bend") else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
+                let context = undoContext.context
                 guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
                     onStatus("Could not undo link bend deletion: link no longer exists")
                     return
@@ -1569,8 +1575,10 @@ struct WorkspaceCanvasView: View {
             edge.controlPointY = canvasPoint.y
             edge.updatedAt = .now
             guard saveModelChanges(failurePrefix: "Could not save link bend") else { return }
-            undoManager?.registerUndo(withTarget: modelContext) { context in
+            let undoContext = MainActorUndoContext(context: modelContext)
+            undoManager?.registerUndo(withTarget: modelContext) { _ in
                 MainActor.assumeIsolated {
+                    let context = undoContext.context
                     guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
                         onStatus("Could not undo link bend move: link no longer exists")
                         return
@@ -1796,8 +1804,10 @@ struct WorkspaceCanvasView: View {
     ) {
         for (id, start) in dragStart {
             guard workflowNodeById[id] != nil else { continue }
-            undoManager?.registerUndo(withTarget: modelContext) { context in
+            let undoContext = MainActorUndoContext(context: modelContext)
+            undoManager?.registerUndo(withTarget: modelContext) { _ in
                 MainActor.assumeIsolated {
+                    let context = undoContext.context
                     guard let node = fetchCanvasNodeForUndo(id: id, in: context) else {
                         onStatus("Could not undo card move: card no longer exists")
                         return
@@ -1817,8 +1827,10 @@ struct WorkspaceCanvasView: View {
         }
         for snapshot in edgeControlPointSnapshots {
             guard visibleEdges.contains(where: { $0.id == snapshot.id }) else { continue }
-            undoManager?.registerUndo(withTarget: modelContext) { context in
+            let undoContext = MainActorUndoContext(context: modelContext)
+            undoManager?.registerUndo(withTarget: modelContext) { _ in
                 MainActor.assumeIsolated {
+                    let context = undoContext.context
                     guard let edge = fetchCanvasEdgeForUndo(id: snapshot.id, in: context) else {
                         onStatus("Could not undo link bend move: link no longer exists")
                         return
@@ -1991,8 +2003,10 @@ struct WorkspaceCanvasView: View {
             selectedEdgeIDs = []
             do {
                 try modelContext.save()
-                undoManager?.registerUndo(withTarget: modelContext) { context in
+                let undoContext = MainActorUndoContext(context: modelContext)
+                undoManager?.registerUndo(withTarget: modelContext) { _ in
                     MainActor.assumeIsolated {
+                        let context = undoContext.context
                         guard let node = fetchCanvasNodeForUndo(id: nodeID, in: context) else {
                             onStatus("Could not undo card resize: card no longer exists")
                             return
@@ -2656,8 +2670,10 @@ struct WorkspaceCanvasView: View {
 
         do {
             try modelContext.save()
-            undoManager?.registerUndo(withTarget: modelContext) { context in
+            let undoContext = MainActorUndoContext(context: modelContext)
+            undoManager?.registerUndo(withTarget: modelContext) { _ in
                 MainActor.assumeIsolated {
+                    let context = undoContext.context
                     guard let edge = fetchCanvasEdgeForUndo(id: edgeID, in: context) else {
                         onStatus("Could not undo link reversal: link no longer exists")
                         return
@@ -2841,8 +2857,10 @@ struct WorkspaceCanvasView: View {
         childParents: [CanvasChildParentSnapshot]
     ) {
         guard !nodes.isEmpty || !edges.isEmpty || !childParents.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
+                let context = undoContext.context
                 for snapshot in nodes {
                     context.insert(snapshot.makeModel())
                 }
@@ -2869,8 +2887,10 @@ struct WorkspaceCanvasView: View {
 
     private func registerCanvasEdgeDeletionUndo(_ edges: [CanvasEdgeDeletionSnapshot]) {
         guard !edges.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
+                let context = undoContext.context
                 for snapshot in edges {
                     context.insert(snapshot.makeModel())
                 }

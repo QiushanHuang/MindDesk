@@ -2,6 +2,10 @@ import MindDeskCore
 import SwiftData
 import SwiftUI
 
+private struct MainActorUndoContext: @unchecked Sendable {
+    let context: ModelContext
+}
+
 private let defaultTodoGroupTitle = "Default"
 
 private struct TodoDeletionSnapshot {
@@ -595,8 +599,10 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoDeletionUndo(_ snapshot: TodoDeletionSnapshot) {
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
+                let context = undoContext.context
                 context.insert(snapshot.makeModel())
                 do {
                     try context.save()
@@ -611,8 +617,10 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoGroupDeletionUndo(group: TodoGroupDeletionSnapshot, memberships: [TodoGroupMembershipSnapshot]) {
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
+                let context = undoContext.context
                 context.insert(group.makeModel())
                 for snapshot in memberships {
                     if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {
