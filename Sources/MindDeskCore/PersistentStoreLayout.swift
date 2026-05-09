@@ -4,6 +4,7 @@ public enum MindDeskStoreBackupReason: String, Sendable {
     case startup
     case migration
     case restore
+    case failedOpen = "failed-open"
 }
 
 public struct MindDeskStoreLayout: Equatable, Sendable {
@@ -34,6 +35,10 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
 
     public var backupDirectory: URL {
         appDirectory.appendingPathComponent("Backups", isDirectory: true)
+    }
+
+    public var quarantineDirectory: URL {
+        appDirectory.appendingPathComponent("Quarantine", isDirectory: true)
     }
 
     public var legacyStoreURL: URL {

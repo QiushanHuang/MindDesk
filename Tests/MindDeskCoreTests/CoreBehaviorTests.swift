@@ -37,6 +37,10 @@ final class CoreBehaviorTests: XCTestCase {
             layout.backupDirectory.path,
             "/tmp/Application Support/studio.qiushan.minddesk/Backups"
         )
+        XCTAssertEqual(
+            layout.quarantineDirectory.path,
+            "/tmp/Application Support/studio.qiushan.minddesk/Quarantine"
+        )
     }
 
     func testPersistentStoreLayoutTreatsSQLiteCompanionsAsOneStore() {
@@ -84,7 +88,7 @@ final class CoreBehaviorTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_800_000)
         let recentBackup = backupRoot.appendingPathComponent(
             MindDeskStoreLayout.backupFolderName(
-                for: now.addingTimeInterval(-60 * 60),
+                for: now.addingTimeInterval(-20 * 60),
                 reason: .startup
             ),
             isDirectory: true
@@ -104,7 +108,7 @@ final class CoreBehaviorTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_800_000)
         let staleBackup = backupRoot.appendingPathComponent(
             MindDeskStoreLayout.backupFolderName(
-                for: now.addingTimeInterval(-25 * 60 * 60),
+                for: now.addingTimeInterval(-31 * 60),
                 reason: .startup
             ),
             isDirectory: true

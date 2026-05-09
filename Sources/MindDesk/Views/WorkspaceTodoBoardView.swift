@@ -595,7 +595,7 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoDeletionUndo(_ snapshot: TodoDeletionSnapshot) {
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
             context.insert(snapshot.makeModel())
             do {
                 try context.save()
@@ -609,7 +609,7 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoGroupDeletionUndo(group: TodoGroupDeletionSnapshot, memberships: [TodoGroupMembershipSnapshot]) {
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
             context.insert(group.makeModel())
             for snapshot in memberships {
                 if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {

@@ -1496,7 +1496,7 @@ struct WorkspaceCanvasView: View {
         edge.style = CanvasEdgeStyleOptions.style(edge.style, controlPointLocked: false)
         edge.updatedAt = .now
         guard saveModelChanges(failurePrefix: "Could not delete link bend") else { return }
-        undoManager?.registerUndo(withTarget: edge) { edge in
+        undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
             edge.controlPointX = oldX
             edge.controlPointY = oldY
             edge.style = oldStyle
@@ -1551,7 +1551,7 @@ struct WorkspaceCanvasView: View {
             edge.controlPointY = canvasPoint.y
             edge.updatedAt = .now
             guard saveModelChanges(failurePrefix: "Could not save link bend") else { return }
-            undoManager?.registerUndo(withTarget: edge) { edge in
+            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
                 edge.controlPointX = oldX
                 edge.controlPointY = oldY
                 edge.updatedAt = .now
@@ -1772,7 +1772,7 @@ struct WorkspaceCanvasView: View {
     ) {
         for (id, start) in dragStart {
             guard let node = workflowNodeById[id] else { continue }
-            undoManager?.registerUndo(withTarget: node) { node in
+            undoManager?.registerUndo(withTarget: node) { @MainActor node in
                 node.x = start.x
                 node.y = start.y
                 node.parentNodeId = start.parentNodeId
@@ -1787,7 +1787,7 @@ struct WorkspaceCanvasView: View {
         }
         for snapshot in edgeControlPointSnapshots {
             guard let edge = visibleEdges.first(where: { $0.id == snapshot.id }) else { continue }
-            undoManager?.registerUndo(withTarget: edge) { edge in
+            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
                 edge.controlPointX = snapshot.x
                 edge.controlPointY = snapshot.y
                 edge.updatedAt = .now
@@ -1954,7 +1954,7 @@ struct WorkspaceCanvasView: View {
             selectedEdgeIDs = []
             do {
                 try modelContext.save()
-                undoManager?.registerUndo(withTarget: node) { node in
+                undoManager?.registerUndo(withTarget: node) { @MainActor node in
                     node.width = oldWidth
                     node.height = oldHeight
                     node.updatedAt = .now
@@ -2612,7 +2612,7 @@ struct WorkspaceCanvasView: View {
 
         do {
             try modelContext.save()
-            undoManager?.registerUndo(withTarget: edge) { edge in
+            undoManager?.registerUndo(withTarget: edge) { @MainActor edge in
                 edge.sourceNodeId = previousSource
                 edge.targetNodeId = previousTarget
                 edge.sourceArrowRaw = previousSourceArrow
@@ -2791,7 +2791,7 @@ struct WorkspaceCanvasView: View {
         childParents: [CanvasChildParentSnapshot]
     ) {
         guard !nodes.isEmpty || !edges.isEmpty || !childParents.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
             for snapshot in nodes {
                 context.insert(snapshot.makeModel())
             }
@@ -2817,7 +2817,7 @@ struct WorkspaceCanvasView: View {
 
     private func registerCanvasEdgeDeletionUndo(_ edges: [CanvasEdgeDeletionSnapshot]) {
         guard !edges.isEmpty else { return }
-        undoManager?.registerUndo(withTarget: modelContext) { context in
+        undoManager?.registerUndo(withTarget: modelContext) { @MainActor context in
             for snapshot in edges {
                 context.insert(snapshot.makeModel())
             }
