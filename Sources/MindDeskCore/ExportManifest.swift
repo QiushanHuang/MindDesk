@@ -503,7 +503,23 @@ public enum ManifestImportValidation {
         let snippetIds = Set(manifest.snippets.map(\.id))
         let canvasIds = Set(manifest.canvases.map(\.id))
         let nodeIds = Set(manifest.nodes.map(\.id))
+        let nodeCanvasById = Dictionary(manifest.nodes.map { ($0.id, $0.canvasId) }, uniquingKeysWith: { first, _ in first })
         var issues: [String] = []
+
+        issues.append(contentsOf: emptyIDIssues(manifest.workspaces.map(\.id), label: "Workspace"))
+        issues.append(contentsOf: emptyIDIssues(manifest.resources.map(\.id), label: "Resource"))
+        issues.append(contentsOf: emptyIDIssues(manifest.snippets.map(\.id), label: "Snippet"))
+        issues.append(contentsOf: emptyIDIssues(manifest.canvases.map(\.id), label: "Canvas"))
+        issues.append(contentsOf: emptyIDIssues(manifest.nodes.map(\.id), label: "Node"))
+        issues.append(contentsOf: emptyIDIssues(manifest.edges.map(\.id), label: "Edge"))
+        issues.append(contentsOf: emptyIDIssues(manifest.aliases.map(\.id), label: "Alias"))
+        issues.append(contentsOf: duplicateIssues(manifest.workspaces.map(\.id), label: "workspace"))
+        issues.append(contentsOf: duplicateIssues(manifest.resources.map(\.id), label: "resource"))
+        issues.append(contentsOf: duplicateIssues(manifest.snippets.map(\.id), label: "snippet"))
+        issues.append(contentsOf: duplicateIssues(manifest.canvases.map(\.id), label: "canvas"))
+        issues.append(contentsOf: duplicateIssues(manifest.nodes.map(\.id), label: "node"))
+        issues.append(contentsOf: duplicateIssues(manifest.edges.map(\.id), label: "edge"))
+        issues.append(contentsOf: duplicateIssues(manifest.aliases.map(\.id), label: "alias"))
 
         for resource in manifest.resources {
             if let workspaceId = resource.workspaceId, !workspaceIds.contains(workspaceId) {
@@ -528,19 +544,39 @@ public enum ManifestImportValidation {
             if !canvasIds.contains(node.canvasId) {
                 issues.append("Node \(node.id) references missing canvas \(node.canvasId).")
             }
-            if let parentNodeId = node.parentNodeId, !nodeIds.contains(parentNodeId) {
-                issues.append("Node \(node.id) references missing parent node \(parentNodeId).")
+            if let parentNodeId = node.parentNodeId {
+                if !nodeIds.contains(parentNodeId) {
+                    issues.append("Node \(node.id) references missing parent node \(parentNodeId).")
+                } else if let parentCanvasId = nodeCanvasById[parentNodeId], parentCanvasId != node.canvasId {
+                    issues.append("Node \(node.id) references parent node \(parentNodeId) from another canvas.")
+                }
             }
-            if let objectType = node.objectType, let objectId = node.objectId {
-                switch objectType {
-                case "workspace" where !workspaceIds.contains(objectId):
-                    issues.append("Node \(node.id) references missing workspace object \(objectId).")
-                case "resourcePin" where !resourceIds.contains(objectId):
-                    issues.append("Node \(node.id) references missing resource object \(objectId).")
-                case "snippet" where !snippetIds.contains(objectId):
-                    issues.append("Node \(node.id) references missing snippet object \(objectId).")
-                default:
-                    break
+            if let objectType = node.objectType {
+                if objectType == "webURL" {
+                    let trimmedObjectId = node.objectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let urlSource = trimmedObjectId?.isEmpty == false ? trimmedObjectId ?? "" : node.body
+                    if WebCardURL.normalized(urlSource) == nil {
+                        issues.append("Node \(node.id) references invalid web URL.")
+                    }
+                } else {
+                    guard let objectId = normalizedReference(
+                        node.objectId,
+                        ownerDescription: "Node \(node.id)",
+                        fieldDescription: "object id",
+                        issues: &issues
+                    ) else {
+                        issues.append("Node \(node.id) has object type \(objectType) without an object id.")
+                        continue
+                    }
+                    appendMissingObjectIssue(
+                        objectType: objectType,
+                        objectId: objectId,
+                        ownerDescription: "Node \(node.id)",
+                        resourceIds: resourceIds,
+                        snippetIds: snippetIds,
+                        workspaceIds: workspaceIds,
+                        issues: &issues
+                    )
                 }
             }
         }
@@ -551,13 +587,99 @@ public enum ManifestImportValidation {
             }
             if !nodeIds.contains(edge.sourceNodeId) {
                 issues.append("Edge \(edge.id) references missing source node \(edge.sourceNodeId).")
+            } else if let sourceCanvasId = nodeCanvasById[edge.sourceNodeId], sourceCanvasId != edge.canvasId {
+                issues.append("Edge \(edge.id) references source node \(edge.sourceNodeId) from another canvas.")
             }
             if !nodeIds.contains(edge.targetNodeId) {
                 issues.append("Edge \(edge.id) references missing target node \(edge.targetNodeId).")
+            } else if let targetCanvasId = nodeCanvasById[edge.targetNodeId], targetCanvasId != edge.canvasId {
+                issues.append("Edge \(edge.id) references target node \(edge.targetNodeId) from another canvas.")
+            }
+        }
+
+        for alias in manifest.aliases {
+            guard alias.sourceObjectType == "resourcePin" || alias.sourceObjectType == "snippet" else {
+                issues.append("Alias \(alias.id) has unsupported source object type \(alias.sourceObjectType).")
+                continue
+            }
+            guard let sourceObjectId = normalizedReference(
+                alias.sourceObjectId,
+                ownerDescription: "Alias \(alias.id)",
+                fieldDescription: "source object id",
+                issues: &issues
+            ) else {
+                issues.append("Alias \(alias.id) has empty source object id.")
+                continue
+            }
+            if alias.status != "missing" {
+                appendMissingObjectIssue(
+                    objectType: alias.sourceObjectType,
+                    objectId: sourceObjectId,
+                    ownerDescription: "Alias \(alias.id)",
+                    resourceIds: resourceIds,
+                    snippetIds: snippetIds,
+                    workspaceIds: workspaceIds,
+                    issues: &issues
+                )
             }
         }
 
         return issues
+    }
+
+    private static func emptyIDIssues(_ ids: [String], label: String) -> [String] {
+        ids.compactMap { id in
+            id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "\(label) has empty id." : nil
+        }
+    }
+
+    private static func duplicateIssues(_ ids: [String], label: String) -> [String] {
+        var seen: Set<String> = []
+        var reported: Set<String> = []
+        var duplicates: [String] = []
+        for id in ids {
+            if !seen.insert(id).inserted, reported.insert(id).inserted {
+                duplicates.append(id)
+            }
+        }
+        return duplicates.map { "Duplicate \(label) id \($0)." }
+    }
+
+    private static func normalizedReference(
+        _ value: String?,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) -> String? {
+        guard let value else { return nil }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        if normalized != value {
+            issues.append("\(ownerDescription) has \(fieldDescription) with leading or trailing whitespace.")
+            return nil
+        }
+        return normalized
+    }
+
+    private static func appendMissingObjectIssue(
+        objectType: String,
+        objectId: String,
+        ownerDescription: String,
+        resourceIds: Set<String>,
+        snippetIds: Set<String>,
+        workspaceIds: Set<String>,
+        issues: inout [String]
+    ) {
+        switch objectType {
+        case "workspace" where !workspaceIds.contains(objectId):
+            issues.append("\(ownerDescription) references missing workspace object \(objectId).")
+        case "resourcePin" where !resourceIds.contains(objectId):
+            issues.append("\(ownerDescription) references missing resource object \(objectId).")
+        case "snippet" where !snippetIds.contains(objectId):
+            issues.append("\(ownerDescription) references missing snippet object \(objectId).")
+        default:
+            break
+        }
     }
 }
 

@@ -238,7 +238,7 @@ private enum CanvasNodeMetrics {
     static let zoomMaximum = CanvasZoomBaseline.maximumZoom
     static let zoomDisplayStep = 0.1
     static let interactionHitSlop = CanvasInteractionMetrics.nodeHitSlop
-    static let viewportOverscan = 240.0
+    static let viewportOverscan = 160.0
     static let denseEdgeHandleLimit = 48
     static let scrollZoomCommitDelayNanos: UInt64 = 450_000_000
     static let scrollZoomCommitZoomEpsilon = 0.001
@@ -257,15 +257,24 @@ private struct CanvasRenderSnapshot {
     let connectedNodeIDs: Set<String>
 
     init(nodes: [CanvasNodeModel], resources: [ResourcePinModel], snippets: [SnippetModel], edges: [CanvasEdgeModel]) {
-        let nodeLookup = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
-        workflowNodes = nodes
+        let uniqueNodes = Self.uniqueByID(nodes, id: \.id)
+        let nodeLookup = Dictionary(uniqueNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        workflowNodes = uniqueNodes
         nodeById = nodeLookup
-        resourcesById = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
-        snippetsById = Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0) })
-        visibleEdges = edges.filter { nodeLookup[$0.sourceNodeId] != nil && nodeLookup[$0.targetNodeId] != nil }
-        frameNodes = nodes.filter { $0.nodeType == .groupFrame }.sorted { $0.updatedAt < $1.updatedAt }
-        cardNodes = nodes.filter { $0.nodeType != .groupFrame }.sorted { $0.zIndex < $1.zIndex }
+        resourcesById = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        snippetsById = Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        visibleEdges = Self.uniqueByID(
+            edges.filter { nodeLookup[$0.sourceNodeId] != nil && nodeLookup[$0.targetNodeId] != nil },
+            id: \.id
+        )
+        frameNodes = uniqueNodes.filter { $0.nodeType == .groupFrame }.sorted { $0.updatedAt < $1.updatedAt }
+        cardNodes = uniqueNodes.filter { $0.nodeType != .groupFrame }.sorted { $0.zIndex < $1.zIndex }
         connectedNodeIDs = Set(visibleEdges.flatMap { [$0.sourceNodeId, $0.targetNodeId] })
+    }
+
+    private static func uniqueByID<T>(_ values: [T], id: (T) -> String) -> [T] {
+        var seen: Set<String> = []
+        return values.filter { seen.insert(id($0)).inserted }
     }
 
     func resource(for node: CanvasNodeModel) -> ResourcePinModel? {
@@ -282,24 +291,38 @@ private struct CanvasRenderSnapshot {
         targetClearance: Double,
         routingClearance: Double,
         usesObstacleRouting: Bool = true,
+        routingObstacleNodes: [CanvasNodeModel]? = nil,
         rectFor: (CanvasNodeModel) -> CanvasFrameRect,
         controlPointFor: (CanvasEdgeModel) -> CGPoint?,
+        shouldVisitEdge: ((CanvasEdgeModel) -> Bool)? = nil,
         shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
     ) -> [CanvasEdgeSegment] {
-        let nodeRects: [String: CanvasFrameRect] = Dictionary(uniqueKeysWithValues: workflowNodes.map { ($0.id, rectFor($0)) })
+        var nodeRects: [String: CanvasFrameRect] = [:]
+        func cachedRect(for node: CanvasNodeModel) -> CanvasFrameRect {
+            if let rect = nodeRects[node.id] {
+                return rect
+            }
+            let rect = rectFor(node)
+            nodeRects[node.id] = rect
+            return rect
+        }
+
         let obstacleRects: [(id: String, rect: CanvasFrameRect)] = usesObstacleRouting
-            ? nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
-                guard nodeById[id]?.nodeType != .groupFrame else { return nil }
-                return (id: id, rect: rect)
+            ? (routingObstacleNodes ?? cardNodes).compactMap { node -> (id: String, rect: CanvasFrameRect)? in
+                guard node.nodeType != .groupFrame else { return nil }
+                return (id: node.id, rect: cachedRect(for: node))
             }
             : []
         return visibleEdges.compactMap { edge -> CanvasEdgeSegment? in
-            guard let source = nodeById[edge.sourceNodeId],
-                  let target = nodeById[edge.targetNodeId],
-                  let sourceRect = nodeRects[source.id],
-                  let targetRect = nodeRects[target.id] else {
+            if let shouldVisitEdge, !shouldVisitEdge(edge) {
                 return nil
             }
+            guard let source = nodeById[edge.sourceNodeId],
+                  let target = nodeById[edge.targetNodeId] else {
+                return nil
+            }
+            let sourceRect = cachedRect(for: source)
+            let targetRect = cachedRect(for: target)
             let control = controlPointFor(edge)
             if let shouldIncludeEdge, !shouldIncludeEdge(edge, sourceRect, targetRect, control) {
                 return nil
@@ -403,6 +426,7 @@ struct WorkspaceCanvasView: View {
 
     @State private var selectedNodeIDs: Set<String> = []
     @State private var selectedEdgeIDs: Set<String> = []
+    @State private var editingNodeIDs: Set<String> = []
     @State private var mode: CanvasInteractionMode = .select
     @State private var connectionSourceNodeId: String?
     @State private var selectionRect: CGRect?
@@ -426,6 +450,7 @@ struct WorkspaceCanvasView: View {
     @State private var edgeControlDragStart: [String: CGPoint] = [:]
     @State private var transientEdgeControlPoints: [String: CGPoint] = [:]
     @State private var frameDragControlPointEdgeIDs: Set<String> = []
+    @State private var frameDragControlPointSnapshotsByID: [String: CanvasEdgeControlPointSnapshot] = [:]
     @State private var webCardDraft = ""
     @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
@@ -461,19 +486,19 @@ struct WorkspaceCanvasView: View {
     }
 
     private var workflowNodeById: [String: CanvasNodeModel] {
-        Dictionary(uniqueKeysWithValues: workflowNodes.map { ($0.id, $0) })
+        Dictionary(workflowNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var resourcesById: [String: ResourcePinModel] {
-        Dictionary(uniqueKeysWithValues: allResources.map { ($0.id, $0) })
+        Dictionary(allResources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var snippetsById: [String: SnippetModel] {
-        Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0) })
+        Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var workspacesById: [String: WorkspaceModel] {
-        Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var visibleEdges: [CanvasEdgeModel] {
@@ -521,7 +546,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private var otherWorkspaceResourceGroups: [WorkspaceResourceMenuGroup] {
-        let titleByWorkspaceId = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0.title) })
+        let titleByWorkspaceId = Dictionary(workspaces.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
         let grouped = Dictionary(grouping: allResources.filter { $0.scope == .workspace && $0.workspaceId != canvas.workspaceId }) {
             $0.workspaceId ?? ""
         }
@@ -612,8 +637,7 @@ struct WorkspaceCanvasView: View {
                 flushPendingNodeTextCommits()
             }
             .onChange(of: canvasDefaultZoomPercent) { _, _ in
-                setZoom(zoomBaseline)
-                onStatus("Canvas 100% baseline updated")
+                onStatus("Canvas display baseline updated")
             }
             .onChange(of: edges.map(\.id)) { _, edgeIDs in
                 selectedEdgeIDs.formIntersection(Set(edgeIDs))
@@ -978,29 +1002,87 @@ struct WorkspaceCanvasView: View {
             let edgeVisibleRect = edgeVisibleScreenRect(for: proxy.size)
             let visibleFrameNodes = snapshot.frameNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
             let visibleCardNodes = snapshot.cardNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
-            let visibleResizeNodes = visibleFrameNodes + visibleCardNodes
-            let usesObstacleRouting = CanvasPerformancePolicy.usesObstacleRouting(
-                edgeCount: snapshot.visibleEdges.count,
-                obstacleCount: snapshot.cardNodes.count,
-                isInteracting: isCanvasInteracting
-            )
-            let edgeSegments = snapshot.edgeSegments(
+            let visibleNodeCount = visibleFrameNodes.count + visibleCardNodes.count
+            let workspaceLookup = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let movingNodeIDs = Set(nodeDragStart.keys)
+                .union(resizingNodeId.map { [$0] } ?? [])
+            let transientControlEdgeIDs = Set(transientEdgeControlPoints.keys).union(edgeControlDragStart.keys)
+            let isGeometryEdgeCulled = !movingNodeIDs.isEmpty || !edgeControlDragStart.isEmpty
+            let visibleResizeNodes = (visibleFrameNodes + visibleCardNodes).filter { node in
+                CanvasResizeHandleVisibilityPolicy.shouldShow(
+                    isSelected: selectedNodeIDs.contains(node.id),
+                    isDragging: nodeDragStart[node.id] != nil,
+                    isResizing: resizingNodeId == node.id || transientNodeSizes[node.id] != nil,
+                    isInteracting: isCanvasInteracting,
+                    visibleNodeCount: visibleNodeCount
+                )
+            }
+            let shouldVisitCanvasEdge: (CanvasEdgeModel) -> Bool = { edge in
+                CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+                    edgeID: edge.id,
+                    sourceNodeID: edge.sourceNodeId,
+                    targetNodeID: edge.targetNodeId,
+                    movingNodeIDs: movingNodeIDs,
+                    selectedEdgeIDs: selectedEdgeIDs,
+                    transientControlEdgeIDs: transientControlEdgeIDs,
+                    movedControlEdgeIDs: frameDragControlPointEdgeIDs,
+                    isGeometryInteracting: isGeometryEdgeCulled
+                )
+            }
+            let shouldIncludeCanvasEdge: (CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool = { edge, sourceRect, targetRect, control in
+                selectedEdgeIDs.contains(edge.id) ||
+                    isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: edgeVisibleRect)
+            }
+            let unroutedEdgeSegments = snapshot.edgeSegments(
                 targetClearance: CanvasNodeMetrics.edgeTargetClearance,
                 routingClearance: CanvasNodeMetrics.edgeRoutingClearance,
-                usesObstacleRouting: usesObstacleRouting,
+                usesObstacleRouting: false,
                 rectFor: screenRect(for:),
                 controlPointFor: screenControlPoint(for:),
-                shouldIncludeEdge: { edge, sourceRect, targetRect, control in
-                    selectedEdgeIDs.contains(edge.id) ||
-                        isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: edgeVisibleRect)
-                }
+                shouldVisitEdge: shouldVisitCanvasEdge,
+                shouldIncludeEdge: shouldIncludeCanvasEdge
             )
             .filter { isEdgeSegmentVisible($0, in: edgeVisibleRect) || selectedEdgeIDs.contains($0.id) }
-            let animateVisibleEdges = shouldAnimateGlow(edgeCount: edgeSegments.count)
+            let usesObstacleRouting =
+                effectiveZoom >= zoomBaseline &&
+                CanvasPerformancePolicy.usesObstacleRouting(
+                    edgeCount: unroutedEdgeSegments.count,
+                    obstacleCount: visibleCardNodes.count,
+                    isInteracting: isCanvasInteracting
+                )
+            let edgeSegments = usesObstacleRouting ? snapshot.edgeSegments(
+                targetClearance: CanvasNodeMetrics.edgeTargetClearance,
+                routingClearance: CanvasNodeMetrics.edgeRoutingClearance,
+                usesObstacleRouting: true,
+                routingObstacleNodes: visibleCardNodes,
+                rectFor: screenRect(for:),
+                controlPointFor: screenControlPoint(for:),
+                shouldVisitEdge: shouldVisitCanvasEdge,
+                shouldIncludeEdge: shouldIncludeCanvasEdge
+            )
+            .filter { isEdgeSegmentVisible($0, in: edgeVisibleRect) || selectedEdgeIDs.contains($0.id) } : unroutedEdgeSegments
+            let routedPointCount = edgeSegments.reduce(0) { $0 + $1.routePoints.count }
+            let animateVisibleEdges = CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+                theme: canvas.linkAnimationThemeRaw,
+                animationsEnabled: canvas.animationsEnabled,
+                reduceMotion: reduceMotion,
+                visibleEdgeCount: edgeSegments.count,
+                visibleCardCount: visibleCardNodes.count,
+                routedPointCount: routedPointCount,
+                zoom: effectiveZoom,
+                baselineZoom: zoomBaseline,
+                isInteracting: isCanvasInteracting
+            )
             ZStack(alignment: .topLeading) {
                     canvasBackground
 
                     ForEach(visibleFrameNodes) { node in
+                        let isActiveNode = selectedNodeIDs.contains(node.id) ||
+                            connectionSourceNodeId == node.id ||
+                            nodeDragStart[node.id] != nil ||
+                            resizingNodeId == node.id ||
+                            transientNodeSizes[node.id] != nil ||
+                            editingNodeIDs.contains(node.id)
                         CanvasFrameCard(
                             node: node,
                             isSelected: selectedNodeIDs.contains(node.id),
@@ -1009,6 +1091,15 @@ struct WorkspaceCanvasView: View {
                             animateGlow: animateVisibleEdges,
                             glowPulse: animateVisibleEdges,
                             isConnectionSource: connectionSourceNodeId == node.id,
+                            rendersDetails: CanvasCardRenderDetailPolicy.shouldRenderDetails(
+                                zoom: effectiveZoom,
+                                baselineZoom: zoomBaseline,
+                                visibleCardCount: visibleNodeCount,
+                                isInteracting: isCanvasInteracting,
+                                isSelected: isActiveNode,
+                                isEditing: editingNodeIDs.contains(node.id)
+                            ),
+                            onEditingChange: { updateEditingState(for: node.id, isEditing: $0) },
                             onInfo: { performCardButtonAction(node) { inspect(node) } },
                             onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
                             onStartLink: { performCardButtonAction(node) { startConnection(from: node) } },
@@ -1034,11 +1125,17 @@ struct WorkspaceCanvasView: View {
                     .zIndex(1.2)
 
 	                ForEach(visibleCardNodes) { node in
+                        let isActiveNode = selectedNodeIDs.contains(node.id) ||
+                            connectionSourceNodeId == node.id ||
+                            nodeDragStart[node.id] != nil ||
+                            resizingNodeId == node.id ||
+                            transientNodeSizes[node.id] != nil ||
+                            editingNodeIDs.contains(node.id)
 	                    CanvasNodeCard(
 	                        node: node,
 	                        resource: snapshot.resource(for: node),
 	                        snippet: snapshot.snippet(for: node),
-	                        workspace: workspace(for: node),
+	                        workspace: node.objectType == "workspace" ? node.objectId.flatMap { workspaceLookup[$0] } : nil,
 	                        webURL: webURL(for: node),
 	                        isSelected: selectedNodeIDs.contains(node.id),
                         isConnectionSource: connectionSourceNodeId == node.id,
@@ -1046,6 +1143,15 @@ struct WorkspaceCanvasView: View {
                         glowTheme: glowTheme,
                         animateGlow: animateVisibleEdges,
                         glowPulse: animateVisibleEdges,
+                        rendersDetails: CanvasCardRenderDetailPolicy.shouldRenderDetails(
+                            zoom: effectiveZoom,
+                            baselineZoom: zoomBaseline,
+                            visibleCardCount: visibleNodeCount,
+                            isInteracting: isCanvasInteracting,
+                            isSelected: isActiveNode,
+                            isEditing: editingNodeIDs.contains(node.id)
+                        ),
+                        onEditingChange: { updateEditingState(for: node.id, isEditing: $0) },
                         onOpen: { open(node) },
                         onInfo: { performCardButtonAction(node) { inspect(node) } },
                         onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
@@ -1089,7 +1195,7 @@ struct WorkspaceCanvasView: View {
                 }
 
                 ForEach(edgeSegments) { segment in
-                    if shouldShowEdgeControlHandle(for: segment, edgeCount: snapshot.visibleEdges.count) {
+                    if shouldShowEdgeControlHandle(for: segment, edgeCount: edgeSegments.count) {
                         EdgeControlHandle(
                             isCustom: (transientEdgeControlPoints[segment.id] ?? segment.control) != nil,
                             isLocked: segment.control != nil && segment.isControlPointLocked,
@@ -1142,6 +1248,12 @@ struct WorkspaceCanvasView: View {
                         .frame(width: selectionRect.width, height: selectionRect.height)
                         .position(x: selectionRect.midX, y: selectionRect.midY)
                         .zIndex(3)
+                }
+
+                if workflowNodes.isEmpty {
+                    CanvasEmptyStateView(onAddNote: addNoteNode)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .zIndex(3.6)
                 }
             }
             .overlay {
@@ -1209,7 +1321,7 @@ struct WorkspaceCanvasView: View {
     @ViewBuilder
     private func edgeStrokeLayer(_ segments: [CanvasEdgeSegment], animateVisibleEdges: Bool, canvasSize: CGSize) -> some View {
         if animateVisibleEdges {
-            TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { timeline in
+            TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
                 CanvasEdgeStrokeLayer(
                     segments: segments,
                     transientControlPoints: transientEdgeControlPoints,
@@ -1254,7 +1366,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private var nodeOverscanPixels: Double {
-        min(640, max(220, 320 * sqrt(effectiveZoom / 0.35)))
+        CanvasViewportVisibilityPolicy.nodeOverscanPixels(
+            zoom: effectiveZoom,
+            baselineZoom: zoomBaseline
+        )
     }
 
     private func isNodeVisible(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
@@ -1282,27 +1397,28 @@ struct WorkspaceCanvasView: View {
         if let control {
             bounds = bounds.union(CGRect(origin: control, size: .zero))
         }
-        let routingOverscan = CGFloat(max(CanvasNodeMetrics.viewportOverscan * 2, 900))
+        let routingOverscan = CGFloat(max(CanvasNodeMetrics.viewportOverscan * 2, 600))
         return visibleRect.intersects(bounds.insetBy(dx: -routingOverscan, dy: -routingOverscan))
     }
 
     private func shouldShowEdgeControlHandle(for segment: CanvasEdgeSegment, edgeCount: Int) -> Bool {
-        if selectedEdgeIDs.contains(segment.id) || transientEdgeControlPoints[segment.id] != nil {
-            return true
-        }
-        if isCanvasInteracting {
-            return false
-        }
-        if segment.control != nil || segment.isControlPointLocked {
-            return true
-        }
-        return edgeCount <= 24 && effectiveZoom >= 0.30
+        CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: selectedEdgeIDs.contains(segment.id),
+            hasTransientControlPoint: transientEdgeControlPoints[segment.id] != nil,
+            hasStoredControlPoint: segment.control != nil,
+            isLocked: segment.isControlPointLocked,
+            isInteracting: isCanvasInteracting,
+            edgeCount: edgeCount,
+            zoom: effectiveZoom
+        )
     }
 
     private func shouldRenderNode(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
         isNodeVisible(node, in: visibleRect) ||
             selectedNodeIDs.contains(node.id) ||
             nodeDragStart[node.id] != nil ||
+            resizingNodeId == node.id ||
+            transientNodeSizes[node.id] != nil ||
             transientNodeOffsets[node.id] != nil ||
             connectionSourceNodeId == node.id
     }
@@ -1677,6 +1793,14 @@ struct WorkspaceCanvasView: View {
         return workspacesById[objectId]
     }
 
+    private func updateEditingState(for nodeID: String, isEditing: Bool) {
+        if isEditing {
+            editingNodeIDs.insert(nodeID)
+        } else {
+            editingNodeIDs.remove(nodeID)
+        }
+    }
+
     private func webURL(for node: CanvasNodeModel) -> URL? {
         guard node.objectType == "webURL" else { return nil }
         return WebCardURL.normalized(node.objectId ?? node.body)
@@ -1708,12 +1832,20 @@ struct WorkspaceCanvasView: View {
     }
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
+        clearFrameDragControlPointOffsets()
         let draggedNodes = draggedNodes(for: node)
         let draggedIDs = Set(draggedNodes.map(\.id))
         let frameSnapshots = workflowNodes
             .filter { $0.nodeType == .groupFrame && !draggedIDs.contains($0.id) }
             .map(nodeDragSnapshot(for:))
         let snapshots = draggedNodes.map(nodeDragSnapshot(for:)) + frameSnapshots
+        let movedFrameRects = snapshots
+            .filter { draggedIDs.contains($0.id) && $0.nodeType == .groupFrame }
+            .map(\.rect)
+        let movedControlPointSnapshotsByID = Dictionary(
+            edgeControlPointSnapshots(in: movedFrameRects).map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         nodeDragSnapshots = Dictionary(snapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         nodeDragStart = Dictionary(
             draggedNodes.map { draggedNode in
@@ -1728,6 +1860,8 @@ struct WorkspaceCanvasView: View {
             },
             uniquingKeysWith: { first, _ in first }
         )
+        frameDragControlPointSnapshotsByID = movedControlPointSnapshotsByID
+        frameDragControlPointEdgeIDs = Set(movedControlPointSnapshotsByID.keys)
         if !selectedNodeIDs.contains(node.id) || selectedNodeIDs.count <= 1 {
             selectedNodeIDs = [node.id]
         }
@@ -1770,10 +1904,7 @@ struct WorkspaceCanvasView: View {
         )
         let movedRectById = Dictionary(movedRects.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let frameRects = movedRects.filter { snapshots[$0.id]?.nodeType == .groupFrame }
-        let movedFrameOriginalRects = snapshots.values
-            .filter { movedIDs.contains($0.id) && $0.nodeType == .groupFrame }
-            .map(\.rect)
-        let movedControlPointStarts = edgeControlPointSnapshots(in: movedFrameOriginalRects)
+        let movedControlPointStarts = Array(frameDragControlPointSnapshotsByID.values)
         let now = Date.now
 
         for (id, start) in dragStart {
@@ -1792,7 +1923,7 @@ struct WorkspaceCanvasView: View {
             movedNode.parentNodeId = CanvasFrameGeometry.containingFrameId(for: movedRect, frames: frameRects)
         }
         moveContainedEdgeControlPoints(
-            in: movedFrameOriginalRects,
+            snapshots: movedControlPointStarts,
             deltaX: deltaX,
             deltaY: deltaY,
             now: now
@@ -1875,10 +2006,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func updateFrameDragControlPointOffsets(delta: CGSize) {
-        let movedFrameRects = nodeDragSnapshots.values
-            .filter { nodeDragStart.keys.contains($0.id) && $0.nodeType == .groupFrame }
-            .map(\.rect)
-        guard !movedFrameRects.isEmpty else {
+        guard !frameDragControlPointSnapshotsByID.isEmpty else {
             clearFrameDragControlPointOffsets()
             return
         }
@@ -1886,24 +2014,16 @@ struct WorkspaceCanvasView: View {
         let deltaX = Double(delta.width)
         let deltaY = Double(delta.height)
         var updatedEdgeIDs: Set<String> = []
-        for edge in visibleEdges {
-            guard let x = edge.controlPointX,
-                  let y = edge.controlPointY else {
-                continue
-            }
-            let point = CanvasFramePosition(id: edge.id, x: x, y: y)
-            guard movedFrameRects.contains(where: { CanvasFrameGeometry.contains(point, in: $0) }) else {
-                continue
-            }
+        for snapshot in frameDragControlPointSnapshotsByID.values {
             let screenPoint = CanvasViewportProjection.screenPoint(
-                x: x + deltaX,
-                y: y + deltaY,
+                x: snapshot.x + deltaX,
+                y: snapshot.y + deltaY,
                 zoom: effectiveZoom,
                 viewportX: effectiveViewportX,
                 viewportY: effectiveViewportY
             )
-            transientEdgeControlPoints[edge.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
-            updatedEdgeIDs.insert(edge.id)
+            transientEdgeControlPoints[snapshot.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
+            updatedEdgeIDs.insert(snapshot.id)
         }
 
         for id in frameDragControlPointEdgeIDs.subtracting(updatedEdgeIDs) {
@@ -1913,23 +2033,19 @@ struct WorkspaceCanvasView: View {
     }
 
     private func moveContainedEdgeControlPoints(
-        in frames: [CanvasFrameRect],
+        snapshots: [CanvasEdgeControlPointSnapshot],
         deltaX: Double,
         deltaY: Double,
         now: Date
     ) {
-        guard !frames.isEmpty, deltaX != 0 || deltaY != 0 else { return }
-        for edge in visibleEdges {
-            guard let x = edge.controlPointX,
-                  let y = edge.controlPointY else {
+        guard !snapshots.isEmpty, deltaX != 0 || deltaY != 0 else { return }
+        let edgeByID = Dictionary(visibleEdges.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for snapshot in snapshots {
+            guard let edge = edgeByID[snapshot.id] else {
                 continue
             }
-            let point = CanvasFramePosition(id: edge.id, x: x, y: y)
-            guard frames.contains(where: { CanvasFrameGeometry.contains(point, in: $0) }) else {
-                continue
-            }
-            edge.controlPointX = x + deltaX
-            edge.controlPointY = y + deltaY
+            edge.controlPointX = snapshot.x + deltaX
+            edge.controlPointY = snapshot.y + deltaY
             edge.updatedAt = now
         }
     }
@@ -1939,6 +2055,7 @@ struct WorkspaceCanvasView: View {
             transientEdgeControlPoints[id] = nil
         }
         frameDragControlPointEdgeIDs.removeAll()
+        frameDragControlPointSnapshotsByID.removeAll()
     }
 
     private func resetNodeDragState(movedIDs: Set<String>? = nil) {
@@ -3157,6 +3274,8 @@ struct CanvasNodeCard: View {
     let glowTheme: CanvasGlowTheme
     let animateGlow: Bool
     let glowPulse: Bool
+    let rendersDetails: Bool
+    let onEditingChange: (Bool) -> Void
     let onOpen: () -> Void
     let onInfo: () -> Void
     let onCopy: () -> Void
@@ -3172,10 +3291,14 @@ struct CanvasNodeCard: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack(alignment: .topTrailing) {
-                if node.nodeType == .note {
-                    noteCardContent(cardSize: proxy.size)
+                if rendersDetails {
+                    if node.nodeType == .note {
+                        noteCardContent(cardSize: proxy.size)
+                    } else {
+                        resourceCardContent(cardSize: proxy.size)
+                    }
                 } else {
-                    resourceCardContent(cardSize: proxy.size)
+                    lightweightCardContent(cardSize: proxy.size)
                 }
 
                 if let feedback {
@@ -3205,6 +3328,49 @@ struct CanvasNodeCard: View {
             Button("Connect") { onConnect() }
             Button("Toggle Note") { onToggleNote() }
             Button("Delete Card", role: .destructive) { onDelete() }
+        }
+    }
+
+    private func lightweightCardContent(cardSize _: CGSize) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 12, weight: .semibold))
+                    .frame(width: 15, height: 15)
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            Text(titleText)
+                .font(.system(size: 16, weight: .semibold))
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(notePreview)
+                .font(.system(size: 11.5, weight: .medium))
+                .lineLimit(2)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(lightweightCardBackground)
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(node.nodeType == .note ? noteBorderColor : borderColor, lineWidth: isSelected || isConnectionSource ? 2 : 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .shadow(color: .black.opacity(isSelected ? 0.12 : 0.05), radius: isSelected ? 4 : 1, y: 1)
+    }
+
+    @ViewBuilder
+    private var lightweightCardBackground: some View {
+        if node.nodeType == .note {
+            noteCardBackground
+        } else {
+            resourceCardBackground
         }
     }
 
@@ -3238,7 +3404,8 @@ struct CanvasNodeCard: View {
                 text: noteBinding,
                 fontSize: bodyFontSize(for: cardSize),
                 weight: .regular,
-                textColor: .labelColor
+                textColor: .labelColor,
+                onEditingChange: onEditingChange
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -3305,15 +3472,18 @@ struct CanvasNodeCard: View {
                     .clipped()
                     .onSubmit {
                         isEditingTitle = false
+                        onEditingChange(false)
                     }
                     .onExitCommand {
                         isEditingTitle = false
+                        onEditingChange(false)
                     }
             } else {
                 adaptiveTitleText(cardSize: cardSize)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
                         isEditingTitle = true
+                        onEditingChange(true)
                     }
                     .help("Double-click to rename")
             }
@@ -3372,7 +3542,8 @@ struct CanvasNodeCard: View {
                     text: noteBinding,
                     fontSize: bodyFontSize(for: cardSize),
                     weight: .semibold,
-                    textColor: NSColor.labelColor.withAlphaComponent(0.86)
+                    textColor: NSColor.labelColor.withAlphaComponent(0.86),
+                    onEditingChange: onEditingChange
                 )
                     .padding(4)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -3558,10 +3729,28 @@ struct CanvasNodeCard: View {
     }
 
     private func chromeTextWidth(_ text: String, fontSize: CGFloat, weight: NSFont.Weight) -> CGFloat {
+        if abs(fontSize - 12.5) < 0.01,
+           weight == .semibold,
+           let fixedWidth = Self.chromeLabelWidths[text] {
+            return fixedWidth
+        }
         let font = NSFont.systemFont(ofSize: fontSize, weight: weight)
         let width = (text as NSString).size(withAttributes: [.font: font]).width
         return min(86, max(30, ceil(width) + 3))
     }
+
+    private static let chromeLabelWidths: [String: CGFloat] = [
+        "Workspace": 78,
+        "Web Page": 72,
+        "Folder": 48,
+        "File": 34,
+        "Prompt": 54,
+        "Command": 72,
+        "Resource": 66,
+        "Snippet": 58,
+        "Note": 38,
+        "Details": 56
+    ]
 
     private func titleMaxHeight(for size: CGSize) -> CGFloat {
         CGFloat(CanvasCardTitleLayoutPolicy.maxTitleHeight(
@@ -3816,9 +4005,10 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
     let fontSize: CGFloat
     let weight: NSFont.Weight
     let textColor: NSColor
+    var onEditingChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text)
+        Coordinator(text: $text, onEditingChange: onEditingChange)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -3849,7 +4039,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        context.coordinator.update(text: $text, modelText: text)
+        context.coordinator.update(text: $text, modelText: text, onEditingChange: onEditingChange)
         if !context.coordinator.isEditing, textView.string != text {
             textView.string = text
             context.coordinator.acceptModelText(text)
@@ -3863,6 +4053,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
         } else {
             coordinator.cancelPendingCommit()
         }
+        coordinator.finishEditing()
     }
 
     private func configureTextView(_ textView: NSTextView) {
@@ -3874,17 +4065,20 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, NSTextViewDelegate {
         private var text: Binding<String>
+        private var onEditingChange: (Bool) -> Void
         private var latestText: String
         private var pendingCommitTask: Task<Void, Never>?
         private(set) var isEditing = false
 
-        init(text: Binding<String>) {
+        init(text: Binding<String>, onEditingChange: @escaping (Bool) -> Void) {
             self.text = text
+            self.onEditingChange = onEditingChange
             latestText = text.wrappedValue
         }
 
-        func update(text: Binding<String>, modelText: String) {
+        func update(text: Binding<String>, modelText: String, onEditingChange: @escaping (Bool) -> Void) {
             self.text = text
+            self.onEditingChange = onEditingChange
             if !isEditing {
                 latestText = modelText
             }
@@ -3896,6 +4090,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
 
         func textDidBeginEditing(_: Notification) {
             isEditing = true
+            onEditingChange(true)
         }
 
         func textDidChange(_ notification: Notification) {
@@ -3905,7 +4100,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            isEditing = false
+            finishEditing()
             if let textView = notification.object as? NSTextView {
                 commitImmediately(textView.string)
             } else {
@@ -3933,6 +4128,12 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
             pendingCommitTask = nil
         }
 
+        func finishEditing() {
+            guard isEditing else { return }
+            isEditing = false
+            onEditingChange(false)
+        }
+
         private func scheduleCommit() {
             pendingCommitTask?.cancel()
             let value = latestText
@@ -3953,6 +4154,38 @@ private final class CardTextScrollView: NSScrollView {
     }
 }
 
+private struct CanvasEmptyStateView: View {
+    let onAddNote: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "square.dashed")
+                .font(.system(size: 30, weight: .regular))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 4) {
+                Text("Start this canvas")
+                    .font(.headline)
+                Text("Drop files or add a note to sketch the workflow.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: onAddNote) {
+                Label("Add Note", systemImage: "note.text.badge.plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(.quaternary, lineWidth: 1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 private struct AdaptiveTitleText: NSViewRepresentable {
     let text: String
     let baseFontSize: CGFloat
@@ -3970,12 +4203,23 @@ private struct AdaptiveTitleText: NSViewRepresentable {
     }
 }
 
+private struct FittingTitleCacheKey: Equatable {
+    let text: String
+    let width: Int
+    let height: Int
+    let baseFontSize: Int
+    let minimumFontSize: Int
+    let weight: Int
+}
+
 private final class FittingTitleDrawingView: NSView {
     private var titleText = " "
     private var baseFontSize: CGFloat = 14
     private var minimumFontSize: CGFloat = 0.6
     private var fittingWeight: NSFont.Weight = .semibold
     private let absoluteMinimumFontSize: CGFloat = 0.2
+    private var cachedFittingKey: FittingTitleCacheKey?
+    private var cachedFittingFontSize: CGFloat?
 
     override var isFlipped: Bool {
         true
@@ -3999,6 +4243,7 @@ private final class FittingTitleDrawingView: NSView {
         self.baseFontSize = normalizedBaseFontSize
         self.minimumFontSize = normalizedMinimumFontSize
         fittingWeight = weight
+        clearFittingCache()
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
         setAccessibilityLabel(titleText)
@@ -4013,6 +4258,7 @@ private final class FittingTitleDrawingView: NSView {
         let changed = frame.size != newSize
         super.setFrameSize(newSize)
         if changed {
+            clearFittingCache()
             needsDisplay = true
         }
     }
@@ -4050,8 +4296,21 @@ private final class FittingTitleDrawingView: NSView {
         guard available.width > 2, available.height > 2 else {
             return baseFontSize
         }
+        let key = FittingTitleCacheKey(
+            text: titleText,
+            width: Int((available.width * 2).rounded()),
+            height: Int((available.height * 2).rounded()),
+            baseFontSize: Int((baseFontSize * 100).rounded()),
+            minimumFontSize: Int((minimumFontSize * 100).rounded()),
+            weight: Int((fittingWeight.rawValue * 1_000).rounded())
+        )
+        if cachedFittingKey == key, let cachedFittingFontSize {
+            return cachedFittingFontSize
+        }
 
         if titleFits(fontSize: baseFontSize, in: available) {
+            cachedFittingKey = key
+            cachedFittingFontSize = baseFontSize
             return baseFontSize
         }
 
@@ -4071,7 +4330,14 @@ private final class FittingTitleDrawingView: NSView {
                 high = candidate
             }
         }
+        cachedFittingKey = key
+        cachedFittingFontSize = best
         return best
+    }
+
+    private func clearFittingCache() {
+        cachedFittingKey = nil
+        cachedFittingFontSize = nil
     }
 
     private func titleFits(fontSize: CGFloat, in size: CGSize) -> Bool {
@@ -4234,6 +4500,8 @@ struct CanvasFrameCard: View {
     let animateGlow: Bool
     let glowPulse: Bool
     let isConnectionSource: Bool
+    let rendersDetails: Bool
+    let onEditingChange: (Bool) -> Void
     let onInfo: () -> Void
     let onCopy: () -> Void
     let onStartLink: () -> Void
@@ -4245,45 +4513,7 @@ struct CanvasFrameCard: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    CanvasSharpSymbol(systemName: "rectangle.dashed", pointSize: 12.5, weight: .semibold)
-                        .frame(width: 15, height: 15)
-                    TextField("Frame name", text: titleBinding)
-                        .textFieldStyle(.plain)
-                        .font(.headline)
-                        .lineLimit(1)
-                    Spacer()
-                    Button {
-                        triggerFeedback("Copied") {
-                            onCopy()
-                        }
-                    } label: {
-                        CanvasSharpSymbol(systemName: "doc.on.doc", pointSize: 12, weight: .semibold)
-                            .frame(width: 13, height: 13)
-                    }
-                    .buttonStyle(CardIconButtonStyle())
-                    Button(action: onInfo) {
-                        CanvasSharpSymbol(systemName: "info.circle", pointSize: 12, weight: .semibold)
-                            .frame(width: 13, height: 13)
-                    }
-                    .buttonStyle(CardIconButtonStyle())
-                    Button(role: .destructive, action: onDelete) {
-                        CanvasSharpSymbol(systemName: "trash", pointSize: 12, weight: .semibold)
-                            .frame(width: 13, height: 13)
-                    }
-                    .buttonStyle(CardIconButtonStyle())
-                }
-
-                CanvasNativeTextEditor(
-                    text: noteBinding,
-                    fontSize: 12,
-                    weight: .semibold,
-                    textColor: NSColor.labelColor.withAlphaComponent(0.86)
-                )
-                    .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 72)
-                Spacer()
-            }
+            frameContent
             .padding(12)
             .background(frameBackground)
             .overlay {
@@ -4327,6 +4557,77 @@ struct CanvasFrameCard: View {
         }
     }
 
+    @ViewBuilder
+    private var frameContent: some View {
+        if rendersDetails {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    CanvasSharpSymbol(systemName: "rectangle.dashed", pointSize: 12.5, weight: .semibold)
+                        .frame(width: 15, height: 15)
+                    TextField("Frame name", text: titleBinding)
+                        .textFieldStyle(.plain)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .onSubmit {
+                            onEditingChange(false)
+                        }
+                        .onExitCommand {
+                            onEditingChange(false)
+                        }
+                    Spacer()
+                    Button {
+                        triggerFeedback("Copied") {
+                            onCopy()
+                        }
+                    } label: {
+                        CanvasSharpSymbol(systemName: "doc.on.doc", pointSize: 12, weight: .semibold)
+                            .frame(width: 13, height: 13)
+                    }
+                    .buttonStyle(CardIconButtonStyle())
+                    Button(action: onInfo) {
+                        CanvasSharpSymbol(systemName: "info.circle", pointSize: 12, weight: .semibold)
+                            .frame(width: 13, height: 13)
+                    }
+                    .buttonStyle(CardIconButtonStyle())
+                    Button(role: .destructive, action: onDelete) {
+                        CanvasSharpSymbol(systemName: "trash", pointSize: 12, weight: .semibold)
+                            .frame(width: 13, height: 13)
+                    }
+                    .buttonStyle(CardIconButtonStyle())
+                }
+
+                CanvasNativeTextEditor(
+                    text: noteBinding,
+                    fontSize: 12,
+                    weight: .semibold,
+                    textColor: NSColor.labelColor.withAlphaComponent(0.86),
+                    onEditingChange: onEditingChange
+                )
+                    .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 72)
+                Spacer()
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    Image(systemName: "rectangle.dashed")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Frame")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                Text(node.title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(1)
+                Text(notePreview)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
     private var borderColor: Color {
         if isConnectionSource {
             return .accentColor
@@ -4361,6 +4662,11 @@ struct CanvasFrameCard: View {
             get: { node.body },
             set: { onNoteChange($0) }
         )
+    }
+
+    private var notePreview: String {
+        let trimmed = node.body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "No frame note yet." : trimmed
     }
 
     private func triggerFeedback(_ message: String, action: () -> Void) {

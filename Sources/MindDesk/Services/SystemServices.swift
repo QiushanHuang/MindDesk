@@ -86,12 +86,12 @@ struct FolderPreviewService {
     func contents(bookmarkData: Data?, fallbackPath: String, statusRaw: String, limit: Int = 200) throws -> [FolderPreviewItem] {
         let resolved = try bookmarkService.resolveAuthorizedBookmark(bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
         let folderURL = resolved.url
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
-            throw WorkbenchError.missingPath(folderURL.path)
-        }
 
         return try bookmarkService.access(folderURL) {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+                throw WorkbenchError.missingPath(folderURL.path)
+            }
             let urls = try FileManager.default.contentsOfDirectory(
                 at: folderURL,
                 includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],

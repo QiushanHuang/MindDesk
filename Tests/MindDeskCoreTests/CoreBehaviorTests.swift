@@ -11,6 +11,13 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(ShellQuoter.appleScriptString("say \"hi\" \\"), "\"say \\\"hi\\\" \\\\\"")
     }
 
+    func testAppleScriptStringEscapesLineSeparators() {
+        XCTAssertEqual(
+            ShellQuoter.appleScriptString("one\rtwo\u{2028}three\u{2029}four"),
+            "\"one\" & character id 13 & \"two\" & character id 8232 & \"three\" & character id 8233 & \"four\""
+        )
+    }
+
     func testTerminalCommandStopsWhenCdFails() {
         XCTAssertEqual(
             ShellQuoter.terminalCommand(command: "rm -rf build", workingDirectory: "/tmp/Missing Folder"),
@@ -461,9 +468,335 @@ final class CoreBehaviorTests: XCTestCase {
 
 
     func testCanvasPerformancePolicyDisablesExpensiveRoutingWhileInteractingOrDense() {
-        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: false))
-        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: true))
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: 40, isInteracting: false))
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 37, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: 40, isInteracting: true))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 1, obstacleCount: CanvasPerformancePolicy.maximumRoutingObstacleCount + 1, isInteracting: false))
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: CanvasPerformancePolicy.maximumRoutedEdgeCount + 1, obstacleCount: 20, isInteracting: false))
+    }
+
+    func testCanvasPerformancePolicyUsesChosenLimits() {
+        XCTAssertEqual(CanvasPerformancePolicy.maximumRoutedEdgeCount, 24)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumRoutingObstacleCount, 40)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumRoutingWorkload, 900)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedEdgeCount, 16)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedVisibleEdgeCount, 12)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedVisibleCardCount, 60)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedRoutePointCount, 96)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumDetailedVisibleCardCount, 48)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumPassiveResizeHandleNodeCount, 12)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumPassiveEdgeControlHandleCount, 24)
+        XCTAssertEqual(CanvasPerformancePolicy.minimumPassiveEdgeControlZoom, 0.30, accuracy: 0.0001)
+    }
+
+    func testCanvasPerformancePolicyUsesConservativeRoutingWorkloadBoundary() {
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 22, obstacleCount: 40, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 23, obstacleCount: 40, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 25, obstacleCount: 20, isInteracting: false))
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 12, obstacleCount: 0, isInteracting: false))
+    }
+
+    func testCanvasEdgeAnimationPolicyGatesVisibleTimelineByZoomDensityAndComplexity() {
+        XCTAssertTrue(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 12,
+            visibleCardCount: 60,
+            routedPointCount: 96,
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            isInteracting: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 13,
+            visibleCardCount: 48,
+            routedPointCount: 32,
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            isInteracting: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 12,
+            visibleCardCount: 61,
+            routedPointCount: 32,
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            isInteracting: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 12,
+            visibleCardCount: 48,
+            routedPointCount: 97,
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            isInteracting: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 12,
+            visibleCardCount: 48,
+            routedPointCount: 32,
+            zoom: 0.24,
+            baselineZoom: 0.35,
+            isInteracting: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: 12,
+            visibleCardCount: 48,
+            routedPointCount: 32,
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            isInteracting: true
+        ))
+    }
+
+    func testCanvasCardRenderDetailPolicyUsesLightweightCardsDuringMotionOrDenseZoomOut() {
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 48,
+            isInteracting: false,
+            isSelected: false,
+            isEditing: false
+        ))
+        XCTAssertFalse(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 40,
+            isInteracting: true,
+            isSelected: false,
+            isEditing: false
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 40,
+            isInteracting: true,
+            isSelected: true,
+            isEditing: false
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.24,
+            baselineZoom: 0.35,
+            visibleCardCount: 80,
+            isInteracting: true,
+            isSelected: false,
+            isEditing: true
+        ))
+        XCTAssertFalse(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 49,
+            isInteracting: false,
+            isSelected: false,
+            isEditing: false
+        ))
+        XCTAssertFalse(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.24,
+            baselineZoom: 0.35,
+            visibleCardCount: 48,
+            isInteracting: false,
+            isSelected: false,
+            isEditing: false
+        ))
+    }
+
+    func testCanvasResizeHandlePolicyAvoidsDensePassiveHandles() {
+        XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: true,
+            isDragging: false,
+            isResizing: false,
+            isInteracting: true,
+            visibleNodeCount: 120
+        ))
+        XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: false,
+            isDragging: true,
+            isResizing: false,
+            isInteracting: true,
+            visibleNodeCount: 120
+        ))
+        XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: false,
+            isDragging: false,
+            isResizing: true,
+            isInteracting: true,
+            visibleNodeCount: 120
+        ))
+        XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: false,
+            isDragging: false,
+            isResizing: false,
+            isInteracting: false,
+            visibleNodeCount: 12
+        ))
+        XCTAssertFalse(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: false,
+            isDragging: false,
+            isResizing: false,
+            isInteracting: true,
+            visibleNodeCount: 12
+        ))
+        XCTAssertFalse(CanvasResizeHandleVisibilityPolicy.shouldShow(
+            isSelected: false,
+            isDragging: false,
+            isResizing: false,
+            isInteracting: false,
+            visibleNodeCount: CanvasPerformancePolicy.maximumPassiveResizeHandleNodeCount + 1
+        ))
+    }
+
+    func testCanvasEdgeControlHandlePolicyKeepsSelectedAndCustomHandlesOnlyInDenseViews() {
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: true,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: true,
+            edgeCount: 300,
+            zoom: 0.1
+        ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: true,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: true,
+            edgeCount: 300,
+            zoom: 0.1
+        ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: true,
+            isLocked: false,
+            isInteracting: false,
+            edgeCount: 300,
+            zoom: 0.1
+        ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: true,
+            isInteracting: false,
+            edgeCount: 300,
+            zoom: 0.1
+        ))
+        XCTAssertFalse(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: true,
+            edgeCount: 12,
+            zoom: 0.35
+        ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: false,
+            edgeCount: 24,
+            zoom: 0.30
+        ))
+        XCTAssertFalse(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: false,
+            edgeCount: 25,
+            zoom: 0.35
+        ))
+        XCTAssertFalse(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: false,
+            edgeCount: 24,
+            zoom: 0.29
+        ))
+    }
+
+    func testCanvasActiveEdgeRenderPolicyLimitsEdgesDuringNodeMotion() {
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "unrelated",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: false
+        ))
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "incident",
+            sourceNodeID: "moving",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: true
+        ))
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "selected",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: ["selected"],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: true
+        ))
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "bend",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: ["bend"],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: true
+        ))
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "frame-bend",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: ["frame-bend"],
+            isGeometryInteracting: true
+        ))
+        XCTAssertFalse(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "unrelated",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: true
+        ))
     }
 
     func testCanvasSideRailLayoutShrinksRightRailForNarrowWindows() {
@@ -490,6 +823,15 @@ final class CoreBehaviorTests: XCTestCase {
             TodoBoardOrdering.ordered(records).map(\.id),
             ["pinned-early", "pinned-late", "normal-early", "normal-late"]
         )
+    }
+
+    func testTodoBoardOrderingBreaksExactTiesByID() {
+        let records = [
+            TodoBoardOrderRecord(id: "b", title: "Same", isPinned: false, sortIndex: 1),
+            TodoBoardOrderRecord(id: "a", title: "Same", isPinned: false, sortIndex: 1)
+        ]
+
+        XCTAssertEqual(TodoBoardOrdering.ordered(records).map(\.id), ["a", "b"])
     }
 
     func testTodoBoardOrderingMovesIDsWithinCurrentOrder() {
@@ -783,6 +1125,199 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Edge edge references missing source node missing-source."))
     }
 
+    func testManifestImportValidationReportsDuplicateIDs() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "One", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil),
+                WorkspaceRecord(id: "workspace", title: "Two", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "One", targetType: "file", displayPath: "/tmp/one", lastResolvedPath: "/tmp/one", note: "", tags: [], scope: "global", status: "available"),
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Two", targetType: "file", displayPath: "/tmp/two", lastResolvedPath: "/tmp/two", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "One", kind: "prompt", body: "", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false),
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "Two", kind: "prompt", body: "", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "One"),
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Two")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "One", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 0, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Two", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 200, y: 0, width: 180, height: 120)
+            ],
+            edges: [
+                CanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "node", label: ""),
+                CanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "node", label: "")
+            ],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "resource", aliasDisplayPath: "/tmp/one alias", status: "created"),
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "resource", aliasDisplayPath: "/tmp/two alias", status: "created")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Duplicate workspace id workspace."))
+        XCTAssertTrue(issues.contains("Duplicate resource id resource."))
+        XCTAssertTrue(issues.contains("Duplicate snippet id snippet."))
+        XCTAssertTrue(issues.contains("Duplicate canvas id canvas."))
+        XCTAssertTrue(issues.contains("Duplicate node id node."))
+        XCTAssertTrue(issues.contains("Duplicate edge id edge."))
+        XCTAssertTrue(issues.contains("Duplicate alias id alias."))
+    }
+
+    func testManifestImportValidationRejectsCrossCanvasLinksAndParents() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas-a", workspaceId: "workspace", title: "A"),
+                CanvasRecord(id: "canvas-b", workspaceId: "workspace", title: "B")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "parent", canvasId: "canvas-a", title: "Parent", body: "", nodeType: "groupFrame", objectType: nil, objectId: nil, x: 0, y: 0, width: 300, height: 240),
+                CanvasNodeRecord(id: "child", canvasId: "canvas-b", title: "Child", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 20, y: 20, width: 180, height: 120, parentNodeId: "parent")
+            ],
+            edges: [
+                CanvasEdgeRecord(id: "edge", canvasId: "canvas-a", sourceNodeId: "parent", targetNodeId: "child", label: "")
+            ],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Node child references parent node parent from another canvas."))
+        XCTAssertTrue(issues.contains("Edge edge references target node child from another canvas."))
+    }
+
+    func testManifestImportValidationRequiresObjectIDsAndAliasSources() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "resource-node", canvasId: "canvas", title: "Resource", body: "", nodeType: "resource", objectType: "resourcePin", objectId: nil, x: 0, y: 0, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "missing-resource", aliasDisplayPath: "/tmp/missing alias", status: "created")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Node resource-node has object type resourcePin without an object id."))
+        XCTAssertTrue(issues.contains("Alias alias references missing resource object missing-resource."))
+    }
+
+    func testManifestImportValidationAllowsLegacyWebURLBodyFallback() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "web", canvasId: "canvas", title: "Web", body: "example.com", nodeType: "snippet", objectType: "webURL", objectId: nil, x: 0, y: 0, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        XCTAssertTrue(ManifestImportValidation.issues(in: manifest).isEmpty)
+    }
+
+    func testManifestImportValidationRejectsEmptyIDsAndWhitespaceReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Resource", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Node", body: "", nodeType: "resource", objectType: "resourcePin", objectId: " resource ", x: 0, y: 0, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: " resource ", aliasDisplayPath: "/tmp/alias", status: "created")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Workspace has empty id."))
+        XCTAssertTrue(issues.contains("Node node has object id with leading or trailing whitespace."))
+        XCTAssertTrue(issues.contains("Alias alias has source object id with leading or trailing whitespace."))
+    }
+
+    func testManifestImportValidationRejectsUnsupportedAliasSourceTypes() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "workspace", sourceObjectId: "workspace", aliasDisplayPath: "/tmp/alias", status: "created")
+            ]
+        )
+
+        XCTAssertTrue(
+            ManifestImportValidation.issues(in: manifest).contains("Alias alias has unsupported source object type workspace.")
+        )
+    }
+
+    func testManifestImportValidationAllowsMissingAliasHistory() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [],
+            resources: [],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "deleted-resource", aliasDisplayPath: "/tmp/deleted alias", status: "missing")
+            ]
+        )
+
+        XCTAssertTrue(ManifestImportValidation.issues(in: manifest).isEmpty)
+    }
+
     func testLegacySnippetRecordDefaultsMissingCommandConfirmationToSafeValue() throws {
         let json = """
         {
@@ -843,10 +1378,16 @@ final class CoreBehaviorTests: XCTestCase {
     }
 
     func testCanvasObstacleRoutingRequiresSmallVisibleWorkload() {
-        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: false))
-        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 41, obstacleCount: 20, isInteracting: false))
-        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 90, isInteracting: false))
-        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 24, obstacleCount: 60, isInteracting: true))
+        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: 40, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 25, obstacleCount: 20, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: 41, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: 40, isInteracting: true))
+    }
+
+    func testCanvasPerformancePolicyRejectsInvalidAndOverflowingCounts() {
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: -1, obstacleCount: 20, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: -1, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: Int.max, obstacleCount: Int.max, isInteracting: false))
     }
 
     func testCanvasNodeColorStyleParsesHexInputs() {
@@ -1573,6 +2114,61 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(CanvasEdgeControlHandleMetrics.diameter(zoom: 1.85, baseDiameter: 13), 24.05, accuracy: 0.0001)
     }
 
+    func testCanvasGeometryUsesFiniteFallbackZoom() {
+        let canvasPoint = CanvasViewportProjection.canvasPoint(
+            screenX: 400,
+            screenY: 300,
+            zoom: .nan,
+            viewportX: 20,
+            viewportY: -10
+        )
+        let dropOrigin = CanvasDropPlacement.cardOrigin(
+            dropX: 400,
+            dropY: 300,
+            viewportX: 20,
+            viewportY: -10,
+            zoom: .nan,
+            cardWidth: 200,
+            cardHeight: 120
+        )
+
+        XCTAssertEqual(canvasPoint.x, 380, accuracy: 0.0001)
+        XCTAssertEqual(canvasPoint.y, 310, accuracy: 0.0001)
+        XCTAssertEqual(dropOrigin.x, 280, accuracy: 0.0001)
+        XCTAssertEqual(dropOrigin.y, 250, accuracy: 0.0001)
+        XCTAssertEqual(CanvasEdgeControlHandleMetrics.diameter(zoom: .nan, baseDiameter: 13), 13, accuracy: 0.0001)
+    }
+
+    func testCanvasViewportVisibilityPolicyKeepsOverscanBounded() {
+        XCTAssertEqual(CanvasViewportVisibilityPolicy.nodeOverscanPixels(zoom: 0.02, baselineZoom: 0.35), 220, accuracy: 0.0001)
+        XCTAssertEqual(CanvasViewportVisibilityPolicy.nodeOverscanPixels(zoom: 0.35, baselineZoom: 0.35), 320, accuracy: 0.0001)
+        XCTAssertEqual(CanvasViewportVisibilityPolicy.nodeOverscanPixels(zoom: 4.0, baselineZoom: 0.35), 640, accuracy: 0.0001)
+    }
+
+    func testCanvasZoomScaleRejectsNonFiniteValues() {
+        XCTAssertEqual(CanvasZoomScale.clamped(.nan, minimum: 0.12, maximum: 2.4), 0.35, accuracy: 0.0001)
+        XCTAssertEqual(CanvasZoomScale.displayPercent(forZoom: .nan, baseline: 0.35), 100)
+        XCTAssertEqual(CanvasZoomBaseline.actualZoom(percent: .nan, standardBaseline: 0.35, minimum: 0.12, maximum: 2.4), 0.35, accuracy: 0.0001)
+        XCTAssertEqual(CanvasZoomBaseline.actualZoom(percent: .nan, standardBaseline: 0.5, minimum: 0.12, maximum: 2.4), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(CanvasZoomScale.zoom(forScrollDeltaY: 10, current: .infinity, minimum: 0.12, maximum: 2.4), 0.35, accuracy: 0.0001)
+    }
+
+    func testCanvasAutoArrangeHandlesDuplicateNodeIDs() {
+        let arranged = CanvasLayoutEngine.autoArrange(
+            [
+                CanvasLayoutNode(id: "duplicate", x: 10, y: 10, width: 180, height: 120),
+                CanvasLayoutNode(id: "duplicate", x: 20, y: 20, width: 220, height: 160),
+                CanvasLayoutNode(id: "unique", x: 30, y: 30, width: 200, height: 140)
+            ],
+            edges: [
+                CanvasLayoutEdge(sourceNodeId: "duplicate", targetNodeId: "unique")
+            ]
+        )
+
+        XCTAssertEqual(arranged.count, 3)
+        XCTAssertTrue(arranged.allSatisfy { $0.x.isFinite && $0.y.isFinite })
+    }
+
     func testCanvasEdgeStyleOptionsKeepBaseStyleWhenLockingAnchor() {
         let locked = CanvasEdgeStyleOptions.style("dashed", controlPointLocked: true)
 
@@ -1787,10 +2383,10 @@ final class CoreBehaviorTests: XCTestCase {
     }
 
     func testCanvasEdgeAnimationPolicyOnlyAnimatesBlueEnabledEdgesAtSmallScale() {
-        XCTAssertTrue(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: 20))
-        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "off", animationsEnabled: true, reduceMotion: false, edgeCount: 20))
-        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: false, reduceMotion: false, edgeCount: 20))
-        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: true, edgeCount: 20))
+        XCTAssertTrue(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "off", animationsEnabled: true, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: false, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
+        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: true, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount + 1))
     }
 }

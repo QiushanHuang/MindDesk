@@ -444,16 +444,16 @@ public enum CanvasEdgeAnimationPolicy {
 }
 
 public enum CanvasPerformancePolicy {
-    public static let maximumAnimatedEdgeCount = 24
-    public static let maximumRoutedEdgeCount = 40
-    public static let maximumRoutingObstacleCount = 80
-    public static let maximumRoutingWorkload = 2_000
+    public static let maximumAnimatedEdgeCount = 16
+    public static let maximumRoutedEdgeCount = 24
+    public static let maximumRoutingObstacleCount = 40
+    public static let maximumRoutingWorkload = 900
 
     public static func usesObstacleRouting(edgeCount: Int, obstacleCount: Int, isInteracting: Bool) -> Bool {
-        !isInteracting &&
-            edgeCount <= maximumRoutedEdgeCount &&
-            obstacleCount <= maximumRoutingObstacleCount &&
-            edgeCount * obstacleCount <= maximumRoutingWorkload
+        guard !isInteracting, edgeCount > 0, obstacleCount >= 0 else { return false }
+        guard edgeCount <= maximumRoutedEdgeCount, obstacleCount <= maximumRoutingObstacleCount else { return false }
+        guard obstacleCount > 0 else { return true }
+        return edgeCount <= maximumRoutingWorkload / obstacleCount
     }
 }
 
@@ -1243,9 +1243,10 @@ public enum CanvasViewportProjection {
         viewportX: Double,
         viewportY: Double
     ) -> CanvasEdgePoint {
-        CanvasEdgePoint(
-            x: x * zoom + viewportX,
-            y: y * zoom + viewportY
+        let safeZoom = CanvasZoomScale.safeZoom(zoom)
+        return CanvasEdgePoint(
+            x: x * safeZoom + viewportX,
+            y: y * safeZoom + viewportY
         )
     }
 
@@ -1261,9 +1262,10 @@ public enum CanvasViewportProjection {
         viewportX: Double,
         viewportY: Double
     ) -> CanvasEdgePoint {
-        CanvasEdgePoint(
-            x: (x + offsetX + width / 2) * zoom + viewportX,
-            y: (y + offsetY + height / 2) * zoom + viewportY
+        let safeZoom = CanvasZoomScale.safeZoom(zoom)
+        return CanvasEdgePoint(
+            x: (x + offsetX + width / 2) * safeZoom + viewportX,
+            y: (y + offsetY + height / 2) * safeZoom + viewportY
         )
     }
 
@@ -1279,12 +1281,13 @@ public enum CanvasViewportProjection {
         viewportX: Double,
         viewportY: Double
     ) -> CanvasFrameRect {
-        CanvasFrameRect(
+        let safeZoom = CanvasZoomScale.safeZoom(zoom)
+        return CanvasFrameRect(
             id: id,
-            x: (x + offsetX) * zoom + viewportX,
-            y: (y + offsetY) * zoom + viewportY,
-            width: width * zoom,
-            height: height * zoom
+            x: (x + offsetX) * safeZoom + viewportX,
+            y: (y + offsetY) * safeZoom + viewportY,
+            width: width * safeZoom,
+            height: height * safeZoom
         )
     }
 
@@ -1295,7 +1298,7 @@ public enum CanvasViewportProjection {
         viewportX: Double,
         viewportY: Double
     ) -> CanvasEdgePoint {
-        let safeZoom = max(zoom, 0.01)
+        let safeZoom = CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
         return CanvasEdgePoint(
             x: (screenX - viewportX) / safeZoom,
             y: (screenY - viewportY) / safeZoom
@@ -1305,7 +1308,8 @@ public enum CanvasViewportProjection {
 
 public enum CanvasEdgeControlHandleMetrics {
     public static func diameter(zoom: Double, baseDiameter: Double) -> Double {
-        baseDiameter * max(zoom, 0.01)
+        let safeBase = baseDiameter.isFinite ? max(0, baseDiameter) : 0
+        return safeBase * CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
     }
 }
 
@@ -1554,7 +1558,7 @@ public enum CanvasDropPlacement {
         cardWidth: Double,
         cardHeight: Double
     ) -> (x: Double, y: Double) {
-        let safeZoom = max(zoom, 0.01)
+        let safeZoom = CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
         return (
             x: (dropX - viewportX) / safeZoom - cardWidth / 2,
             y: (dropY - viewportY) / safeZoom - cardHeight / 2
@@ -1642,7 +1646,11 @@ public enum TodoBoardOrdering {
         records.sorted {
             if $0.isPinned != $1.isPinned { return $0.isPinned && !$1.isPinned }
             if $0.sortIndex != $1.sortIndex { return $0.sortIndex < $1.sortIndex }
-            return $0.title.localizedStandardCompare($1.title) == .orderedAscending
+            let titleComparison = $0.title.localizedStandardCompare($1.title)
+            if titleComparison != .orderedSame {
+                return titleComparison == .orderedAscending
+            }
+            return $0.id < $1.id
         }
     }
 
@@ -1851,12 +1859,26 @@ public enum CanvasScrollZoomDirection: String, CaseIterable, Identifiable, Senda
 }
 
 public enum CanvasZoomScale {
+    private static let fallbackZoom = 0.35
+
+    public static func safeZoom(_ zoom: Double, minimum: Double = 0.01, fallback: Double = 1.0) -> Double {
+        guard zoom.isFinite else { return max(fallback, minimum) }
+        return max(zoom, minimum)
+    }
+
     public static func clamped(_ zoom: Double, minimum: Double, maximum: Double) -> Double {
-        min(max(zoom, minimum), maximum)
+        let lower = minimum.isFinite ? minimum : fallbackZoom
+        let upper = maximum.isFinite ? maximum : lower
+        let safeMinimum = min(lower, upper)
+        let safeMaximum = max(lower, upper)
+        guard zoom.isFinite else {
+            return min(max(fallbackZoom, safeMinimum), safeMaximum)
+        }
+        return min(max(zoom, safeMinimum), safeMaximum)
     }
 
     public static func displayPercent(forZoom zoom: Double, baseline: Double) -> Int {
-        guard baseline > 0 else { return 100 }
+        guard zoom.isFinite, baseline.isFinite, baseline > 0 else { return 100 }
         return Int((zoom / baseline * 100).rounded())
     }
 
@@ -1866,7 +1888,10 @@ public enum CanvasZoomScale {
         minimum: Double,
         maximum: Double
     ) -> Double {
-        clamped(displayScale * baseline, minimum: minimum, maximum: maximum)
+        guard displayScale.isFinite, baseline.isFinite else {
+            return clamped(fallbackZoom, minimum: minimum, maximum: maximum)
+        }
+        return clamped(displayScale * baseline, minimum: minimum, maximum: maximum)
     }
 
     public static func zoom(
@@ -1876,6 +1901,12 @@ public enum CanvasZoomScale {
         maximum: Double,
         direction: CanvasScrollZoomDirection = .scrollDownZoomsOut
     ) -> Double {
+        guard current.isFinite else {
+            return clamped(fallbackZoom, minimum: minimum, maximum: maximum)
+        }
+        guard deltaY.isFinite else {
+            return clamped(current, minimum: minimum, maximum: maximum)
+        }
         let signedDelta = direction == .scrollDownZoomsOut ? -deltaY : deltaY
         let multiplier = pow(1.0025, signedDelta)
         return clamped(current * multiplier, minimum: minimum, maximum: maximum)
@@ -1888,9 +1919,10 @@ public enum CanvasZoomScale {
         canvasY: Double,
         zoom: Double
     ) -> (x: Double, y: Double) {
-        (
-            x: screenX - canvasX * zoom,
-            y: screenY - canvasY * zoom
+        let resolvedZoom = safeZoom(zoom)
+        return (
+            x: screenX - canvasX * resolvedZoom,
+            y: screenY - canvasY * resolvedZoom
         )
     }
 }
@@ -1907,9 +1939,13 @@ public enum CanvasZoomBaseline {
         minimum: Double,
         maximum: Double
     ) -> Double {
+        let baseline = standardBaseline.isFinite ? standardBaseline : CanvasZoomBaseline.standardBaseline
+        guard percent.isFinite else {
+            return CanvasZoomScale.clamped(baseline, minimum: minimum, maximum: maximum)
+        }
         let safePercent = min(max(percent, 25), 500)
         return CanvasZoomScale.clamped(
-            standardBaseline * safePercent / 100,
+            baseline * safePercent / 100,
             minimum: minimum,
             maximum: maximum
         )

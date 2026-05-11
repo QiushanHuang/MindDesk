@@ -300,6 +300,7 @@ struct ResourceListView: View {
 
     private func reauthorize(_ resource: ResourcePinModel) {
         guard let url = FileDialogs.chooseResource() else { return }
+        var didMutateResource = false
         do {
             let selectedType = ResourceImportService.targetType(for: url)
             guard ResourceAuthorizationPolicy.acceptsReauthorization(
@@ -308,7 +309,9 @@ struct ResourceListView: View {
             ) else {
                 throw WorkbenchError.resourceTypeMismatch(expected: resource.targetTypeRaw, selected: selectedType.rawValue)
             }
-            resource.securityScopedBookmarkData = try BookmarkService().makeBookmark(for: url)
+            let bookmarkData = try BookmarkService().makeBookmark(for: url)
+            didMutateResource = true
+            resource.securityScopedBookmarkData = bookmarkData
             resource.displayPath = url.path
             resource.lastResolvedPath = url.path
             resource.originalName = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
@@ -318,6 +321,9 @@ struct ResourceListView: View {
             try modelContext.save()
             onStatus("Reauthorized \(url.path)")
         } catch {
+            if didMutateResource {
+                modelContext.rollback()
+            }
             onStatus(error.localizedDescription)
         }
     }
@@ -630,13 +636,21 @@ struct ResourcePreviewView: View {
     }
 
     private func openPreviewItem(_ item: FolderPreviewItem) {
+        let bookmarkService = BookmarkService()
         do {
-            if item.isDirectory {
-                try FinderService().open(item.url)
-                onStatus("Opened \(item.name) in Finder")
-            } else {
-                try FinderService().reveal(item.url)
-                onStatus("Revealed \(item.name) in Finder")
+            let resolved = try bookmarkService.resolveAuthorizedBookmark(
+                resource.securityScopedBookmarkData,
+                fallbackPath: resource.lastResolvedPath,
+                statusRaw: resource.statusRaw
+            )
+            try bookmarkService.access(resolved.url) {
+                if item.isDirectory {
+                    try FinderService().open(item.url)
+                    onStatus("Opened \(item.name) in Finder")
+                } else {
+                    try FinderService().reveal(item.url)
+                    onStatus("Revealed \(item.name) in Finder")
+                }
             }
         } catch {
             onStatus(error.localizedDescription)
@@ -757,14 +771,18 @@ private struct QuickLookPreview: NSViewRepresentable {
             stop(in: previewView)
             do {
                 let resolved = try BookmarkService().resolveAuthorizedBookmark(bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
+                let didStartAccess = resolved.url.startAccessingSecurityScopedResource()
                 guard FileManager.default.fileExists(atPath: resolved.url.path) else {
+                    if didStartAccess {
+                        resolved.url.stopAccessingSecurityScopedResource()
+                    }
                     activeResource = resource
                     reportUnavailable("Missing file: \(resolved.url.path)", for: resource, onUnavailable: onUnavailable)
                     return
                 }
                 activeResource = resource
                 activeURL = resolved.url
-                didAccess = resolved.url.startAccessingSecurityScopedResource()
+                didAccess = didStartAccess
                 previewView.previewItem = resolved.url as NSURL
             } catch {
                 activeResource = resource

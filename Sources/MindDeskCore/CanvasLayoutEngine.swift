@@ -32,7 +32,9 @@ public enum CanvasLayoutEngine {
         columns: Int = 3,
         spacing: Double = 48
     ) -> [CanvasLayoutNode] {
-        gridArrange(
+        let nodes = sanitized(nodes)
+        let spacing = safeSpacing(spacing)
+        return gridArrange(
             nodes,
             columns: columns,
             startX: 0,
@@ -49,9 +51,22 @@ public enum CanvasLayoutEngine {
         verticalSpacing: Double = 56,
         disconnectedColumns: Int = 3
     ) -> [CanvasLayoutNode] {
+        let nodes = sanitized(nodes)
+        let horizontalSpacing = safeSpacing(horizontalSpacing)
+        let verticalSpacing = safeSpacing(verticalSpacing)
         guard !nodes.isEmpty else { return nodes }
+        guard !hasDuplicateIDs(nodes) else {
+            return gridArrange(
+                nodes,
+                columns: disconnectedColumns,
+                startX: 0,
+                startY: 0,
+                horizontalSpacing: horizontalSpacing,
+                verticalSpacing: verticalSpacing
+            )
+        }
 
-        let indexById = Dictionary(uniqueKeysWithValues: nodes.enumerated().map { ($0.element.id, $0.offset) })
+        let indexById = Dictionary(nodes.enumerated().map { ($0.element.id, $0.offset) }, uniquingKeysWith: { first, _ in first })
         let validEdges = edges.filter { edge in
             edge.sourceNodeId != edge.targetNodeId &&
             indexById[edge.sourceNodeId] != nil &&
@@ -122,8 +137,8 @@ public enum CanvasLayoutEngine {
         indexById: [String: Int]
     ) -> [[String]] {
         let nodeIDs = Set(nodes.map(\.id))
-        var adjacency: [String: [String]] = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, []) })
-        var incomingCount: [String: Int] = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, 0) })
+        var adjacency: [String: [String]] = Dictionary(nodes.map { ($0.id, []) }, uniquingKeysWith: { first, _ in first })
+        var incomingCount: [String: Int] = Dictionary(nodes.map { ($0.id, 0) }, uniquingKeysWith: { first, _ in first })
 
         for edge in edges where nodeIDs.contains(edge.sourceNodeId) && nodeIDs.contains(edge.targetNodeId) {
             adjacency[edge.sourceNodeId, default: []].append(edge.targetNodeId)
@@ -200,7 +215,7 @@ public enum CanvasLayoutEngine {
         horizontalSpacing: Double,
         verticalSpacing: Double
     ) -> [CanvasLayoutNode] {
-        let nodeById = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        let nodeById = Dictionary(nodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let layerWidths = layers.map { layer in
             layer.compactMap { nodeById[$0]?.width }.max() ?? 0
         }
@@ -220,6 +235,35 @@ public enum CanvasLayoutEngine {
         }
 
         return nodes.compactMap { arrangedById[$0.id] }
+    }
+
+    private static func sanitized(_ nodes: [CanvasLayoutNode]) -> [CanvasLayoutNode] {
+        nodes.map { node in
+            CanvasLayoutNode(
+                id: node.id,
+                x: finite(node.x, fallback: 0),
+                y: finite(node.y, fallback: 0),
+                width: nonNegativeFinite(node.width),
+                height: nonNegativeFinite(node.height)
+            )
+        }
+    }
+
+    private static func hasDuplicateIDs(_ nodes: [CanvasLayoutNode]) -> Bool {
+        Set(nodes.map(\.id)).count != nodes.count
+    }
+
+    private static func safeSpacing(_ value: Double) -> Double {
+        nonNegativeFinite(value)
+    }
+
+    private static func nonNegativeFinite(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return max(0, value)
+    }
+
+    private static func finite(_ value: Double, fallback: Double) -> Double {
+        value.isFinite ? value : fallback
     }
 
     private static func gridArrange(

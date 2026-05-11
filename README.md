@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v1.4.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v1.4.1-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v1.4.0](#whats-new-in-v140)
+- [What's New in v1.4.1](#whats-new-in-v141)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -115,14 +115,14 @@ Download the latest package from [GitHub Releases](https://github.com/QiushanHua
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v1.4.0-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG for your architecture, for example `MindDesk-v1.4.1-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v1.4.0-macOS-arm64.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v1.4.1-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -200,15 +200,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v1.4.0-macOS/artifacts/
+dist/release/MindDesk-v1.4.1-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v1.4.0-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v1.4.1-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v1.4.0-macOS.dmg`
-- `MindDesk-v1.4.0-macOS.zip`
+- `MindDesk-v1.4.1-macOS.dmg`
+- `MindDesk-v1.4.1-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -262,27 +262,25 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v1.4.0`
+Current release: `v1.4.1`
 
 Highlights:
 
-- MindDesk package, executable, bundle identifier, store layout, release scripts, and UI naming.
-- Workspace reference cards, Web Page cards, and the fuller Cmd+K Quick Open command palette.
-- Workspace sidebar drag sorting using existing sort indexes.
-- Inline task detail summaries with one-line truncation.
-- Single-use Connect setting for Canvas link creation.
-- Responsive, scrollable Canvas right rail.
-- Direct link selection/deletion, deletion undo, lower edge-routing clearance, and paused link animation during active Canvas interactions.
-- Store migration/recovery now throttles raw startup backups, publishes only complete backups, quarantines failed-open stores, and restores from the newest verified backup candidate.
-- Developer ID notarization scripting, CI, a manual GitHub Release workflow, and release environment documentation.
+- Large-canvas responsiveness pass for dragging, zooming, panning, resizing, and link editing.
+- Visibility-aware Canvas rendering that limits expensive obstacle routing, animated link flow, passive resize handles, and passive link controls on dense canvases.
+- Lightweight card rendering during active interaction or dense zoomed-out views, while preserving detail for selected and edited cards.
+- Frame drag improvements that move contained cards and edge bend points from drag-start snapshots for steadier undo and lower CPU churn.
+- Canvas performance policies and regression tests for animation, routing, visibility, card detail, and control-handle behavior.
+- Import, layout, shell quoting, security-scoped bookmark, folder preview, and release metadata hardening from the same upgrade branch.
+- Developer ID notarization scripting, CI, manual GitHub Release workflow, and release environment documentation.
 
-Full release notes are available in [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md).
+Full release notes are available in [`docs/releases/v1.4.1.md`](docs/releases/v1.4.1.md).
 
-### What's New in v1.4.0
+### What's New in v1.4.1
 
-This release completes the MindDesk naming migration for the app package and storage layout, with a startup migration path from the previous local store. It also improves daily Canvas work with Workspace reference cards, Web Page cards, Cmd+K Quick Open, Workspace sidebar drag sorting, inline task detail previews, a Single-use Connect preference, right-rail scrolling, direct link selection/deletion, lower link-routing clearance, and paused link animation during active Canvas interactions.
+This release is a Canvas performance and reliability patch on top of the MindDesk v1.4 line. Dense canvases now spend less work on invisible cards, invisible links, passive handles, obstacle routing, and animated link flow during active interaction.
 
-The Canvas keeps schema changes conservative: Workspace and Web Page cards reuse existing node object references, while link free-bend controls reuse existing edge control points.
+The Canvas keeps schema changes conservative. The upgrade adds rendering policies, viewport-aware edge work, drag-start frame snapshots, lightweight card drawing during motion, and focused regression coverage without changing the exported manifest schema.
 
 ### Project Structure
 
@@ -322,7 +320,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v1.4.0 新增内容](#v140-新增内容)
+- [v1.4.1 新增内容](#v141-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -403,14 +401,14 @@ flowchart LR
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v1.4.0-macOS-arm64.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v1.4.1-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v1.4.0-macOS-arm64.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v1.4.1-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -477,15 +475,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v1.4.0-macOS/artifacts/
+dist/release/MindDesk-v1.4.1-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v1.4.0-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v1.4.1-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v1.4.0-macOS.dmg`
-- `MindDesk-v1.4.0-macOS.zip`
+- `MindDesk-v1.4.1-macOS.dmg`
+- `MindDesk-v1.4.1-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -539,27 +537,25 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v1.4.0`
+当前版本：`v1.4.1`
 
 重点更新：
 
-- 完成 MindDesk 包名、可执行文件、Bundle ID、存储路径、脚本和界面命名迁移，并保留旧本地存储启动迁移路径。
-- 增加 Workspace 引用卡、Web Page 卡和完整 Cmd+K Quick Open command palette。
-- Workspace 边栏支持拖拽排序。
-- 任务行显示单行详情摘要，并按可用宽度截断。
-- Canvas 增加单次 Connect 设置。
-- Canvas 右侧栏支持响应式宽度和内部滚动。
-- 支持单独选中/删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、调低连线避让阈值，并在 Canvas 交互中暂停连线动画、降低文本编辑与路由刷新压力。
-- 存储迁移/恢复补齐启动备份节流、完整备份发布、失败 store 隔离，以及从最新可验证备份候选恢复。
+- 大 Canvas 拖拽、缩放、平移、拉伸和连线编辑的响应速度专项优化。
+- 根据视口和密度限制昂贵的连线避让、连线动画、被动 resize handle 和被动连线控制点。
+- Canvas 交互中使用轻量卡片渲染，同时保留选中和编辑中卡片的完整细节。
+- Frame 拖拽使用拖拽开始时的卡片和连线弯点快照，降低 CPU 消耗并让 undo 数据更稳定。
+- 补齐 Canvas 性能策略测试，覆盖动画、路由、可见性、卡片细节和控制点显示逻辑。
+- 同步合入 import 校验、自动布局、Shell quoting、安全作用域 bookmark、文件夹预览和 release metadata 的加固。
 - 补齐正式 release notarization 脚本、GitHub Actions CI、手动 Release workflow 和发布环境说明。
 
-完整更新内容见 [`docs/releases/v1.4.0.md`](docs/releases/v1.4.0.md)。
+完整更新内容见 [`docs/releases/v1.4.1.md`](docs/releases/v1.4.1.md)。
 
-### v1.4.0 新增内容
+### v1.4.1 新增内容
 
-本版本完成 MindDesk 命名迁移，并在启动时从旧本地存储路径迁移已有数据。同时补齐图片中整理出的 Canvas 日常使用体验：Workspace 引用卡、Web Page 卡、完整 Cmd+K Quick Open command palette、Workspace 边栏拖拽排序、任务行详情摘要、单次 Connect 偏好、右侧栏滚动、单独选中和删除连接线、删除后的 Cmd+Z 恢复、自由弯点控制、较低的连线避让阈值，以及 Canvas 交互时暂停连线动画、减少文本编辑和路由计算带来的卡顿。存储侧补齐启动备份节流、完整备份发布、失败 store 隔离和最新可验证备份恢复；发布侧补齐默认 fail-closed 的 notarization 流程和 GitHub Actions 发布环境。
+本版本是在 MindDesk v1.4 系列之上的 Canvas 性能和可靠性补丁。大画布现在会减少不可见卡片、不可见连线、被动控制点、连线避让和流光动画在交互过程中的计算压力。
 
-这些更新作为 v1.4.0 小版本完成：Workspace 和 Web Page 卡复用已有节点对象引用，连线自由弯点复用已有边控制点，避免引入破坏性数据结构变更。
+这次升级保持数据结构保守：新增的是渲染策略、视口可见性判断、Frame 拖拽快照、交互中的轻量卡片绘制和对应回归测试，不改变导出的 manifest schema。
 
 ### 项目结构
 
