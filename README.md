@@ -266,6 +266,9 @@ Current release: `v1.4.1`
 
 Highlights:
 
+- v1.4 interaction upgrade coverage: Redo, Reverse Selected Link, Start Link From Card, Canvas smoothness work, and release documentation.
+- Migration and recovery hardening: 30-minute startup backup throttling, `.complete` markers, quarantine folders, staging restore, and SQLite trio recovery.
+- Three responsiveness passes: Quick Open, Todo rename/editing, Canvas text redraw reduction, release metadata checks, and CI guardrails.
 - Large-canvas responsiveness pass for dragging, zooming, panning, resizing, and link editing.
 - Visibility-aware Canvas rendering that limits expensive obstacle routing, animated link flow, passive resize handles, and passive link controls on dense canvases.
 - Lightweight card rendering during active interaction or dense zoomed-out views, while preserving detail for selected and edited cards.
@@ -278,7 +281,15 @@ Full release notes are available in [`docs/releases/v1.4.1.md`](docs/releases/v1
 
 ### What's New in v1.4.1
 
-This release is a Canvas performance and reliability patch on top of the MindDesk v1.4 line. Dense canvases now spend less work on invisible cards, invisible links, passive handles, obstacle routing, and animated link flow during active interaction.
+This release consolidates three parallel upgrade threads into one v1.4.1 package:
+
+| Thread | Included Scope |
+| --- | --- |
+| `019e0bec...` | v1.4 interaction upgrade: Redo, Reverse Selected Link, Start Link From Card, Canvas smoothness work, and release notes. |
+| `019e0efb...` | Migration and recovery strategy: 30-minute startup backup throttling, `.complete` markers, `Quarantine/`, staging restore, and SQLite trio recovery. |
+| `019e0c2f...` | Three responsiveness and release-guard passes: Quick Open, Todo rename/editing, Canvas text redraw reduction, release checks, and CI. |
+
+Dense canvases now spend less work on invisible cards, invisible links, passive handles, obstacle routing, and animated link flow during active interaction.
 
 The Canvas keeps schema changes conservative. The upgrade adds rendering policies, viewport-aware edge work, drag-start frame snapshots, lightweight card drawing during motion, and focused regression coverage without changing the exported manifest schema.
 
@@ -541,6 +552,9 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 重点更新：
 
+- v1.4 交互升级合并：Redo、反转连线、Start Link From Card、Canvas 流畅度专项和发布说明。
+- 迁移/恢复策略合并：30 分钟启动备份节流、`.complete` marker、`Quarantine/` 隔离、staging restore 和 SQLite 三件套恢复。
+- 三轮响应速度和发布守卫合并：Quick Open、Todo rename/editing、Canvas 文本重绘优化、发布校验和 CI。
 - 大 Canvas 拖拽、缩放、平移、拉伸和连线编辑的响应速度专项优化。
 - 根据视口和密度限制昂贵的连线避让、连线动画、被动 resize handle 和被动连线控制点。
 - Canvas 交互中使用轻量卡片渲染，同时保留选中和编辑中卡片的完整细节。
@@ -553,7 +567,15 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### v1.4.1 新增内容
 
-本版本是在 MindDesk v1.4 系列之上的 Canvas 性能和可靠性补丁。大画布现在会减少不可见卡片、不可见连线、被动控制点、连线避让和流光动画在交互过程中的计算压力。
+本版本把三个并行升级线程合并为一个 v1.4.1 包：
+
+| 线程 | 已纳入范围 |
+| --- | --- |
+| `019e0bec...` | v1.4 交互升级：Redo、反转连线、Start Link From Card、Canvas 流畅度专项和发布说明。 |
+| `019e0efb...` | 迁移/恢复策略：30 分钟启动备份节流、`.complete` marker、`Quarantine/` 隔离、staging restore 和 SQLite 三件套恢复。 |
+| `019e0c2f...` | 三轮响应速度和发布守卫：Quick Open、Todo rename/editing、Canvas 文本重绘优化、发布校验和 CI。 |
+
+大画布现在会减少不可见卡片、不可见连线、被动控制点、连线避让和流光动画在交互过程中的计算压力。
 
 这次升级保持数据结构保守：新增的是渲染策略、视口可见性判断、Frame 拖拽快照、交互中的轻量卡片绘制和对应回归测试，不改变导出的 manifest schema。
 
