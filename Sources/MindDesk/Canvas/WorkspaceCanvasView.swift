@@ -287,6 +287,12 @@ private struct CanvasRenderSnapshot {
         shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
     ) -> [CanvasEdgeSegment] {
         let nodeRects: [String: CanvasFrameRect] = Dictionary(uniqueKeysWithValues: workflowNodes.map { ($0.id, rectFor($0)) })
+        let obstacleRects: [(id: String, rect: CanvasFrameRect)] = usesObstacleRouting
+            ? nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
+                guard nodeById[id]?.nodeType != .groupFrame else { return nil }
+                return (id: id, rect: rect)
+            }
+            : []
         return visibleEdges.compactMap { edge -> CanvasEdgeSegment? in
             guard let source = nodeById[edge.sourceNodeId],
                   let target = nodeById[edge.targetNodeId],
@@ -307,10 +313,6 @@ private struct CanvasRenderSnapshot {
             )
             let routePoints: [CanvasEdgePoint]
             if usesObstacleRouting {
-                let obstacleRects = nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
-                    guard nodeById[id]?.nodeType != .groupFrame else { return nil }
-                    return (id: id, rect: rect)
-                }
                 let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
                     obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
                 }

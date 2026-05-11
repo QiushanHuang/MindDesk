@@ -129,6 +129,7 @@ struct WorkspaceTodoBoardView: View {
 
     @State private var selectedGroupId: String?
     @State private var editingGroupId: String?
+    @State private var editingGroupTitle = ""
     @State private var editingTodo: WorkspaceTodoModel?
     @State private var dragStartRatio: Double?
     @State private var transientColumnRatio: Double?
@@ -305,22 +306,18 @@ struct WorkspaceTodoBoardView: View {
 
             if editingGroupId == group.id {
                 TextField("Group name", text: Binding(
-                    get: { group.title },
-                    set: {
-                        group.title = $0
-                        group.updatedAt = .now
-                    }
+                    get: { editingGroupTitle },
+                    set: { editingGroupTitle = $0 }
                 ))
                 .textFieldStyle(.plain)
                 .onSubmit {
-                    editingGroupId = nil
-                    save(status: "Renamed group")
+                    commitGroupRename(group)
                 }
             } else {
                 Text(group.title)
                     .lineLimit(1)
                     .onTapGesture(count: 2) {
-                        editingGroupId = group.id
+                        startEditingGroup(group)
                     }
             }
 
@@ -350,7 +347,7 @@ struct WorkspaceTodoBoardView: View {
                 save(status: group.isPinned ? "Pinned group" : "Unpinned group")
             }
             Button("Rename Group") {
-                editingGroupId = group.id
+                startEditingGroup(group)
             }
             Button(role: .destructive) {
                 deleteGroup(group)
@@ -363,6 +360,7 @@ struct WorkspaceTodoBoardView: View {
 
     private func taskList(title: String, items: [WorkspaceTodoModel], emptyText: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
+            let resourcesById = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
             HStack {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -384,7 +382,7 @@ struct WorkspaceTodoBoardView: View {
                 ScrollView {
                     LazyVStack(spacing: 6) {
                         ForEach(items) { todo in
-                            todoRow(todo)
+                            todoRow(todo, resourcesById: resourcesById)
                         }
                     }
                     .padding(.trailing, 4)
@@ -399,7 +397,7 @@ struct WorkspaceTodoBoardView: View {
             .padding(.vertical, 6)
     }
 
-    private func todoRow(_ todo: WorkspaceTodoModel) -> some View {
+    private func todoRow(_ todo: WorkspaceTodoModel, resourcesById: [String: ResourcePinModel]) -> some View {
         HStack(spacing: 8) {
             Button {
                 toggle(todo)
@@ -433,7 +431,8 @@ struct WorkspaceTodoBoardView: View {
                     if let dueAt = todo.dueAt {
                         Label(dueAt.formatted(date: .abbreviated, time: .omitted), systemImage: "calendar")
                     }
-                    if let resource = linkedResource(for: todo) {
+                    if let linkedResourceId = todo.linkedResourceId,
+                       let resource = resourcesById[linkedResourceId] {
                         Label(resource.displayName, systemImage: resource.targetType == .folder ? "folder" : "doc")
                     }
                 }
@@ -547,7 +546,7 @@ struct WorkspaceTodoBoardView: View {
         let group = WorkspaceTodoGroupModel(workspaceId: workspaceId, title: "New Group", sortIndex: nextGroupSortIndex())
         modelContext.insert(group)
         selectedGroupId = group.id
-        editingGroupId = group.id
+        startEditingGroup(group)
         save(status: "Added group")
     }
 
@@ -653,40 +652,86 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func moveGroup(id movingID: String, to targetID: String) {
-        let moved = TodoBoardOrdering.movedIDs(orderedGroups.map(\.id), moving: movingID, to: targetID)
-        renumberGroups(ids: moved)
-        save(status: "Reordered groups")
+        guard movingID != targetID else { return }
+        let currentIDs = orderedGroups.map(\.id)
+        let moved = TodoBoardOrdering.movedIDs(currentIDs, moving: movingID, to: targetID)
+        guard moved != currentIDs else { return }
+        if renumberGroups(ids: moved) {
+            save(status: "Reordered groups")
+        }
     }
 
     private func moveTodo(id movingID: String, to targetID: String) {
+        guard movingID != targetID else { return }
         guard let movingTodo = todos.first(where: { $0.id == movingID }),
               let targetTodo = todos.first(where: { $0.id == targetID }) else {
             return
         }
-        movingTodo.groupId = targetTodo.groupId
-        movingTodo.isCompleted = targetTodo.isCompleted
+        let originalGroupId = movingTodo.groupId
+        let originalIsCompleted = movingTodo.isCompleted
         let targetGroupID = groupId(for: targetTodo)
-        movingTodo.groupId = targetGroupID
-        let visibleIDs = orderedTodos(todos.filter { $0.isCompleted == targetTodo.isCompleted && groupId(for: $0) == targetGroupID }).map(\.id)
+        let targetIsCompleted = targetTodo.isCompleted
+        let visibleIDs = orderedTodos(todos.filter { todo in
+            if todo.id == movingID {
+                return true
+            }
+            return todo.isCompleted == targetIsCompleted && groupId(for: todo) == targetGroupID
+        }).map(\.id)
         let moved = TodoBoardOrdering.movedIDs(visibleIDs, moving: movingID, to: targetID)
-        renumberTodos(ids: moved)
-        save(status: "Reordered tasks")
+        movingTodo.groupId = targetGroupID
+        movingTodo.isCompleted = targetIsCompleted
+        let membershipChanged = originalGroupId != movingTodo.groupId || originalIsCompleted != movingTodo.isCompleted
+        if membershipChanged {
+            movingTodo.updatedAt = .now
+        }
+        if renumberTodos(ids: moved) || membershipChanged {
+            save(status: "Reordered tasks")
+        }
     }
 
-    private func renumberGroups(ids: [String]) {
+    @discardableResult
+    private func renumberGroups(ids: [String]) -> Bool {
+        var didChange = false
+        let now = Date.now
+        let groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
         for (index, id) in ids.enumerated() {
-            guard let group = groups.first(where: { $0.id == id }) else { continue }
+            guard let group = groupsById[id] else { continue }
+            guard group.sortIndex != index else { continue }
             group.sortIndex = index
-            group.updatedAt = .now
+            group.updatedAt = now
+            didChange = true
         }
+        return didChange
     }
 
-    private func renumberTodos(ids: [String]) {
+    @discardableResult
+    private func renumberTodos(ids: [String]) -> Bool {
+        var didChange = false
+        let now = Date.now
+        let todosById = Dictionary(uniqueKeysWithValues: todos.map { ($0.id, $0) })
         for (index, id) in ids.enumerated() {
-            guard let todo = todos.first(where: { $0.id == id }) else { continue }
+            guard let todo = todosById[id] else { continue }
+            guard todo.sortIndex != index else { continue }
             todo.sortIndex = index
-            todo.updatedAt = .now
+            todo.updatedAt = now
+            didChange = true
         }
+        return didChange
+    }
+
+    private func startEditingGroup(_ group: WorkspaceTodoGroupModel) {
+        editingGroupId = group.id
+        editingGroupTitle = group.title
+    }
+
+    private func commitGroupRename(_ group: WorkspaceTodoGroupModel) {
+        let title = editingGroupTitle
+        editingGroupId = nil
+        editingGroupTitle = ""
+        guard group.title != title else { return }
+        group.title = title
+        group.updatedAt = .now
+        save(status: "Renamed group")
     }
 
     private func orderedTodos(_ items: [WorkspaceTodoModel]) -> [WorkspaceTodoModel] {
@@ -709,11 +754,6 @@ struct WorkspaceTodoBoardView: View {
 
     private func groupId(for todo: WorkspaceTodoModel) -> String? {
         todo.groupId ?? groups.first(where: { $0.title == defaultTodoGroupTitle })?.id
-    }
-
-    private func linkedResource(for todo: WorkspaceTodoModel) -> ResourcePinModel? {
-        guard let linkedResourceId = todo.linkedResourceId else { return nil }
-        return resources.first { $0.id == linkedResourceId }
     }
 
     @discardableResult

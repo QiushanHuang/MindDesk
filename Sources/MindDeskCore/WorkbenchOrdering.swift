@@ -1742,10 +1742,6 @@ public struct QuickOpenRecord: Equatable, Identifiable, Sendable {
         self.title = title
         self.subtitle = subtitle
     }
-
-    var searchText: String {
-        "\(title) \(subtitle) \(kind.rawValue)".lowercased()
-    }
 }
 
 public enum QuickOpenIndex {
@@ -1771,17 +1767,15 @@ public enum QuickOpenIndex {
         guard !tokens.isEmpty else {
             return Array(records.prefix(safeLimit))
         }
-        let searchRecords = records.enumerated().map { offset, record in
-            SearchRecord(
+        var best: [(offset: Int, score: Int, record: QuickOpenRecord)] = []
+        for (offset, record) in records.enumerated() {
+            let searchRecord = SearchRecord(
                 offset: offset,
                 record: record,
                 title: record.title.lowercased(),
                 subtitle: record.subtitle.lowercased(),
                 kind: record.kind.rawValue.lowercased()
             )
-        }
-        var best: [(offset: Int, score: Int, record: QuickOpenRecord)] = []
-        for searchRecord in searchRecords {
             var totalScore = 0
             for token in tokens {
                 guard let tokenScore = score(searchRecord, token: token) else {

@@ -239,7 +239,9 @@ struct ContentView: View {
                 saveSnippet(snippet, draft: draft)
             }
         }
-        .sheet(isPresented: $isQuickOpenPresented) {
+        .sheet(isPresented: $isQuickOpenPresented, onDismiss: {
+            quickOpenRecordsSnapshot = []
+        }) {
             QuickOpenPanel(
                 records: quickOpenRecordsSnapshot,
                 onOpen: openQuickOpenRecord
@@ -351,7 +353,11 @@ struct ContentView: View {
             if $0.updatedAt != $1.updatedAt {
                 return $0.updatedAt > $1.updatedAt
             }
-            return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+            let nameComparison = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+            if nameComparison != .orderedSame {
+                return nameComparison == .orderedAscending
+            }
+            return $0.id < $1.id
         }
     }
 
@@ -363,12 +369,24 @@ struct ContentView: View {
         records.append(contentsOf: orderedResources.map {
             QuickOpenRecord(id: "resource:\($0.id)", kind: .resource, title: $0.displayName, subtitle: $0.displayPath)
         })
-        records.append(contentsOf: snippets.sorted { $0.updatedAt > $1.updatedAt }.map {
+        let snippetRecords = snippets.sorted {
+            if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+            let titleComparison = $0.title.localizedCaseInsensitiveCompare($1.title)
+            if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
+            return $0.id < $1.id
+        }.map {
             QuickOpenRecord(id: "snippet:\($0.id)", kind: .snippet, title: $0.title, subtitle: $0.details)
-        })
+        }
+        records.append(contentsOf: snippetRecords)
         let webCards = nodes.compactMap { node -> QuickOpenRecord? in
             guard node.objectType == "webURL", let url = WebCardURL.normalized(node.objectId ?? node.body) else { return nil }
             return QuickOpenRecord(id: "webCard:\(node.id)", kind: .webCard, title: node.title, subtitle: url.absoluteString)
+        }.sorted {
+            let titleComparison = $0.title.localizedCaseInsensitiveCompare($1.title)
+            if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
+            let subtitleComparison = $0.subtitle.localizedCaseInsensitiveCompare($1.subtitle)
+            if subtitleComparison != .orderedSame { return subtitleComparison == .orderedAscending }
+            return $0.id < $1.id
         }
         records.append(contentsOf: webCards)
         return records

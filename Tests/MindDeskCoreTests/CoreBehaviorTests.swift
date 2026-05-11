@@ -663,6 +663,21 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(QuickOpenIndex.results(for: "research", in: records, limit: 0).isEmpty)
     }
 
+    func testQuickOpenIndexKeepsBestBoundedResultsStable() {
+        let records = [
+            QuickOpenRecord(id: "old-contains", kind: .workspace, title: "Research Docs", subtitle: ""),
+            QuickOpenRecord(id: "subtitle-prefix", kind: .resource, title: "Research", subtitle: "Docs Folder"),
+            QuickOpenRecord(id: "exact", kind: .snippet, title: "Docs", subtitle: ""),
+            QuickOpenRecord(id: "prefix", kind: .webCard, title: "Docs Home", subtitle: ""),
+            QuickOpenRecord(id: "later-contains", kind: .workspace, title: "Team Docs", subtitle: "")
+        ]
+
+        XCTAssertEqual(
+            QuickOpenIndex.results(for: "docs", in: records, limit: 3).map(\.id),
+            ["exact", "prefix", "old-contains"]
+        )
+    }
+
     func testQuickOpenSelectionPolicyWrapsAndClampsSelection() {
         XCTAssertEqual(QuickOpenSelectionPolicy.movedIndex(current: 0, delta: 1, resultCount: 3), 1)
         XCTAssertEqual(QuickOpenSelectionPolicy.movedIndex(current: 2, delta: 1, resultCount: 3), 0)

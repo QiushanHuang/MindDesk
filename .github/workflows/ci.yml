@@ -26,8 +26,10 @@ jobs:
         run: |
           bash -n script/build_and_run.sh
           bash -n script/package_release.sh
+          bash -n script/verify_release_metadata.sh
           plutil -lint script/release.entitlements
           ./script/package_release.sh --help >/tmp/minddesk-package-help.txt
+          ./script/verify_release_metadata.sh
 
       - name: Verify release guardrails
         run: |
@@ -52,6 +54,43 @@ jobs:
             exit 1
           fi
           grep -qi "ad-hoc packages are internal only" /tmp/minddesk-package-adhoc.out
+
+          set +e
+          RELEASE_PLATFORM_SUFFIX="bad/slash" ./script/package_release.sh --help >/tmp/minddesk-package-suffix.out 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Expected invalid release artifact suffix to fail." >&2
+            cat /tmp/minddesk-package-suffix.out >&2
+            exit 1
+          fi
+          grep -qi "release_platform_suffix may contain only" /tmp/minddesk-package-suffix.out
+
+          set +e
+          ./script/package_release.sh --mode store >/tmp/minddesk-package-mode.out 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Expected invalid release mode to fail." >&2
+            cat /tmp/minddesk-package-mode.out >&2
+            exit 1
+          fi
+          grep -qi -- "--mode must be notarized or adhoc" /tmp/minddesk-package-mode.out
+
+          set +e
+          ./script/package_release.sh \
+            --identity "Developer ID Application: Qiushan Huang (TEAMID)" \
+            --team-id TEAMID \
+            --notary-key /tmp/missing-notary-key.p8 \
+            >/tmp/minddesk-package-notary-key.out 2>&1
+          exit_code=$?
+          set -e
+          if [ "$exit_code" -eq 0 ]; then
+            echo "Expected partial API key notarization inputs to fail." >&2
+            cat /tmp/minddesk-package-notary-key.out >&2
+            exit 1
+          fi
+          grep -qi "api key notarization requires all three options" /tmp/minddesk-package-notary-key.out
 
       - name: Check whitespace
         run: git diff --check

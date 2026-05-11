@@ -28,6 +28,7 @@ NOTARY_KEY_ID="${NOTARY_KEY_ID:-}"
 NOTARY_ISSUER="${NOTARY_ISSUER:-}"
 NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-30m}"
 ENTITLEMENTS_FILE="$ROOT_DIR/script/release.entitlements"
+RELEASE_NOTES_SOURCE="$ROOT_DIR/docs/releases/v$VERSION.md"
 ALLOW_ADHOC_RELEASE="${ALLOW_ADHOC_RELEASE:-0}"
 
 usage() {
@@ -134,6 +135,25 @@ developer_id_identity_record() {
   security find-identity -p codesigning -v 2>/dev/null | grep -F "$CODESIGN_IDENTITY" | head -n 1 || true
 }
 
+validate_release_notes() {
+  if [[ ! -s "$RELEASE_NOTES_SOURCE" ]]; then
+    echo "Notarized release requires non-empty release notes: $RELEASE_NOTES_SOURCE" >&2
+    exit 1
+  fi
+  if ! grep -qx "# $APP_DISPLAY_NAME v$VERSION" "$RELEASE_NOTES_SOURCE"; then
+    echo "Release notes must start with: # $APP_DISPLAY_NAME v$VERSION" >&2
+    exit 1
+  fi
+  if ! grep -qx "## Distribution" "$RELEASE_NOTES_SOURCE"; then
+    echo "Release notes must include a Distribution section." >&2
+    exit 1
+  fi
+  if ! grep -qx "## Validation" "$RELEASE_NOTES_SOURCE"; then
+    echo "Release notes must include a Validation section." >&2
+    exit 1
+  fi
+}
+
 validate_notarized_release_inputs() {
   require_tool security
   require_xcrun_tool notarytool
@@ -215,6 +235,7 @@ validate_adhoc_release_inputs() {
 
 if [[ "$MODE" == "notarized" ]]; then
   declare -a NOTARY_ARGS
+  validate_release_notes
   validate_notarized_release_inputs
 else
   validate_adhoc_release_inputs
@@ -237,7 +258,6 @@ APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
 SOURCE_RESOURCES="$ROOT_DIR/Sources/MindDesk/Resources"
-RELEASE_NOTES_SOURCE="$ROOT_DIR/docs/releases/v$VERSION.md"
 ZIP_PATH="$ARTIFACT_DIR/$RELEASE_NAME.zip"
 DMG_PATH="$ARTIFACT_DIR/$RELEASE_NAME.dmg"
 
@@ -254,8 +274,11 @@ extract_json_field() {
     python3 - "$file" "$field" <<'PY'
 import json
 import sys
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    value = json.load(handle).get(sys.argv[2], "")
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as handle:
+        value = json.load(handle).get(sys.argv[2], "")
+except Exception:
+    value = ""
 print(value)
 PY
   else
@@ -268,12 +291,17 @@ submit_for_notarization() {
   local label="$2"
   local submit_json="$ARTIFACT_DIR/notary-submit-$label.json"
   local log_json="$ARTIFACT_DIR/notary-log-$label.json"
+  local submit_error="$ARTIFACT_DIR/notary-submit-$label.stderr"
 
   echo "Submitting $label for notarization..."
+  local submit_exit
+  set +e
   xcrun notarytool submit "$artifact" "${NOTARY_ARGS[@]}" \
     --wait \
     --timeout "$NOTARY_TIMEOUT" \
-    --output-format json >"$submit_json"
+    --output-format json >"$submit_json" 2>"$submit_error"
+  submit_exit=$?
+  set -e
 
   local status
   status="$(extract_json_field "$submit_json" "status")"
@@ -283,8 +311,11 @@ submit_for_notarization() {
     xcrun notarytool log "$submission_id" "${NOTARY_ARGS[@]}" \
       --output-format json >"$log_json" || true
   fi
-  if [[ "$status" != "Accepted" ]]; then
+  if [[ "$submit_exit" -ne 0 || "$status" != "Accepted" ]]; then
     echo "Notarization failed for $label. See: $submit_json $log_json" >&2
+    if [[ -s "$submit_error" ]]; then
+      cat "$submit_error" >&2
+    fi
     exit 1
   fi
 }
@@ -390,11 +421,6 @@ if [[ "$MODE" == "notarized" ]]; then
   INSTALL_SECURITY_TEXT="This release is Developer ID signed, notarized, and stapled."
 else
   INSTALL_SECURITY_TEXT="This is an internal ad-hoc package. It is not notarized and may be blocked by Gatekeeper."
-fi
-
-if [[ "$MODE" == "notarized" && ! -f "$RELEASE_NOTES_SOURCE" ]]; then
-  echo "Notarized release requires release notes: $RELEASE_NOTES_SOURCE" >&2
-  exit 1
 fi
 
 cat >"$ARTIFACT_DIR/INSTALL.txt" <<TXT
