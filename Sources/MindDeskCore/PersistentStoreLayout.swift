@@ -119,16 +119,19 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
 
     private static func backupDate(fromFolderName name: String, timeZone: TimeZone) -> Date? {
         guard let timestamp = backupTimestampPrefix(name) else { return nil }
+        guard isValidBackupTimestamp(timestamp, timeZone: timeZone) else { return nil }
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.isLenient = false
         return formatter.date(from: timestamp)
     }
 
     private static func isTimestampedBackupFolder(_ name: String) -> Bool {
-        backupTimestampPrefix(name) != nil
+        guard let timestamp = backupTimestampPrefix(name) else { return false }
+        return isValidBackupTimestamp(timestamp, timeZone: TimeZone(secondsFromGMT: 0)!)
     }
 
     private static func backupTimestampPrefix(_ name: String) -> String? {
@@ -147,5 +150,16 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
             return nil
         }
         return String(timestamp)
+    }
+
+    private static func isValidBackupTimestamp(_ timestamp: String, timeZone: TimeZone) -> Bool {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        formatter.isLenient = false
+        guard let date = formatter.date(from: timestamp) else { return false }
+        return formatter.string(from: date) == timestamp
     }
 }

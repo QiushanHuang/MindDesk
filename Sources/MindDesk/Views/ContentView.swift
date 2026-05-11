@@ -43,7 +43,7 @@ struct ContentView: View {
     @State private var pinnedFilesDropTarget = false
     @State private var isInspectorVisible = false
     @State private var isQuickOpenPresented = false
-    @State private var quickOpenQuery = ""
+    @State private var quickOpenRecordsSnapshot: [QuickOpenRecord] = []
 
     private var defaultCanvasZoom: Double {
         CanvasZoomBaseline.actualZoom(
@@ -241,8 +241,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $isQuickOpenPresented) {
             QuickOpenPanel(
-                query: $quickOpenQuery,
-                records: quickOpenRecords,
+                records: quickOpenRecordsSnapshot,
                 onOpen: openQuickOpenRecord
             )
         }
@@ -615,7 +614,7 @@ struct ContentView: View {
     }
 
     private func openQuickOpen() {
-        quickOpenQuery = ""
+        quickOpenRecordsSnapshot = quickOpenRecords
         isQuickOpenPresented = true
     }
 
@@ -1153,15 +1152,12 @@ enum InspectorSelection: Equatable {
 
 struct QuickOpenPanel: View {
     @Environment(\.dismiss) private var dismiss
-    @Binding var query: String
     let records: [QuickOpenRecord]
     let onOpen: (QuickOpenRecord) -> Void
     @FocusState private var isSearchFocused: Bool
+    @State private var query = ""
+    @State private var results: [QuickOpenRecord] = []
     @State private var selectedIndex = 0
-
-    private var results: [QuickOpenRecord] {
-        QuickOpenIndex.results(for: query, in: records, limit: 20)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1217,11 +1213,11 @@ struct QuickOpenPanel: View {
                     .listStyle(.plain)
                     .frame(minHeight: 320)
                     .onChange(of: selectedIndex) { _, _ in
-                        scrollSelectedResult(with: proxy)
+                        scrollSelectedResult(with: proxy, results: results)
                     }
-                    .onChange(of: resultIDs) { _, _ in
+                    .onChange(of: results.map(\.id)) { _, _ in
                         selectedIndex = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
-                        scrollSelectedResult(with: proxy)
+                        scrollSelectedResult(with: proxy, results: results)
                     }
                 }
             }
@@ -1232,13 +1228,16 @@ struct QuickOpenPanel: View {
             handleKeyDown(event)
         })
         .onAppear {
-            selectedIndex = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+            refreshResults(resetSelection: true)
             Task { @MainActor in
                 isSearchFocused = true
             }
         }
         .onChange(of: query) { _, _ in
-            selectedIndex = 0
+            refreshResults(resetSelection: true)
+        }
+        .onChange(of: records) { _, _ in
+            refreshResults(resetSelection: false)
         }
         .onMoveCommand { direction in
             switch direction {
@@ -1252,8 +1251,13 @@ struct QuickOpenPanel: View {
         }
     }
 
-    private var resultIDs: [String] {
-        results.map(\.id)
+    private func refreshResults(resetSelection: Bool) {
+        results = QuickOpenIndex.results(for: query, in: records, limit: 20)
+        if resetSelection {
+            selectedIndex = 0
+        } else {
+            selectedIndex = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+        }
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
@@ -1275,11 +1279,10 @@ struct QuickOpenPanel: View {
         }
     }
 
-    private func scrollSelectedResult(with proxy: ScrollViewProxy) {
-        let currentResults = results
-        guard !currentResults.isEmpty else { return }
-        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: currentResults.count)
-        let id = currentResults[index].id
+    private func scrollSelectedResult(with proxy: ScrollViewProxy, results: [QuickOpenRecord]) {
+        guard !results.isEmpty else { return }
+        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+        let id = results[index].id
         Task { @MainActor in
             withAnimation(.easeOut(duration: 0.12)) {
                 proxy.scrollTo(id, anchor: .center)

@@ -131,6 +131,7 @@ struct WorkspaceTodoBoardView: View {
     @State private var editingGroupId: String?
     @State private var editingTodo: WorkspaceTodoModel?
     @State private var dragStartRatio: Double?
+    @State private var transientColumnRatio: Double?
 
     private var openTodos: [WorkspaceTodoModel] {
         orderedTodos(todos.filter { !$0.isCompleted })
@@ -238,7 +239,7 @@ struct WorkspaceTodoBoardView: View {
             if isDoneColumnOpen {
                 let dividerWidth = 10.0
                 let availableWidth = max(proxy.size.width - dividerWidth, 1)
-                let ratio = TodoBoardColumnSplit.clampedRatio(columnRatio)
+                let ratio = activeColumnRatio
                 let todoWidth = availableWidth * ratio
 
                 HStack(spacing: 0) {
@@ -490,6 +491,10 @@ struct WorkspaceTodoBoardView: View {
         }
     }
 
+    private var activeColumnRatio: Double {
+        TodoBoardColumnSplit.clampedRatio(transientColumnRatio ?? columnRatio)
+    }
+
     private func splitDivider(availableWidth: Double) -> some View {
         Rectangle()
             .fill(.clear)
@@ -503,12 +508,18 @@ struct WorkspaceTodoBoardView: View {
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
                         if dragStartRatio == nil {
-                            dragStartRatio = TodoBoardColumnSplit.clampedRatio(columnRatio)
+                            dragStartRatio = activeColumnRatio
                         }
                         let start = dragStartRatio ?? TodoBoardColumnSplit.defaultRatio
-                        columnRatio = TodoBoardColumnSplit.clampedRatio(start + Double(value.translation.width) / availableWidth)
+                        transientColumnRatio = TodoBoardColumnSplit.clampedRatio(
+                            start + Double(value.translation.width) / availableWidth
+                        )
                     }
                     .onEnded { _ in
+                        if let transientColumnRatio {
+                            columnRatio = transientColumnRatio
+                        }
+                        transientColumnRatio = nil
                         dragStartRatio = nil
                     }
             )

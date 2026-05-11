@@ -287,10 +287,6 @@ private struct CanvasRenderSnapshot {
         shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
     ) -> [CanvasEdgeSegment] {
         let nodeRects: [String: CanvasFrameRect] = Dictionary(uniqueKeysWithValues: workflowNodes.map { ($0.id, rectFor($0)) })
-        let obstacleRects = nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
-            guard nodeById[id]?.nodeType != .groupFrame else { return nil }
-            return (id: id, rect: rect)
-        }
         return visibleEdges.compactMap { edge -> CanvasEdgeSegment? in
             guard let source = nodeById[edge.sourceNodeId],
                   let target = nodeById[edge.targetNodeId],
@@ -311,6 +307,10 @@ private struct CanvasRenderSnapshot {
             )
             let routePoints: [CanvasEdgePoint]
             if usesObstacleRouting {
+                let obstacleRects = nodeRects.compactMap { id, rect -> (id: String, rect: CanvasFrameRect)? in
+                    guard nodeById[id]?.nodeType != .groupFrame else { return nil }
+                    return (id: id, rect: rect)
+                }
                 let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
                     obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
                 }
@@ -406,6 +406,7 @@ struct WorkspaceCanvasView: View {
     @State private var selectionRect: CGRect?
     @State private var nodeDragStart: [String: CanvasNodeDragStart] = [:]
     @State private var nodeDragSnapshots: [String: CanvasNodeDragSnapshot] = [:]
+    @State private var backgroundDragStartedOnNode: Bool?
     @State private var transientNodeOffsets: [String: CGSize] = [:]
     @State private var transientViewportOffset: CGSize = .zero
     @State private var transientZoomViewportOffset: CGSize = .zero
@@ -474,7 +475,8 @@ struct WorkspaceCanvasView: View {
     }
 
     private var visibleEdges: [CanvasEdgeModel] {
-        edges.filter { workflowNodeById[$0.sourceNodeId] != nil && workflowNodeById[$0.targetNodeId] != nil }
+        let nodeIDs = Set(workflowNodes.map(\.id))
+        return edges.filter { nodeIDs.contains($0.sourceNodeId) && nodeIDs.contains($0.targetNodeId) }
     }
 
     private var glowTheme: CanvasGlowTheme {
@@ -2047,7 +2049,9 @@ struct WorkspaceCanvasView: View {
     private func backgroundDrag(in size: CGSize, edgeSegments: [CanvasEdgeSegment]) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                guard !backgroundDragStartsOnNode(value.startLocation) else {
+                let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
+                backgroundDragStartedOnNode = startsOnNode
+                guard !startsOnNode else {
                     selectionRect = nil
                     transientViewportOffset = .zero
                     return
@@ -2064,7 +2068,9 @@ struct WorkspaceCanvasView: View {
                 }
             }
             .onEnded { value in
-                guard !backgroundDragStartsOnNode(value.startLocation) else {
+                let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
+                backgroundDragStartedOnNode = nil
+                guard !startsOnNode else {
                     selectionRect = nil
                     transientViewportOffset = .zero
                     return
@@ -3649,11 +3655,26 @@ private struct CanvasSharpSymbol: NSViewRepresentable {
 }
 
 private final class SharpSymbolImageView: NSImageView {
+    private var configuredSystemName = ""
+    private var configuredPointSize: CGFloat = 0
+    private var configuredWeight: NSFont.Weight = .regular
+    private var configuredTextColor: NSColor = .clear
+
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
     func configure(systemName: String, pointSize: CGFloat, weight: NSFont.Weight, textColor: NSColor) {
+        guard configuredSystemName != systemName ||
+              configuredPointSize != pointSize ||
+              configuredWeight != weight ||
+              !configuredTextColor.isEqual(textColor) else {
+            return
+        }
+        configuredSystemName = systemName
+        configuredPointSize = pointSize
+        configuredWeight = weight
+        configuredTextColor = textColor
         imageAlignment = .alignCenter
         imageScaling = .scaleNone
         image = NSImage(systemSymbolName: systemName, accessibilityDescription: nil)?
@@ -3719,11 +3740,21 @@ private final class SharpTextDrawingView: NSView {
         lineLimit: Int,
         alignment: NSTextAlignment
     ) {
-        self.text = text.isEmpty ? " " : text
+        let normalizedText = text.isEmpty ? " " : text
+        let normalizedLineLimit = max(1, lineLimit)
+        guard self.text != normalizedText ||
+              self.fontSize != fontSize ||
+              self.weight != weight ||
+              !self.textColor.isEqual(textColor) ||
+              self.lineLimit != normalizedLineLimit ||
+              self.alignment != alignment else {
+            return
+        }
+        self.text = normalizedText
         self.fontSize = fontSize
         self.weight = weight
         self.textColor = textColor
-        self.lineLimit = max(1, lineLimit)
+        self.lineLimit = normalizedLineLimit
         self.alignment = alignment
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
@@ -3940,9 +3971,18 @@ private final class FittingTitleDrawingView: NSView {
     }
 
     func configure(text: String, baseFontSize: CGFloat, minimumFontSize: CGFloat, weight: NSFont.Weight) {
-        titleText = text.isEmpty ? " " : text
-        self.baseFontSize = max(baseFontSize, minimumFontSize)
-        self.minimumFontSize = max(absoluteMinimumFontSize, minimumFontSize)
+        let normalizedText = text.isEmpty ? " " : text
+        let normalizedBaseFontSize = max(baseFontSize, minimumFontSize)
+        let normalizedMinimumFontSize = max(absoluteMinimumFontSize, minimumFontSize)
+        guard titleText != normalizedText ||
+              self.baseFontSize != normalizedBaseFontSize ||
+              self.minimumFontSize != normalizedMinimumFontSize ||
+              fittingWeight != weight else {
+            return
+        }
+        titleText = normalizedText
+        self.baseFontSize = normalizedBaseFontSize
+        self.minimumFontSize = normalizedMinimumFontSize
         fittingWeight = weight
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
@@ -3955,8 +3995,11 @@ private final class FittingTitleDrawingView: NSView {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
         super.setFrameSize(newSize)
-        needsDisplay = true
+        if changed {
+            needsDisplay = true
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {

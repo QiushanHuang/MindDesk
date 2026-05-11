@@ -1749,45 +1749,77 @@ public struct QuickOpenRecord: Equatable, Identifiable, Sendable {
 }
 
 public enum QuickOpenIndex {
+    private struct SearchRecord {
+        let offset: Int
+        let record: QuickOpenRecord
+        let title: String
+        let subtitle: String
+        let kind: String
+    }
+
     public static func results(
         for query: String,
         in records: [QuickOpenRecord],
         limit: Int = 12
     ) -> [QuickOpenRecord] {
+        let safeLimit = max(limit, 0)
+        guard safeLimit > 0 else { return [] }
         let tokens = query
             .lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
         guard !tokens.isEmpty else {
-            return Array(records.prefix(max(limit, 0)))
+            return Array(records.prefix(safeLimit))
         }
-        let scored = records.enumerated().compactMap { offset, record -> (offset: Int, score: Int, record: QuickOpenRecord)? in
+        let searchRecords = records.enumerated().map { offset, record in
+            SearchRecord(
+                offset: offset,
+                record: record,
+                title: record.title.lowercased(),
+                subtitle: record.subtitle.lowercased(),
+                kind: record.kind.rawValue.lowercased()
+            )
+        }
+        var best: [(offset: Int, score: Int, record: QuickOpenRecord)] = []
+        for searchRecord in searchRecords {
             var totalScore = 0
             for token in tokens {
-                guard let tokenScore = score(record, token: token) else { return nil }
+                guard let tokenScore = score(searchRecord, token: token) else {
+                    totalScore = Int.max
+                    break
+                }
                 totalScore += tokenScore
             }
-            return (offset, totalScore, record)
+            guard totalScore != Int.max else { continue }
+            let candidate = (searchRecord.offset, totalScore, searchRecord.record)
+            guard best.count < safeLimit || isBetter(candidate, than: best[best.count - 1]) else {
+                continue
+            }
+            let insertionIndex = best.firstIndex { isBetter(candidate, than: $0) } ?? best.count
+            best.insert(candidate, at: insertionIndex)
+            if best.count > safeLimit {
+                best.removeLast()
+            }
         }
-        .sorted {
-            if $0.score != $1.score { return $0.score < $1.score }
-            return $0.offset < $1.offset
-        }
-        .map(\.record)
-        return Array(scored.prefix(max(limit, 0)))
+        return best.map(\.record)
     }
 
-    private static func score(_ record: QuickOpenRecord, token: String) -> Int? {
-        let title = record.title.lowercased()
-        let subtitle = record.subtitle.lowercased()
-        let kind = record.kind.rawValue.lowercased()
-        if title == token { return 0 }
-        if title.hasPrefix(token) { return 1 }
-        if title.contains(token) { return 2 }
-        if subtitle.hasPrefix(token) { return 3 }
-        if subtitle.contains(token) { return 4 }
-        if kind.contains(token) { return 5 }
+    private static func score(_ searchRecord: SearchRecord, token: String) -> Int? {
+        if searchRecord.title == token { return 0 }
+        if searchRecord.title.hasPrefix(token) { return 1 }
+        if searchRecord.title.contains(token) { return 2 }
+        if searchRecord.subtitle.hasPrefix(token) { return 3 }
+        if searchRecord.subtitle.contains(token) { return 4 }
+        if searchRecord.kind.contains(token) { return 5 }
         return nil
+    }
+
+    private static func isBetter(
+        _ lhs: (offset: Int, score: Int, record: QuickOpenRecord),
+        than rhs: (offset: Int, score: Int, record: QuickOpenRecord)
+    ) -> Bool {
+        if lhs.score != rhs.score { return lhs.score < rhs.score }
+        return lhs.offset < rhs.offset
     }
 }
 

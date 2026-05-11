@@ -392,6 +392,11 @@ else
   INSTALL_SECURITY_TEXT="This is an internal ad-hoc package. It is not notarized and may be blocked by Gatekeeper."
 fi
 
+if [[ "$MODE" == "notarized" && ! -f "$RELEASE_NOTES_SOURCE" ]]; then
+  echo "Notarized release requires release notes: $RELEASE_NOTES_SOURCE" >&2
+  exit 1
+fi
+
 cat >"$ARTIFACT_DIR/INSTALL.txt" <<TXT
 $APP_DISPLAY_NAME $VERSION
 

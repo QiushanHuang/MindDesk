@@ -40,6 +40,17 @@ jobs:
           ARCH="$(printf '%s' "${RUNNER_ARCH:-unknown}" | tr '[:upper:]' '[:lower:]')"
           echo "RELEASE_PLATFORM_SUFFIX=macOS-${ARCH}" >>"$GITHUB_ENV"
 
+      - name: Verify release inputs before signing
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' <VERSION)"
+          test -f "docs/releases/v${VERSION}.md"
+          swift test --scratch-path /tmp/minddesk-release-tests
+          bash -n script/build_and_run.sh
+          bash -n script/package_release.sh
+          plutil -lint script/release.entitlements
+          git diff --check
+
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}

@@ -206,6 +206,23 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(MindDeskStoreLayout.isIncompleteBackupFolderName(".20260430-091700-startup.incomplete-"))
     }
 
+    func testPersistentStoreBackupFolderNamesRejectInvalidDates() {
+        let backupRoot = URL(fileURLWithPath: "/tmp/Backups", isDirectory: true)
+        let folders = [
+            backupRoot.appendingPathComponent("20260430-091100-startup", isDirectory: true),
+            backupRoot.appendingPathComponent("20269999-999999-startup", isDirectory: true),
+            backupRoot.appendingPathComponent("20260230-120000-startup", isDirectory: true)
+        ]
+
+        XCTAssertEqual(
+            MindDeskStoreLayout.recoveryCandidateFolders(folders).map(\.lastPathComponent),
+            ["20260430-091100-startup"]
+        )
+        XCTAssertFalse(
+            MindDeskStoreLayout.isIncompleteBackupFolderName(".20269999-999999-startup.incomplete-abcd")
+        )
+    }
+
     func testCanvasAutoArrangeProducesGridPositions() {
         let nodes = [
             CanvasLayoutNode(id: "a", x: 0, y: 0, width: 120, height: 80),
@@ -633,6 +650,17 @@ final class CoreBehaviorTests: XCTestCase {
         ]
 
         XCTAssertEqual(QuickOpenIndex.results(for: "docs", in: records).map(\.id), ["title", "subtitle"])
+    }
+
+    func testQuickOpenIndexHandlesMultipleTokensAndZeroLimit() {
+        let records = [
+            QuickOpenRecord(id: "match", kind: .workspace, title: "Research Map", subtitle: "OpenAI Docs"),
+            QuickOpenRecord(id: "partial", kind: .workspace, title: "Research Plan", subtitle: "Notebook"),
+            QuickOpenRecord(id: "miss", kind: .snippet, title: "Release prompt", subtitle: "Docs")
+        ]
+
+        XCTAssertEqual(QuickOpenIndex.results(for: "research docs", in: records).map(\.id), ["match"])
+        XCTAssertTrue(QuickOpenIndex.results(for: "research", in: records, limit: 0).isEmpty)
     }
 
     func testQuickOpenSelectionPolicyWrapsAndClampsSelection() {
