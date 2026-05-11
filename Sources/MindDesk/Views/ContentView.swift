@@ -1301,11 +1301,7 @@ struct QuickOpenPanel: View {
         guard !results.isEmpty else { return }
         let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
         let id = results[index].id
-        Task { @MainActor in
-            withAnimation(.easeOut(duration: 0.12)) {
-                proxy.scrollTo(id, anchor: .center)
-            }
-        }
+        proxy.scrollTo(id, anchor: .center)
     }
 
     private func openSelectedResult() {

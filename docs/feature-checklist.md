@@ -36,6 +36,15 @@
 - [ ] command 可复制、打开 Terminal 预填、确认后运行。
 - [ ] Home 的 Recent Snippets 卡片标题和展开内容都可读。
 
+## Quick Open 与 Command Palette
+
+- [ ] `Command + K` 可打开 Quick Open，输入时不会触发主界面大范围闪烁。
+- [ ] Quick Open 可搜索 Workspace、Resource、Snippet 和 Web Page Card。
+- [ ] 空查询按稳定顺序显示当前常用对象；同分搜索结果顺序稳定。
+- [ ] 上下键可连续移动选中项，列表滚动跟随且不卡顿。
+- [ ] `Enter` 打开选中项，`Esc` 关闭面板，关闭后不会保留旧搜索快照。
+- [ ] 打开 Workspace、Resource、Snippet、Web Page Card 后导航或系统动作符合对象类型。
+
 ## Canvas 基础交互
 
 - [ ] 卡片单击可选中，蓝框立即出现。
@@ -52,10 +61,16 @@
 ## Canvas 连接与布局
 
 - [ ] Connect 模式可先点源卡片，再点目标卡片创建连线。
+- [ ] Single-use Connect 开启时创建一条连线后自动回到 Select 模式。
+- [ ] 右键卡片或 Frame 可执行 Start Link From This Card / Frame。
+- [ ] 选中卡片后 `Command + L` 可从该卡片发起连接。
+- [ ] 选中两个卡片后 `Shift + Command + L` 可直接连接。
 - [ ] 连线箭头显示在目标卡片边缘外侧，不被卡片遮挡。
 - [ ] 文件、文件夹、Note、Frame 之间的连线都可见。
 - [ ] 蓝色流光只沿连线方向移动，不出现在连线外侧。
 - [ ] 拖动连接中点可调整弯折，保存后仍保留。
+- [ ] 单击连线可单独选中；按 Delete 优先删除选中连线而不是误删卡片。
+- [ ] Reverse Selected Link 可反转选中连线，并阻止生成重复的反向连线。
 - [ ] Auto Arrange 后卡片不重叠。
 - [ ] 有连接的卡片按从左到右、从上到下的 workflow 排列。
 - [ ] 未连接卡片排在 workflow 后方且不重叠。
@@ -72,6 +87,15 @@
 - [ ] 背景拖动可平移画布。
 - [ ] Box Select 可框选多个卡片。
 - [ ] 右侧 Canvas Inspector 可手动打开/关闭，默认不因普通选中自动弹出。
+- [ ] 右侧 Canvas rail 在非全屏窄宽度下可滚动，按钮和字段不被截断。
+
+## Web Page Cards 与恢复
+
+- [ ] 可新增 Web Page Card，裸域名会补全为 HTTPS，有效 URL 可打开浏览器。
+- [ ] Web Page Card 可复制 URL、查看详情、参与连接和 Quick Open。
+- [ ] 删除 Canvas 卡片后 `Command + Z` 可恢复卡片及相关连线。
+- [ ] 删除选中连线后 `Command + Z` 可恢复连线和控制点。
+- [ ] 删除 task 或 task group 后 `Command + Z` 可恢复；删除 group 时任务会按策略迁移并可撤销。
 
 ## Settings
 

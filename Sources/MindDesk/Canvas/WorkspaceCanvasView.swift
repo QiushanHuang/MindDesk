@@ -1708,10 +1708,15 @@ struct WorkspaceCanvasView: View {
     }
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
-        let allSnapshots = workflowNodes.map(nodeDragSnapshot(for:))
-        nodeDragSnapshots = Dictionary(allSnapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let draggedNodes = draggedNodes(for: node)
+        let draggedIDs = Set(draggedNodes.map(\.id))
+        let frameSnapshots = workflowNodes
+            .filter { $0.nodeType == .groupFrame && !draggedIDs.contains($0.id) }
+            .map(nodeDragSnapshot(for:))
+        let snapshots = draggedNodes.map(nodeDragSnapshot(for:)) + frameSnapshots
+        nodeDragSnapshots = Dictionary(snapshots.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         nodeDragStart = Dictionary(
-            draggedNodes(for: node).map { draggedNode in
+            draggedNodes.map { draggedNode in
                 (
                     draggedNode.id,
                     CanvasNodeDragStart(
@@ -3763,6 +3768,14 @@ private final class SharpTextDrawingView: NSView {
         setAccessibilityLabel(self.text)
         invalidateIntrinsicContentSize()
         needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = frame.size != newSize
+        super.setFrameSize(newSize)
+        if changed {
+            needsDisplay = true
+        }
     }
 
     override func draw(_ dirtyRect: NSRect) {

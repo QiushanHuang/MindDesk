@@ -141,7 +141,7 @@ validate_release_notes() {
     exit 1
   fi
   if ! grep -qx "# $APP_DISPLAY_NAME v$VERSION" "$RELEASE_NOTES_SOURCE"; then
-    echo "Release notes must start with: # $APP_DISPLAY_NAME v$VERSION" >&2
+    echo "Release notes must include heading: # $APP_DISPLAY_NAME v$VERSION" >&2
     exit 1
   fi
   if ! grep -qx "## Distribution" "$RELEASE_NOTES_SOURCE"; then

@@ -133,6 +133,7 @@ struct WorkspaceTodoBoardView: View {
     @State private var editingTodo: WorkspaceTodoModel?
     @State private var dragStartRatio: Double?
     @State private var transientColumnRatio: Double?
+    @FocusState private var focusedGroupRenameId: String?
 
     private var openTodos: [WorkspaceTodoModel] {
         orderedTodos(todos.filter { !$0.isCompleted })
@@ -187,6 +188,13 @@ struct WorkspaceTodoBoardView: View {
             if let group = ensureDefaultGroup(), selectedGroupId == nil {
                 selectedGroupId = group.id
             }
+        }
+        .onChange(of: focusedGroupRenameId) { oldValue, newValue in
+            guard let oldValue, oldValue != newValue else { return }
+            commitEditingGroupIfNeeded(id: oldValue)
+        }
+        .onDisappear {
+            commitEditingGroupIfNeeded()
         }
         .sheet(item: $editingTodo) { todo in
             WorkspaceTodoDetailView(todo: todo, resources: resources, onSave: {
@@ -310,8 +318,12 @@ struct WorkspaceTodoBoardView: View {
                     set: { editingGroupTitle = $0 }
                 ))
                 .textFieldStyle(.plain)
+                .focused($focusedGroupRenameId, equals: group.id)
                 .onSubmit {
                     commitGroupRename(group)
+                }
+                .onDisappear {
+                    commitEditingGroupIfNeeded(id: group.id)
                 }
             } else {
                 Text(group.title)
@@ -720,18 +732,35 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func startEditingGroup(_ group: WorkspaceTodoGroupModel) {
+        if let editingGroupId, editingGroupId != group.id {
+            commitEditingGroupIfNeeded(id: editingGroupId)
+        }
         editingGroupId = group.id
         editingGroupTitle = group.title
+        focusedGroupRenameId = group.id
     }
 
     private func commitGroupRename(_ group: WorkspaceTodoGroupModel) {
+        guard editingGroupId == group.id else { return }
         let title = editingGroupTitle
         editingGroupId = nil
         editingGroupTitle = ""
+        focusedGroupRenameId = nil
         guard group.title != title else { return }
         group.title = title
         group.updatedAt = .now
         save(status: "Renamed group")
+    }
+
+    private func commitEditingGroupIfNeeded(id: String? = nil) {
+        guard let editingGroupId, id == nil || id == editingGroupId else { return }
+        guard let group = groups.first(where: { $0.id == editingGroupId }) else {
+            self.editingGroupId = nil
+            editingGroupTitle = ""
+            focusedGroupRenameId = nil
+            return
+        }
+        commitGroupRename(group)
     }
 
     private func orderedTodos(_ items: [WorkspaceTodoModel]) -> [WorkspaceTodoModel] {
