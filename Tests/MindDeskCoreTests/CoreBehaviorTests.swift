@@ -21,7 +21,11 @@ final class CoreBehaviorTests: XCTestCase {
     func testTerminalCommandStopsWhenCdFails() {
         XCTAssertEqual(
             ShellQuoter.terminalCommand(command: "rm -rf build", workingDirectory: "/tmp/Missing Folder"),
-            "cd '/tmp/Missing Folder' && rm -rf build"
+            "cd -- '/tmp/Missing Folder' && rm -rf build"
+        )
+        XCTAssertEqual(
+            ShellQuoter.terminalCommand(command: "pwd", workingDirectory: "-P"),
+            "cd -- '-P' && pwd"
         )
     }
 
@@ -318,6 +322,15 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(aligned.map(\.x), [10, 10])
     }
 
+    func testAlignTopUsesMinimumY() {
+        let nodes = [
+            CanvasLayoutNode(id: "a", x: 0, y: 50, width: 120, height: 80),
+            CanvasLayoutNode(id: "b", x: 20, y: 10, width: 120, height: 80)
+        ]
+        let aligned = CanvasLayoutEngine.alignTop(nodes)
+        XCTAssertEqual(aligned.map(\.y), [10, 10])
+    }
+
     private func layoutNodesOverlap(_ nodes: [CanvasLayoutNode]) -> Bool {
         for lhsIndex in nodes.indices {
             for rhsIndex in nodes.indices where rhsIndex > lhsIndex {
@@ -403,11 +416,203 @@ final class CoreBehaviorTests: XCTestCase {
     }
 
     func testWorkspaceCanvasTodoPreferenceKeysAreStable() {
+        XCTAssertEqual(AppPreferenceKeys.canvasScrollZoomDirection, "canvasScrollZoomDirection")
+        XCTAssertEqual(AppPreferenceKeys.canvasDefaultZoomPercent, "canvasDefaultZoomPercent")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen, "workspaceCanvasTodoPanelDefaultOpen")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen, "workspaceCanvasTodoDoneColumnDefaultOpen")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen, "workspaceCanvasTodoDoneColumnOpen")
         XCTAssertEqual(AppPreferenceKeys.workspaceCanvasTodoColumnRatio, "workspaceCanvasTodoColumnRatio")
         XCTAssertEqual(AppPreferenceKeys.canvasConnectSingleShot, "canvasConnectSingleShot")
+        XCTAssertEqual(AppPreferenceKeys.appearanceMode, "appearanceMode")
+        XCTAssertEqual(AppPreferenceKeys.interfaceTextScale, "interfaceTextScale")
+        XCTAssertEqual(AppPreferenceKeys.interfaceDensity, "interfaceDensity")
+        XCTAssertEqual(AppPreferenceKeys.startupDestination, "startupDestination")
+        XCTAssertEqual(AppPreferenceKeys.manifestExportScope, "manifestExportScope")
+        XCTAssertEqual(AppPreferenceKeys.manifestExportIncludesUsageDates, "manifestExportIncludesUsageDates")
+    }
+
+    func testAppPreferenceEnumsResolveInvalidValuesToSafeDefaults() {
+        XCTAssertEqual(AppAppearanceMode.resolved("unknown"), .system)
+        XCTAssertEqual(AppInterfaceTextScale.resolved("unknown"), .system)
+        XCTAssertEqual(AppInterfaceDensity.resolved("unknown"), .balanced)
+        XCTAssertEqual(AppStartupDestination.resolved("unknown"), .home)
+        XCTAssertEqual(ManifestExportScope.resolved("unknown"), .completeWorkspaceMap)
+    }
+
+    func testExportManifestUsageDatePolicyRemovesBehaviorDatesOnly() {
+        let usageDate = Date(timeIntervalSince1970: 123)
+        let createdAt = Date(timeIntervalSince1970: 456)
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 789),
+            workspaces: [
+                WorkspaceRecord(
+                    id: "workspace",
+                    title: "Workspace",
+                    details: "",
+                    createdAt: createdAt,
+                    updatedAt: createdAt,
+                    lastOpenedAt: usageDate
+                )
+            ],
+            resources: [
+                ResourceRecord(
+                    id: "resource",
+                    workspaceId: nil,
+                    title: "Resource",
+                    targetType: "folder",
+                    displayPath: "/tmp/resource",
+                    lastResolvedPath: "/tmp/resource",
+                    note: "",
+                    tags: [],
+                    scope: "global",
+                    status: "available",
+                    createdAt: createdAt,
+                    updatedAt: createdAt,
+                    lastOpenedAt: usageDate
+                )
+            ],
+            snippets: [
+                SnippetRecord(
+                    id: "snippet",
+                    workspaceId: nil,
+                    title: "Snippet",
+                    kind: "prompt",
+                    body: "Body",
+                    details: "",
+                    tags: [],
+                    scope: "global",
+                    workingDirectoryRef: nil,
+                    requiresConfirmation: false,
+                    lastCopiedAt: usageDate,
+                    lastUsedAt: usageDate,
+                    createdAt: createdAt,
+                    updatedAt: createdAt
+                )
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: []
+        )
+
+        let redacted = ExportManifestUsageDatePolicy.removingUsageDates(from: manifest)
+
+        XCTAssertNil(redacted.workspaces.first?.lastOpenedAt)
+        XCTAssertNil(redacted.resources.first?.lastOpenedAt)
+        XCTAssertNil(redacted.snippets.first?.lastCopiedAt)
+        XCTAssertNil(redacted.snippets.first?.lastUsedAt)
+        XCTAssertEqual(redacted.workspaces.first?.createdAt, createdAt)
+        XCTAssertEqual(redacted.resources.first?.updatedAt, createdAt)
+        XCTAssertEqual(redacted.exportedAt, manifest.exportedAt)
+    }
+
+    func testExportManifestScopePolicyCanExportOnlyGlobalLibraryMetadata() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(
+                    id: "workspace",
+                    title: "Workspace",
+                    details: "",
+                    createdAt: Date(timeIntervalSince1970: 0),
+                    updatedAt: Date(timeIntervalSince1970: 0),
+                    lastOpenedAt: nil
+                )
+            ],
+            resources: [
+                ResourceRecord(
+                    id: "global-resource",
+                    workspaceId: nil,
+                    title: "Global",
+                    targetType: "folder",
+                    displayPath: "/tmp/global",
+                    lastResolvedPath: "/tmp/global",
+                    note: "",
+                    tags: [],
+                    scope: "global",
+                    status: "available"
+                ),
+                ResourceRecord(
+                    id: "workspace-resource",
+                    workspaceId: "workspace",
+                    title: "Workspace",
+                    targetType: "folder",
+                    displayPath: "/tmp/workspace",
+                    lastResolvedPath: "/tmp/workspace",
+                    note: "",
+                    tags: [],
+                    scope: "workspace",
+                    status: "available"
+                )
+            ],
+            snippets: [
+                SnippetRecord(
+                    id: "global-snippet",
+                    workspaceId: nil,
+                    title: "Global Snippet",
+                    kind: "prompt",
+                    body: "Body",
+                    details: "",
+                    tags: [],
+                    scope: "global",
+                    workingDirectoryRef: "global-resource",
+                    requiresConfirmation: false
+                ),
+                SnippetRecord(
+                    id: "dangling-global-snippet",
+                    workspaceId: nil,
+                    title: "Dangling Global Snippet",
+                    kind: "prompt",
+                    body: "Body",
+                    details: "",
+                    tags: [],
+                    scope: "global",
+                    workingDirectoryRef: "workspace-resource",
+                    requiresConfirmation: false
+                ),
+                SnippetRecord(
+                    id: "workspace-snippet",
+                    workspaceId: "workspace",
+                    title: "Workspace Snippet",
+                    kind: "prompt",
+                    body: "Body",
+                    details: "",
+                    tags: [],
+                    scope: "workspace",
+                    workingDirectoryRef: nil,
+                    requiresConfirmation: false
+                )
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas", viewportX: 0, viewportY: 0, zoom: 1)
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Node", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 0, y: 0, width: 100, height: 100)
+            ],
+            edges: [
+                CanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "node", label: "")
+            ],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "global-resource", aliasDisplayPath: "/tmp/alias", status: "created")
+            ]
+        )
+
+        let globalOnly = ExportManifestScopePolicy.manifest(
+            from: manifest,
+            scope: .globalLibraryOnly
+        )
+
+        XCTAssertEqual(globalOnly.workspaces, [])
+        XCTAssertEqual(globalOnly.resources.map(\.id), ["global-resource"])
+        XCTAssertEqual(globalOnly.snippets.map(\.id), ["global-snippet", "dangling-global-snippet"])
+        XCTAssertEqual(globalOnly.snippets.first { $0.id == "global-snippet" }?.workingDirectoryRef, "global-resource")
+        XCTAssertNil(globalOnly.snippets.first { $0.id == "dangling-global-snippet" }?.workingDirectoryRef)
+        XCTAssertEqual(globalOnly.canvases, [])
+        XCTAssertEqual(globalOnly.nodes, [])
+        XCTAssertEqual(globalOnly.edges, [])
+        XCTAssertEqual(globalOnly.aliases, [])
     }
 
     func testCanvasConnectionPolicySupportsSingleShotAndChainModes() {
@@ -484,6 +689,8 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedVisibleCardCount, 60)
         XCTAssertEqual(CanvasPerformancePolicy.maximumAnimatedRoutePointCount, 96)
         XCTAssertEqual(CanvasPerformancePolicy.maximumDetailedVisibleCardCount, 48)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumDetailedInteractingVisibleCardCount, 8)
+        XCTAssertEqual(CanvasPerformancePolicy.maximumContextEdgesDuringInteraction, 48)
         XCTAssertEqual(CanvasPerformancePolicy.maximumPassiveResizeHandleNodeCount, 12)
         XCTAssertEqual(CanvasPerformancePolicy.maximumPassiveEdgeControlHandleCount, 24)
         XCTAssertEqual(CanvasPerformancePolicy.minimumPassiveEdgeControlZoom, 0.30, accuracy: 0.0001)
@@ -493,7 +700,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 22, obstacleCount: 40, isInteracting: false))
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 23, obstacleCount: 40, isInteracting: false))
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 25, obstacleCount: 20, isInteracting: false))
-        XCTAssertTrue(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 12, obstacleCount: 0, isInteracting: false))
+        XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 12, obstacleCount: 0, isInteracting: false))
     }
 
     func testCanvasEdgeAnimationPolicyGatesVisibleTimelineByZoomDensityAndComplexity() {
@@ -582,10 +789,26 @@ final class CoreBehaviorTests: XCTestCase {
             isSelected: false,
             isEditing: false
         ))
+        XCTAssertFalse(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 8,
+            isInteracting: true,
+            isSelected: false,
+            isEditing: false
+        ))
         XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
             zoom: 0.35,
             baselineZoom: 0.35,
             visibleCardCount: 40,
+            isInteracting: true,
+            isSelected: true,
+            isEditing: false
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: 8,
             isInteracting: true,
             isSelected: true,
             isEditing: false
@@ -787,6 +1010,17 @@ final class CoreBehaviorTests: XCTestCase {
             movedControlEdgeIDs: ["frame-bend"],
             isGeometryInteracting: true
         ))
+        XCTAssertTrue(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
+            edgeID: "context",
+            sourceNodeID: "a",
+            targetNodeID: "b",
+            movingNodeIDs: ["moving"],
+            selectedEdgeIDs: [],
+            transientControlEdgeIDs: [],
+            movedControlEdgeIDs: [],
+            isGeometryInteracting: true,
+            visibleEdgeCount: CanvasPerformancePolicy.maximumContextEdgesDuringInteraction
+        ))
         XCTAssertFalse(CanvasActiveEdgeRenderPolicy.shouldRenderEdge(
             edgeID: "unrelated",
             sourceNodeID: "a",
@@ -797,6 +1031,56 @@ final class CoreBehaviorTests: XCTestCase {
             movedControlEdgeIDs: [],
             isGeometryInteracting: true
         ))
+    }
+
+    func testCanvasNodeVisualZIndexPolicyKeepsMovingCardsAboveEdgesAndPeerCards() {
+        let idleCard = CanvasNodeVisualZIndexPolicy.zIndex(
+            storedZIndex: 0,
+            isFrame: false,
+            isSelected: false,
+            isDragging: false,
+            isResizing: false,
+            isConnectionSource: false,
+            isEditing: false
+        )
+        let selectedCard = CanvasNodeVisualZIndexPolicy.zIndex(
+            storedZIndex: 0,
+            isFrame: false,
+            isSelected: true,
+            isDragging: false,
+            isResizing: false,
+            isConnectionSource: false,
+            isEditing: false
+        )
+        let draggingCard = CanvasNodeVisualZIndexPolicy.zIndex(
+            storedZIndex: 0,
+            isFrame: false,
+            isSelected: true,
+            isDragging: true,
+            isResizing: false,
+            isConnectionSource: false,
+            isEditing: false
+        )
+        let draggingFrame = CanvasNodeVisualZIndexPolicy.zIndex(
+            storedZIndex: 0,
+            isFrame: true,
+            isSelected: true,
+            isDragging: true,
+            isResizing: false,
+            isConnectionSource: false,
+            isEditing: false
+        )
+
+        XCTAssertGreaterThan(selectedCard, idleCard)
+        XCTAssertGreaterThan(draggingCard, 3.0)
+        XCTAssertLessThan(draggingFrame, idleCard)
+    }
+
+    func testCanvasEdgeVisualMetricsKeepLowZoomStrokesReadable() {
+        XCTAssertEqual(CanvasEdgeVisualMetrics.strokeWidth(zoom: 0.12, baseWidth: 1.7, minimumWidth: 0.9, maximumWidth: 2.0), 0.9, accuracy: 0.0001)
+        XCTAssertEqual(CanvasEdgeVisualMetrics.strokeWidth(zoom: 2.0, baseWidth: 1.7, minimumWidth: 0.9, maximumWidth: 2.0), 2.0, accuracy: 0.0001)
+        XCTAssertEqual(CanvasEdgeVisualMetrics.arrowLength(zoom: 0.12, baseLength: 13, minimumLength: 6, maximumLength: 16), 6, accuracy: 0.0001)
+        XCTAssertEqual(CanvasEdgeVisualMetrics.arrowLength(zoom: 2.0, baseLength: 13, minimumLength: 6, maximumLength: 16), 16, accuracy: 0.0001)
     }
 
     func testCanvasSideRailLayoutShrinksRightRailForNarrowWindows() {
@@ -888,6 +1172,14 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(WebCardURL.normalized("http://localhost:3000")?.absoluteString, "http://localhost:3000")
         XCTAssertEqual(WebCardURL.normalized("https://intranet")?.absoluteString, "https://intranet")
         XCTAssertNil(WebCardURL.normalized("not a url"))
+    }
+
+    func testWebCardURLRejectsUnsupportedSchemesAndBlankHosts() {
+        XCTAssertNil(WebCardURL.normalized("file:///tmp/notes.html"))
+        XCTAssertNil(WebCardURL.normalized("javascript:alert(1)"))
+        XCTAssertNil(WebCardURL.normalized("mailto:user@example.com"))
+        XCTAssertNil(WebCardURL.normalized("https:///missing-host"))
+        XCTAssertNil(WebCardURL.normalized("https://"))
     }
 
     func testWorkspaceDeletionPolicyRemovesCrossCanvasResourceSnippetReferencesAndEdges() {
@@ -983,6 +1275,19 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(QuickOpenIndex.results(for: "docs", in: records).map(\.id), ["web1"])
         XCTAssertEqual(QuickOpenIndex.results(for: "map", in: records).map(\.id), ["w1"])
         XCTAssertEqual(QuickOpenIndex.results(for: "", in: records, limit: 2).map(\.id), ["w1", "r1"])
+    }
+
+    func testQuickOpenIndexSearchesKindTokensCaseInsensitively() {
+        let records = [
+            QuickOpenRecord(id: "workspace", kind: .workspace, title: "Roadmap", subtitle: "Plan"),
+            QuickOpenRecord(id: "resource", kind: .resource, title: "Roadmap", subtitle: "File"),
+            QuickOpenRecord(id: "web", kind: .webCard, title: "Roadmap", subtitle: "URL"),
+            QuickOpenRecord(id: "snippet", kind: .snippet, title: "Roadmap", subtitle: "Prompt")
+        ]
+
+        XCTAssertEqual(QuickOpenIndex.results(for: "RESOURCE", in: records).map(\.id), ["resource"])
+        XCTAssertEqual(QuickOpenIndex.results(for: "webcard", in: records).map(\.id), ["web"])
+        XCTAssertEqual(QuickOpenIndex.results(for: "snippet", in: records).map(\.id), ["snippet"])
     }
 
     func testQuickOpenIndexRanksTitleMatchesBeforeSubtitleMatches() {
@@ -1123,6 +1428,31 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Canvas canvas references missing workspace missing-workspace."))
         XCTAssertTrue(issues.contains("Node node references missing canvas missing-canvas."))
         XCTAssertTrue(issues.contains("Edge edge references missing source node missing-source."))
+    }
+
+    func testManifestImportValidationRejectsWorkspaceScopedResourcesAndSnippetsWithoutWorkspaceID() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "File", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "workspace", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "Command", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Resource resource has workspace scope without a workspace id."))
+        XCTAssertTrue(issues.contains("Snippet snippet has workspace scope without a workspace id."))
     }
 
     func testManifestImportValidationReportsDuplicateIDs() {
@@ -1316,6 +1646,78 @@ final class CoreBehaviorTests: XCTestCase {
         )
 
         XCTAssertTrue(ManifestImportValidation.issues(in: manifest).isEmpty)
+    }
+
+    func testManifestImportValidationRejectsInvalidEnumsAndUnsafeGeometry() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "file-resource", workspaceId: nil, title: "File", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "global", status: "available"),
+                ResourceRecord(id: "bad-resource", workspaceId: nil, title: "Bad", targetType: "socket", displayPath: "/tmp/bad", lastResolvedPath: "/tmp/bad", note: "", tags: [], scope: "team", status: "trusted")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "Command", kind: "command", body: "pwd", details: "", tags: [], scope: "global", workingDirectoryRef: "file-resource", requiresConfirmation: true),
+                SnippetRecord(id: "bad-snippet", workspaceId: nil, title: "Bad", kind: "script", body: "", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas", viewportX: ManifestImportLimits.maximumCanvasCoordinate + 1, viewportY: 0, zoom: 0)
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Node", body: "", nodeType: "mystery", objectType: "unknown", objectId: "object", x: 0, y: 0, width: -1, height: ManifestImportLimits.maximumNodeSize + 1, parentNodeId: "node", zIndex: ManifestImportLimits.maximumZIndex + 1)
+            ],
+            edges: [
+                CanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "node", label: "", sourceArrow: "maybe", targetArrow: "arrow")
+            ],
+            aliases: [
+                AliasRecord(id: "alias", sourceObjectType: "resourcePin", sourceObjectId: "file-resource", aliasDisplayPath: "/tmp/alias", status: "unknown")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Resource bad-resource has unsupported target type socket."))
+        XCTAssertTrue(issues.contains("Resource bad-resource has unsupported scope team."))
+        XCTAssertTrue(issues.contains("Resource bad-resource has unsupported status trusted."))
+        XCTAssertTrue(issues.contains("Snippet bad-snippet has unsupported kind script."))
+        XCTAssertTrue(issues.contains("Snippet snippet working directory file-resource is not a folder resource."))
+        XCTAssertTrue(issues.contains("Canvas canvas has viewportX outside the supported range."))
+        XCTAssertTrue(issues.contains("Canvas canvas has zoom outside the supported range."))
+        XCTAssertTrue(issues.contains("Node node has unsupported node type mystery."))
+        XCTAssertTrue(issues.contains("Node node has unsupported object type unknown."))
+        XCTAssertTrue(issues.contains("Node node has width outside the supported range."))
+        XCTAssertTrue(issues.contains("Node node has height outside the supported range."))
+        XCTAssertTrue(issues.contains("Node node cannot be its own parent."))
+        XCTAssertTrue(issues.contains("Node node has zIndex outside the supported range."))
+        XCTAssertTrue(issues.contains("Edge edge has unsupported source arrow maybe."))
+        XCTAssertTrue(issues.contains("Alias alias has unsupported status unknown."))
+    }
+
+    func testManifestImportValidationRejectsOversizedImportsAndTextFields() {
+        let oversizedResources = (0...ManifestImportLimits.maximumResources).map { index in
+            ResourceRecord(id: "resource-\(index)", workspaceId: nil, title: "Resource", targetType: "file", displayPath: "/tmp/file-\(index)", lastResolvedPath: "/tmp/file-\(index)", note: "", tags: [], scope: "global", status: "available")
+        }
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: String(repeating: "A", count: ManifestImportLimits.maximumTextLength + 1), details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: oversizedResources,
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Manifest has too many resources."))
+        XCTAssertTrue(issues.contains("Workspace workspace title is too long."))
     }
 
     func testLegacySnippetRecordDefaultsMissingCommandConfirmationToSafeValue() throws {
@@ -2366,6 +2768,42 @@ final class CoreBehaviorTests: XCTestCase {
 
         XCTAssertEqual(viewport.x, -75, accuracy: 0.0001)
         XCTAssertEqual(viewport.y, -25, accuracy: 0.0001)
+    }
+
+    func testCanvasViewportFitPolicyCentersBoundsAndClampsZoom() {
+        let fit = CanvasViewportFitPolicy.fit(
+            bounds: CanvasFrameRect(id: "bounds", x: 100, y: 50, width: 400, height: 200),
+            viewportWidth: 1_000,
+            viewportHeight: 700,
+            padding: 100,
+            minimumZoom: 0.12,
+            maximumZoom: 2.4
+        )
+
+        XCTAssertNotNil(fit)
+        XCTAssertEqual(fit?.zoom ?? .nan, 2.0, accuracy: 0.0001)
+        XCTAssertEqual(fit?.viewportX ?? .nan, -100, accuracy: 0.0001)
+        XCTAssertEqual(fit?.viewportY ?? .nan, 50, accuracy: 0.0001)
+
+        let clamped = CanvasViewportFitPolicy.fit(
+            bounds: CanvasFrameRect(id: "large", x: 0, y: 0, width: 10_000, height: 10_000),
+            viewportWidth: 300,
+            viewportHeight: 300,
+            padding: 40,
+            minimumZoom: 0.12,
+            maximumZoom: 2.4
+        )
+
+        XCTAssertNotNil(clamped)
+        XCTAssertEqual(clamped?.zoom ?? .nan, 0.12, accuracy: 0.0001)
+        XCTAssertNil(CanvasViewportFitPolicy.fit(
+            bounds: CanvasFrameRect(id: "invalid", x: 0, y: 0, width: 0, height: 100),
+            viewportWidth: 300,
+            viewportHeight: 300,
+            padding: 40,
+            minimumZoom: 0.12,
+            maximumZoom: 2.4
+        ))
     }
 
     func testFolderPreviewOrderingPutsFoldersFirstThenNames() {

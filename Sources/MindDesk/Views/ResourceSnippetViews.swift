@@ -184,17 +184,13 @@ struct ResourceListView: View {
     }
 
     private func importDropped(_ urls: [URL]) {
-        let accepted = urls.filter { url in
-            guard let targetFilter else { return true }
-            return ResourceImportService.targetType(for: url) == targetFilter
-        }
-        guard !accepted.isEmpty else {
-            onStatus("Drop did not include matching files or folders.")
+        guard !urls.isEmpty else {
+            onStatus("Drop did not include files or folders.")
             return
         }
         do {
             let summary = try ResourceImportService().importURLs(
-                accepted,
+                urls,
                 existingResources: knownResources,
                 into: modelContext,
                 scope: scope,
@@ -727,24 +723,66 @@ private struct QuickLookPreview: NSViewRepresentable {
         Coordinator()
     }
 
-    func makeNSView(context: Context) -> QLPreviewView {
-        let view = QLPreviewView(frame: .zero, style: .normal)!
-        view.autostarts = true
-        return view
+    func makeNSView(context: Context) -> QuickLookPreviewContainerView {
+        QuickLookPreviewContainerView()
     }
 
-    func updateNSView(_ nsView: QLPreviewView, context: Context) {
+    func updateNSView(_ nsView: QuickLookPreviewContainerView, context: Context) {
+        guard let previewView = nsView.previewView else {
+            context.coordinator.reportPreviewUnavailable(onUnavailable: onUnavailable)
+            return
+        }
         context.coordinator.update(
             bookmarkData: bookmarkData,
             fallbackPath: fallbackPath,
             statusRaw: statusRaw,
             onUnavailable: onUnavailable,
-            in: nsView
+            in: previewView
         )
     }
 
-    static func dismantleNSView(_ nsView: QLPreviewView, coordinator: Coordinator) {
-        coordinator.stop(in: nsView)
+    static func dismantleNSView(_ nsView: QuickLookPreviewContainerView, coordinator: Coordinator) {
+        if let previewView = nsView.previewView {
+            coordinator.stop(in: previewView)
+        }
+    }
+
+    final class QuickLookPreviewContainerView: NSView {
+        let previewView: QLPreviewView?
+
+        override init(frame frameRect: NSRect) {
+            let previewView = QLPreviewView(frame: .zero, style: .normal)
+            self.previewView = previewView
+            super.init(frame: frameRect)
+            if let previewView {
+                previewView.autostarts = true
+                previewView.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(previewView)
+                NSLayoutConstraint.activate([
+                    previewView.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    previewView.trailingAnchor.constraint(equalTo: trailingAnchor),
+                    previewView.topAnchor.constraint(equalTo: topAnchor),
+                    previewView.bottomAnchor.constraint(equalTo: bottomAnchor)
+                ])
+            } else {
+                let fallback = NSTextField(wrappingLabelWithString: "Preview unavailable.")
+                fallback.alignment = .center
+                fallback.textColor = .secondaryLabelColor
+                fallback.translatesAutoresizingMaskIntoConstraints = false
+                addSubview(fallback)
+                NSLayoutConstraint.activate([
+                    fallback.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
+                    fallback.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+                    fallback.centerXAnchor.constraint(equalTo: centerXAnchor),
+                    fallback.centerYAnchor.constraint(equalTo: centerYAnchor)
+                ])
+            }
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            nil
+        }
     }
 
     @MainActor
@@ -758,8 +796,10 @@ private struct QuickLookPreview: NSViewRepresentable {
         private var activeResource: ActiveResource?
         private var activeURL: URL?
         private var didAccess = false
+        private var didReportPreviewUnavailable = false
 
         func update(bookmarkData: Data?, fallbackPath: String, statusRaw: String, onUnavailable: @escaping (String) -> Void, in previewView: QLPreviewView) {
+            didReportPreviewUnavailable = false
             let resource = ActiveResource(bookmarkData: bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
             guard activeResource != resource else {
                 if let activeURL {
@@ -795,6 +835,12 @@ private struct QuickLookPreview: NSViewRepresentable {
                 guard self?.activeResource == resource else { return }
                 onUnavailable(message)
             }
+        }
+
+        func reportPreviewUnavailable(onUnavailable: @escaping (String) -> Void) {
+            guard !didReportPreviewUnavailable else { return }
+            didReportPreviewUnavailable = true
+            onUnavailable("Quick Look preview is unavailable.")
         }
 
         func stop(in previewView: QLPreviewView) {
@@ -1472,7 +1518,7 @@ struct SnippetEditorDraft {
             tags: tags,
             scope: scope,
             workingDirectoryRef: kind == .command ? workingDirectoryRef : nil,
-            requiresConfirmation: kind == .command ? requiresConfirmation : false
+            requiresConfirmation: kind == .command
         )
     }
 }
@@ -1490,7 +1536,6 @@ struct SnippetEditor: View {
     @State private var snippetBody = ""
     @State private var details = ""
     @State private var tags = ""
-    @State private var requiresConfirmation = true
     @State private var workingDirectoryRef: String?
 
     init(
@@ -1510,7 +1555,6 @@ struct SnippetEditor: View {
         _snippetBody = State(initialValue: snippet?.body ?? "")
         _details = State(initialValue: snippet?.details ?? "")
         _tags = State(initialValue: snippet?.tags.joined(separator: ", ") ?? "")
-        _requiresConfirmation = State(initialValue: snippet?.requiresConfirmation ?? true)
         _workingDirectoryRef = State(initialValue: snippet?.workingDirectoryRef)
     }
 
@@ -1531,9 +1575,8 @@ struct SnippetEditor: View {
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 160)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-            Toggle("Require confirmation before running command", isOn: $requiresConfirmation)
-                .disabled(kind == .prompt)
             if kind == .command {
+                commandSafetyNotice
                 workingDirectoryPicker
             }
             HStack {
@@ -1552,7 +1595,7 @@ struct SnippetEditor: View {
                         tags: tags.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty },
                         scope: scope,
                         workspaceId: workspaceId,
-                        requiresConfirmation: kind == .command ? requiresConfirmation : false,
+                        requiresConfirmation: kind == .command,
                         workingDirectoryRef: kind == .command ? savedWorkingDirectoryRef : nil
                     )
                     onSave(draft)
@@ -1563,6 +1606,17 @@ struct SnippetEditor: View {
         }
         .padding()
         .frame(width: 560, height: 590)
+    }
+
+    private var commandSafetyNotice: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.shield")
+                .foregroundStyle(.secondary)
+            Text("Command snippets always require confirmation before running. This safety policy is global and cannot be disabled per snippet.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var workingDirectoryPicker: some View {

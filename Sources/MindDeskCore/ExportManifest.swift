@@ -34,6 +34,76 @@ public struct ExportManifest: Codable, Equatable {
     }
 }
 
+public enum ExportManifestUsageDatePolicy {
+    public static func removingUsageDates(from manifest: ExportManifest) -> ExportManifest {
+        var copy = manifest
+        for index in copy.workspaces.indices {
+            copy.workspaces[index].lastOpenedAt = nil
+        }
+        for index in copy.resources.indices {
+            copy.resources[index].lastOpenedAt = nil
+        }
+        for index in copy.snippets.indices {
+            copy.snippets[index].lastCopiedAt = nil
+            copy.snippets[index].lastUsedAt = nil
+        }
+        return copy
+    }
+}
+
+public enum ExportManifestScopePolicy {
+    public static func manifest(
+        from manifest: ExportManifest,
+        scope: ManifestExportScope
+    ) -> ExportManifest {
+        switch scope {
+        case .completeWorkspaceMap:
+            return manifest
+        case .globalLibraryOnly:
+            var copy = manifest
+            copy.workspaces = []
+            copy.resources = manifest.resources.filter { $0.scope == "global" }
+            let retainedResourceIDs = Set(copy.resources.map(\.id))
+            copy.snippets = manifest.snippets
+                .filter { $0.scope == "global" }
+                .map { snippet in
+                    guard let workingDirectoryRef = snippet.workingDirectoryRef,
+                          !retainedResourceIDs.contains(workingDirectoryRef) else {
+                        return snippet
+                    }
+                    var copy = snippet
+                    copy.workingDirectoryRef = nil
+                    return copy
+                }
+            copy.canvases = []
+            copy.nodes = []
+            copy.edges = []
+            copy.aliases = []
+            return copy
+        }
+    }
+}
+
+public enum ManifestImportLimits {
+    public static let maximumManifestBytes = 64 * 1024 * 1024
+    public static let maximumWorkspaces = 500
+    public static let maximumResources = 5_000
+    public static let maximumSnippets = 2_000
+    public static let maximumCanvases = 1_000
+    public static let maximumNodes = 10_000
+    public static let maximumEdges = 20_000
+    public static let maximumAliases = 5_000
+    public static let maximumIdentifierLength = 128
+    public static let maximumPathLength = 4_096
+    public static let maximumTextLength = 65_536
+    public static let maximumCanvasCoordinate: Double = 1_000_000
+    public static let minimumZoom: Double = 0.12
+    public static let maximumZoom: Double = 2.4
+    public static let minimumNodeSize: Double = 24
+    public static let maximumNodeSize: Double = 5_000
+    public static let maximumZIndex: Double = 1_000
+}
+
 public struct WorkspaceRecord: Codable, Equatable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case id
@@ -504,8 +574,11 @@ public enum ManifestImportValidation {
         let canvasIds = Set(manifest.canvases.map(\.id))
         let nodeIds = Set(manifest.nodes.map(\.id))
         let nodeCanvasById = Dictionary(manifest.nodes.map { ($0.id, $0.canvasId) }, uniquingKeysWith: { first, _ in first })
+        let nodeTypeById = Dictionary(manifest.nodes.map { ($0.id, $0.nodeType) }, uniquingKeysWith: { first, _ in first })
+        let resourceTypeById = Dictionary(manifest.resources.map { ($0.id, $0.targetType) }, uniquingKeysWith: { first, _ in first })
         var issues: [String] = []
 
+        appendCountIssues(manifest, issues: &issues)
         issues.append(contentsOf: emptyIDIssues(manifest.workspaces.map(\.id), label: "Workspace"))
         issues.append(contentsOf: emptyIDIssues(manifest.resources.map(\.id), label: "Resource"))
         issues.append(contentsOf: emptyIDIssues(manifest.snippets.map(\.id), label: "Snippet"))
@@ -521,37 +594,95 @@ public enum ManifestImportValidation {
         issues.append(contentsOf: duplicateIssues(manifest.edges.map(\.id), label: "edge"))
         issues.append(contentsOf: duplicateIssues(manifest.aliases.map(\.id), label: "alias"))
 
+        for workspace in manifest.workspaces {
+            appendIdentifierIssue(workspace.id, ownerDescription: "Workspace \(workspace.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(workspace.title, ownerDescription: "Workspace \(workspace.id)", fieldDescription: "title", issues: &issues)
+            appendTextIssue(workspace.details, ownerDescription: "Workspace \(workspace.id)", fieldDescription: "details", issues: &issues)
+        }
+
         for resource in manifest.resources {
+            appendIdentifierIssue(resource.id, ownerDescription: "Resource \(resource.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(resource.title, ownerDescription: "Resource \(resource.id)", fieldDescription: "title", issues: &issues)
+            appendPathIssue(resource.displayPath, ownerDescription: "Resource \(resource.id)", fieldDescription: "display path", issues: &issues)
+            appendPathIssue(resource.lastResolvedPath, ownerDescription: "Resource \(resource.id)", fieldDescription: "last resolved path", issues: &issues)
+            appendTextIssue(resource.note, ownerDescription: "Resource \(resource.id)", fieldDescription: "note", issues: &issues)
+            appendTextIssues(resource.tags, ownerDescription: "Resource \(resource.id)", fieldDescription: "tag", issues: &issues)
+            appendAllowedIssue(resource.targetType, allowed: allowedResourceTargetTypes, ownerDescription: "Resource \(resource.id)", fieldDescription: "target type", issues: &issues)
+            appendAllowedIssue(resource.scope, allowed: allowedScopes, ownerDescription: "Resource \(resource.id)", fieldDescription: "scope", issues: &issues)
+            appendAllowedIssue(resource.status, allowed: allowedResourceStatuses, ownerDescription: "Resource \(resource.id)", fieldDescription: "status", issues: &issues)
+            if requiresWorkspaceID(scope: resource.scope), resource.workspaceId == nil {
+                issues.append("Resource \(resource.id) has workspace scope without a workspace id.")
+            }
             if let workspaceId = resource.workspaceId, !workspaceIds.contains(workspaceId) {
                 issues.append("Resource \(resource.id) references missing workspace \(workspaceId).")
             }
         }
 
         for snippet in manifest.snippets {
+            appendIdentifierIssue(snippet.id, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(snippet.title, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "title", issues: &issues)
+            appendTextIssue(snippet.body, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "body", issues: &issues)
+            appendTextIssue(snippet.details, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "details", issues: &issues)
+            appendTextIssues(snippet.tags, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "tag", issues: &issues)
+            appendAllowedIssue(snippet.kind, allowed: allowedSnippetKinds, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "kind", issues: &issues)
+            appendAllowedIssue(snippet.scope, allowed: allowedScopes, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "scope", issues: &issues)
+            if requiresWorkspaceID(scope: snippet.scope), snippet.workspaceId == nil {
+                issues.append("Snippet \(snippet.id) has workspace scope without a workspace id.")
+            }
             if let workspaceId = snippet.workspaceId, !workspaceIds.contains(workspaceId) {
                 issues.append("Snippet \(snippet.id) references missing workspace \(workspaceId).")
             }
             if let resourceId = snippet.workingDirectoryRef, !resourceIds.contains(resourceId) {
                 issues.append("Snippet \(snippet.id) references missing working directory resource \(resourceId).")
+            } else if let resourceId = snippet.workingDirectoryRef,
+                      resourceTypeById[resourceId] != "folder" {
+                issues.append("Snippet \(snippet.id) working directory \(resourceId) is not a folder resource.")
             }
         }
 
-        for canvas in manifest.canvases where !workspaceIds.contains(canvas.workspaceId) {
-            issues.append("Canvas \(canvas.id) references missing workspace \(canvas.workspaceId).")
+        for canvas in manifest.canvases {
+            appendIdentifierIssue(canvas.id, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(canvas.title, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "title", issues: &issues)
+            appendCanvasCoordinateIssue(canvas.viewportX, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "viewportX", issues: &issues)
+            appendCanvasCoordinateIssue(canvas.viewportY, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "viewportY", issues: &issues)
+            appendRangeIssue(canvas.zoom, minimum: ManifestImportLimits.minimumZoom, maximum: ManifestImportLimits.maximumZoom, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "zoom", issues: &issues)
+            appendAllowedIssue(canvas.linkAnimationTheme, allowed: allowedAnimationThemes, ownerDescription: "Canvas \(canvas.id)", fieldDescription: "link animation theme", issues: &issues)
+            if !workspaceIds.contains(canvas.workspaceId) {
+                issues.append("Canvas \(canvas.id) references missing workspace \(canvas.workspaceId).")
+            }
         }
 
         for node in manifest.nodes {
+            appendIdentifierIssue(node.id, ownerDescription: "Node \(node.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(node.title, ownerDescription: "Node \(node.id)", fieldDescription: "title", issues: &issues)
+            appendTextIssue(node.body, ownerDescription: "Node \(node.id)", fieldDescription: "body", issues: &issues)
+            appendAllowedIssue(node.nodeType, allowed: allowedNodeTypes, ownerDescription: "Node \(node.id)", fieldDescription: "node type", issues: &issues)
+            appendCanvasCoordinateIssue(node.x, ownerDescription: "Node \(node.id)", fieldDescription: "x", issues: &issues)
+            appendCanvasCoordinateIssue(node.y, ownerDescription: "Node \(node.id)", fieldDescription: "y", issues: &issues)
+            appendRangeIssue(node.width, minimum: ManifestImportLimits.minimumNodeSize, maximum: ManifestImportLimits.maximumNodeSize, ownerDescription: "Node \(node.id)", fieldDescription: "width", issues: &issues)
+            appendRangeIssue(node.height, minimum: ManifestImportLimits.minimumNodeSize, maximum: ManifestImportLimits.maximumNodeSize, ownerDescription: "Node \(node.id)", fieldDescription: "height", issues: &issues)
+            appendRangeIssue(node.zIndex, minimum: -ManifestImportLimits.maximumZIndex, maximum: ManifestImportLimits.maximumZIndex, ownerDescription: "Node \(node.id)", fieldDescription: "zIndex", issues: &issues)
+            appendAllowedIssue(node.style, allowed: allowedNodeStyles, ownerDescription: "Node \(node.id)", fieldDescription: "style", issues: &issues)
+            if CanvasNodeColorStyle(rawValue: node.accentColor) == nil,
+               !allowedLegacyAccentColors.contains(node.accentColor) {
+                issues.append("Node \(node.id) has unsupported accent color \(node.accentColor).")
+            }
             if !canvasIds.contains(node.canvasId) {
                 issues.append("Node \(node.id) references missing canvas \(node.canvasId).")
             }
             if let parentNodeId = node.parentNodeId {
-                if !nodeIds.contains(parentNodeId) {
+                if parentNodeId == node.id {
+                    issues.append("Node \(node.id) cannot be its own parent.")
+                } else if !nodeIds.contains(parentNodeId) {
                     issues.append("Node \(node.id) references missing parent node \(parentNodeId).")
                 } else if let parentCanvasId = nodeCanvasById[parentNodeId], parentCanvasId != node.canvasId {
                     issues.append("Node \(node.id) references parent node \(parentNodeId) from another canvas.")
+                } else if nodeTypeById[parentNodeId] != "groupFrame" {
+                    issues.append("Node \(node.id) references parent node \(parentNodeId) that is not a frame.")
                 }
             }
             if let objectType = node.objectType {
+                appendAllowedIssue(objectType, allowed: allowedObjectTypes, ownerDescription: "Node \(node.id)", fieldDescription: "object type", issues: &issues)
                 if objectType == "webURL" {
                     let trimmedObjectId = node.objectId?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let urlSource = trimmedObjectId?.isEmpty == false ? trimmedObjectId ?? "" : node.body
@@ -582,6 +713,18 @@ public enum ManifestImportValidation {
         }
 
         for edge in manifest.edges {
+            appendIdentifierIssue(edge.id, ownerDescription: "Edge \(edge.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(edge.label, ownerDescription: "Edge \(edge.id)", fieldDescription: "label", issues: &issues)
+            appendTextIssue(edge.style, ownerDescription: "Edge \(edge.id)", fieldDescription: "style", issues: &issues)
+            appendAllowedIssue(edge.sourceArrow, allowed: allowedArrowStyles, ownerDescription: "Edge \(edge.id)", fieldDescription: "source arrow", issues: &issues)
+            appendAllowedIssue(edge.targetArrow, allowed: allowedArrowStyles, ownerDescription: "Edge \(edge.id)", fieldDescription: "target arrow", issues: &issues)
+            appendAllowedIssue(edge.animationTheme, allowed: allowedAnimationThemes, ownerDescription: "Edge \(edge.id)", fieldDescription: "animation theme", issues: &issues)
+            if let controlPointX = edge.controlPointX {
+                appendCanvasCoordinateIssue(controlPointX, ownerDescription: "Edge \(edge.id)", fieldDescription: "controlPointX", issues: &issues)
+            }
+            if let controlPointY = edge.controlPointY {
+                appendCanvasCoordinateIssue(controlPointY, ownerDescription: "Edge \(edge.id)", fieldDescription: "controlPointY", issues: &issues)
+            }
             if !canvasIds.contains(edge.canvasId) {
                 issues.append("Edge \(edge.id) references missing canvas \(edge.canvasId).")
             }
@@ -598,6 +741,9 @@ public enum ManifestImportValidation {
         }
 
         for alias in manifest.aliases {
+            appendIdentifierIssue(alias.id, ownerDescription: "Alias \(alias.id)", fieldDescription: "id", issues: &issues)
+            appendPathIssue(alias.aliasDisplayPath, ownerDescription: "Alias \(alias.id)", fieldDescription: "display path", issues: &issues)
+            appendAllowedIssue(alias.status, allowed: allowedAliasStatuses, ownerDescription: "Alias \(alias.id)", fieldDescription: "status", issues: &issues)
             guard alias.sourceObjectType == "resourcePin" || alias.sourceObjectType == "snippet" else {
                 issues.append("Alias \(alias.id) has unsupported source object type \(alias.sourceObjectType).")
                 continue
@@ -643,6 +789,124 @@ public enum ManifestImportValidation {
             }
         }
         return duplicates.map { "Duplicate \(label) id \($0)." }
+    }
+
+    private static let allowedResourceTargetTypes: Set<String> = ["file", "folder"]
+    private static let allowedResourceStatuses: Set<String> = ["available", "unavailable", "staleAuthorization", "missingVolume"]
+    private static let allowedScopes: Set<String> = ["global", "workspace"]
+    private static let allowedSnippetKinds: Set<String> = ["prompt", "command"]
+    private static let allowedNodeTypes: Set<String> = ["resource", "snippet", "note", "groupFrame"]
+    private static let allowedObjectTypes: Set<String> = ["resourcePin", "snippet", "workspace", "webURL"]
+    private static let allowedNodeStyles: Set<String> = ["default"]
+    private static let allowedArrowStyles: Set<String> = ["none", "arrow"]
+    private static let allowedAnimationThemes: Set<String> = ["blue", "minimal", "off"]
+    private static let allowedAliasStatuses: Set<String> = ["created", "missing", "failed", "staleAuthorization"]
+    private static let allowedLegacyAccentColors: Set<String> = ["blue"]
+
+    private static func appendCountIssues(_ manifest: ExportManifest, issues: inout [String]) {
+        appendCountIssue(manifest.workspaces.count, maximum: ManifestImportLimits.maximumWorkspaces, label: "workspaces", issues: &issues)
+        appendCountIssue(manifest.resources.count, maximum: ManifestImportLimits.maximumResources, label: "resources", issues: &issues)
+        appendCountIssue(manifest.snippets.count, maximum: ManifestImportLimits.maximumSnippets, label: "snippets", issues: &issues)
+        appendCountIssue(manifest.canvases.count, maximum: ManifestImportLimits.maximumCanvases, label: "canvases", issues: &issues)
+        appendCountIssue(manifest.nodes.count, maximum: ManifestImportLimits.maximumNodes, label: "nodes", issues: &issues)
+        appendCountIssue(manifest.edges.count, maximum: ManifestImportLimits.maximumEdges, label: "edges", issues: &issues)
+        appendCountIssue(manifest.aliases.count, maximum: ManifestImportLimits.maximumAliases, label: "aliases", issues: &issues)
+    }
+
+    private static func appendCountIssue(_ count: Int, maximum: Int, label: String, issues: inout [String]) {
+        if count > maximum {
+            issues.append("Manifest has too many \(label).")
+        }
+    }
+
+    private static func appendIdentifierIssue(
+        _ value: String,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        if value.count > ManifestImportLimits.maximumIdentifierLength {
+            issues.append("\(ownerDescription) \(fieldDescription) is too long.")
+        }
+    }
+
+    private static func appendTextIssue(
+        _ value: String,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        if value.count > ManifestImportLimits.maximumTextLength {
+            issues.append("\(ownerDescription) \(fieldDescription) is too long.")
+        }
+    }
+
+    private static func appendTextIssues(
+        _ values: [String],
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        for value in values {
+            appendTextIssue(value, ownerDescription: ownerDescription, fieldDescription: fieldDescription, issues: &issues)
+        }
+    }
+
+    private static func appendPathIssue(
+        _ value: String,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        if value.count > ManifestImportLimits.maximumPathLength {
+            issues.append("\(ownerDescription) \(fieldDescription) is too long.")
+        }
+    }
+
+    private static func appendAllowedIssue(
+        _ value: String,
+        allowed: Set<String>,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        if !allowed.contains(value) {
+            issues.append("\(ownerDescription) has unsupported \(fieldDescription) \(value).")
+        }
+    }
+
+    private static func appendCanvasCoordinateIssue(
+        _ value: Double,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        appendRangeIssue(
+            value,
+            minimum: -ManifestImportLimits.maximumCanvasCoordinate,
+            maximum: ManifestImportLimits.maximumCanvasCoordinate,
+            ownerDescription: ownerDescription,
+            fieldDescription: fieldDescription,
+            issues: &issues
+        )
+    }
+
+    private static func appendRangeIssue(
+        _ value: Double,
+        minimum: Double,
+        maximum: Double,
+        ownerDescription: String,
+        fieldDescription: String,
+        issues: inout [String]
+    ) {
+        guard value.isFinite, value >= minimum, value <= maximum else {
+            issues.append("\(ownerDescription) has \(fieldDescription) outside the supported range.")
+            return
+        }
+    }
+
+    private static func requiresWorkspaceID(scope: String) -> Bool {
+        scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "workspace"
     }
 
     private static func normalizedReference(

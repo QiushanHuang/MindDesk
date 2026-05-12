@@ -41,6 +41,6 @@ public enum ShellQuoter {
     }
 
     public static func terminalCommand(command: String, workingDirectory: String) -> String {
-        "cd \(singleQuote(workingDirectory)) && \(command)"
+        "cd -- \(singleQuote(workingDirectory)) && \(command)"
     }
 }

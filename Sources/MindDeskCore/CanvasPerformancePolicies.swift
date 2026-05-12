@@ -5,6 +5,8 @@ public extension CanvasPerformancePolicy {
     static var maximumAnimatedVisibleCardCount: Int { 60 }
     static var maximumAnimatedRoutePointCount: Int { 96 }
     static var maximumDetailedVisibleCardCount: Int { 48 }
+    static var maximumDetailedInteractingVisibleCardCount: Int { 8 }
+    static var maximumContextEdgesDuringInteraction: Int { 48 }
     static var maximumPassiveResizeHandleNodeCount: Int { 12 }
     static var maximumPassiveEdgeControlHandleCount: Int { 24 }
     static var minimumPassiveEdgeControlZoom: Double { 0.30 }
@@ -56,13 +58,19 @@ public enum CanvasCardRenderDetailPolicy {
         if isSelected || isEditing {
             return true
         }
-        guard !isInteracting,
-              zoom.isFinite,
+        guard zoom.isFinite,
               baselineZoom.isFinite,
               baselineZoom > 0 else {
             return false
         }
-        guard visibleCardCount <= CanvasPerformancePolicy.maximumDetailedVisibleCardCount else {
+        let cardCount = max(0, visibleCardCount)
+        let detailLimit = isInteracting
+            ? CanvasPerformancePolicy.maximumDetailedInteractingVisibleCardCount
+            : CanvasPerformancePolicy.maximumDetailedVisibleCardCount
+        guard cardCount <= detailLimit else {
+            return false
+        }
+        if isInteracting, !isSelected {
             return false
         }
         return zoom / baselineZoom >= CanvasPerformancePolicy.minimumDetailedCardZoomRatio
@@ -130,7 +138,8 @@ public enum CanvasActiveEdgeRenderPolicy {
         selectedEdgeIDs: Set<String>,
         transientControlEdgeIDs: Set<String>,
         movedControlEdgeIDs: Set<String>,
-        isGeometryInteracting: Bool
+        isGeometryInteracting: Bool,
+        visibleEdgeCount: Int = Int.max
     ) -> Bool {
         guard isGeometryInteracting else {
             return true
@@ -140,6 +149,54 @@ public enum CanvasActiveEdgeRenderPolicy {
             movedControlEdgeIDs.contains(edgeID) {
             return true
         }
-        return movingNodeIDs.contains(sourceNodeID) || movingNodeIDs.contains(targetNodeID)
+        if movingNodeIDs.contains(sourceNodeID) || movingNodeIDs.contains(targetNodeID) {
+            return true
+        }
+        return max(0, visibleEdgeCount) <= CanvasPerformancePolicy.maximumContextEdgesDuringInteraction
+    }
+}
+
+public enum CanvasNodeVisualZIndexPolicy {
+    public static func zIndex(
+        storedZIndex: Double,
+        isFrame: Bool,
+        isSelected: Bool,
+        isDragging: Bool,
+        isResizing: Bool,
+        isConnectionSource: Bool,
+        isEditing: Bool
+    ) -> Double {
+        let base = isFrame ? 0.25 : 2.0
+        let storedOffset = min(max(storedZIndex.isFinite ? storedZIndex : 0, -1_000), 1_000) / 1_000
+        let selectionBoost = isSelected || isConnectionSource ? 0.25 : 0
+        let editingBoost = isEditing ? 0.5 : 0
+        let motionBoost = isDragging || isResizing ? (isFrame ? 1.25 : 2.0) : 0
+        return base + storedOffset + selectionBoost + editingBoost + motionBoost
+    }
+}
+
+public enum CanvasEdgeVisualMetrics {
+    public static func strokeWidth(
+        zoom: Double,
+        baseWidth: Double,
+        minimumWidth: Double,
+        maximumWidth: Double = .greatestFiniteMagnitude
+    ) -> Double {
+        let safeBase = baseWidth.isFinite ? max(0, baseWidth) : 0
+        let safeMinimum = minimumWidth.isFinite ? max(0, minimumWidth) : 0
+        let safeMaximum = maximumWidth.isFinite ? max(safeMinimum, maximumWidth) : .greatestFiniteMagnitude
+        return min(safeMaximum, max(safeMinimum, safeBase * CanvasZoomScale.safeZoom(zoom)))
+    }
+
+    public static func arrowLength(
+        zoom: Double,
+        baseLength: Double,
+        minimumLength: Double,
+        maximumLength: Double = .greatestFiniteMagnitude
+    ) -> Double {
+        let safeBase = baseLength.isFinite ? max(0, baseLength) : 0
+        let safeMinimum = minimumLength.isFinite ? max(0, minimumLength) : 0
+        let safeMaximum = maximumLength.isFinite ? max(safeMinimum, maximumLength) : .greatestFiniteMagnitude
+        return min(safeMaximum, max(safeMinimum, safeBase * CanvasZoomScale.safeZoom(zoom)))
     }
 }

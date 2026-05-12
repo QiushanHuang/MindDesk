@@ -14,6 +14,11 @@ enum SidebarSelection: Hashable {
     case workspace(String)
 }
 
+private struct ManifestExportOptions {
+    let scope: ManifestExportScope
+    let includesUsageDates: Bool
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \WorkspaceModel.updatedAt, order: .reverse) private var workspaces: [WorkspaceModel]
@@ -26,6 +31,9 @@ struct ContentView: View {
     @Query private var edges: [CanvasEdgeModel]
     @Query private var aliases: [FinderAliasRecordModel]
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
+    @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppStartupDestination.home.rawValue
+    @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = ManifestExportScope.completeWorkspaceMap.rawValue
+    @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = false
 
     @State private var selection: SidebarSelection? = .home
     @State private var inspectorSelection: InspectorSelection?
@@ -44,6 +52,7 @@ struct ContentView: View {
     @State private var isInspectorVisible = false
     @State private var isQuickOpenPresented = false
     @State private var quickOpenRecordsSnapshot: [QuickOpenRecord] = []
+    @State private var didApplyStartupDestination = false
 
     private var defaultCanvasZoom: Double {
         CanvasZoomBaseline.actualZoom(
@@ -71,7 +80,8 @@ struct ContentView: View {
                         ForEach(pinnedFolders) { resource in
                             SidebarResourceRow(
                                 resource: resource,
-                                onCopy: { copyResourcePath(resource) }
+                                onCopy: { copyResourcePath(resource) },
+                                onOpen: { openResource(resource) }
                             )
                                 .tag(SidebarSelection.resource(resource.id))
                                 .contextMenu {
@@ -98,7 +108,7 @@ struct ContentView: View {
                     .tag(SidebarSelection.pinnedFolders)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $pinnedFoldersDropTarget) { providers in
                         FileDropLoader.loadFileURLs(from: providers) { urls in
-                            importPinnedDrop(urls, targetType: .folder)
+                            importPinnedDrop(urls)
                         }
                     }
 
@@ -106,7 +116,8 @@ struct ContentView: View {
                         ForEach(pinnedFiles) { resource in
                             SidebarResourceRow(
                                 resource: resource,
-                                onCopy: { copyResourcePath(resource) }
+                                onCopy: { copyResourcePath(resource) },
+                                onOpen: { openResource(resource) }
                             )
                                 .tag(SidebarSelection.resource(resource.id))
                                 .contextMenu {
@@ -133,7 +144,7 @@ struct ContentView: View {
                     .tag(SidebarSelection.pinnedFiles)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $pinnedFilesDropTarget) { providers in
                         FileDropLoader.loadFileURLs(from: providers) { urls in
-                            importPinnedDrop(urls, targetType: .file)
+                            importPinnedDrop(urls)
                         }
                     }
                 }
@@ -216,6 +227,10 @@ struct ContentView: View {
             .navigationTitle(detailNavigationTitle)
             .onAppear {
                 SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                applyStartupDestinationIfNeeded()
+            }
+            .onChange(of: workspaces.map(\.id)) { _, _ in
+                applyStartupDestinationIfNeeded()
             }
             .onChange(of: selection) { _, newValue in
                 if case .workspace = newValue {
@@ -262,7 +277,7 @@ struct ContentView: View {
             }
         } message: {
             if let workspaceToDelete {
-                Text("This removes \(workspaceToDelete.title) from MindDesk, including its canvas cards and workspace-only pins. Finder files and folders are not deleted, renamed, or moved.")
+                Text(workspaceDeletionImpactMessage(for: workspaceToDelete))
             }
         }
         .alert("Remove source metadata?", isPresented: Binding(
@@ -390,6 +405,46 @@ struct ContentView: View {
         }
         records.append(contentsOf: webCards)
         return records
+    }
+
+    private func applyStartupDestinationIfNeeded() {
+        guard !didApplyStartupDestination else { return }
+
+        switch AppStartupDestination.resolved(startupDestinationRaw) {
+        case .home:
+            selection = .home
+            didApplyStartupDestination = true
+        case .mostRecentWorkspace:
+            if let workspace = mostRecentWorkspace {
+                selection = .workspace(workspace.id)
+                didApplyStartupDestination = true
+            } else {
+                selection = .home
+            }
+        case .globalLibrary:
+            selection = .global
+            didApplyStartupDestination = true
+        case .pinnedFolders:
+            selection = .pinnedFolders
+            didApplyStartupDestination = true
+        case .pinnedFiles:
+            selection = .pinnedFiles
+            didApplyStartupDestination = true
+        case .snippets:
+            selection = .snippets
+            didApplyStartupDestination = true
+        }
+    }
+
+    private var mostRecentWorkspace: WorkspaceModel? {
+        orderedWorkspaces.sorted {
+            let lhsDate = $0.lastOpenedAt ?? $0.updatedAt
+            let rhsDate = $1.lastOpenedAt ?? $1.updatedAt
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
+            return $0.id < $1.id
+        }.first
     }
 
     @ViewBuilder
@@ -589,15 +644,14 @@ struct ContentView: View {
         }
     }
 
-    private func importPinnedDrop(_ urls: [URL], targetType: ResourceTargetType) {
-        let accepted = urls.filter { ResourceImportService.targetType(for: $0) == targetType }
-        guard !accepted.isEmpty else {
-            setStatus("Drop did not include matching \(targetType.rawValue)s.")
+    private func importPinnedDrop(_ urls: [URL]) {
+        guard !urls.isEmpty else {
+            setStatus("Drop did not include files or folders.")
             return
         }
         do {
             let summary = try ResourceImportService().importURLs(
-                accepted,
+                urls,
                 existingResources: resources,
                 into: modelContext,
                 scope: .global,
@@ -715,7 +769,7 @@ struct ContentView: View {
             snippet.tags = draft.tags
             snippet.scopeRaw = draft.scope.rawValue
             snippet.workingDirectoryRef = draft.kind == .command ? draft.workingDirectoryRef : nil
-            snippet.requiresConfirmation = draft.kind == .command ? draft.requiresConfirmation : false
+            snippet.requiresConfirmation = draft.kind == .command
             snippet.updatedAt = .now
             try modelContext.save()
             setStatus("Updated snippet: \(snippet.title)")
@@ -810,6 +864,65 @@ struct ContentView: View {
         }
     }
 
+    private func workspaceDeletionImpactMessage(for workspace: WorkspaceModel) -> String {
+        let workspaceCanvases = canvases.filter { $0.workspaceId == workspace.id }
+        let workspaceResources = resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+        let workspaceSnippets = snippets.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+        let resourceIds = Set(workspaceResources.map(\.id))
+        let snippetIds = Set(workspaceSnippets.map(\.id))
+        let deletionPlan = workspaceDeletionPlan(for: workspace)
+        let aliasCount = aliases.filter {
+            ($0.sourceObjectType == "resourcePin" && resourceIds.contains($0.sourceObjectId)) ||
+                ($0.sourceObjectType == "snippet" && snippetIds.contains($0.sourceObjectId))
+        }.count
+        let todoCount = todos.filter { $0.workspaceId == workspace.id }.count
+        let todoGroupCount = todoGroups.filter { $0.workspaceId == workspace.id }.count
+
+        return """
+        This removes \(workspace.title) from MindDesk metadata only.
+
+        Workspace pins: \(workspaceResources.count)
+        Workspace snippets: \(workspaceSnippets.count)
+        Canvas maps: \(workspaceCanvases.count)
+        Canvas cards/references: \(deletionPlan.nodeIds.count)
+        Links: \(deletionPlan.edgeIds.count)
+        Command working directories cleared: \(deletionPlan.snippetIdsClearingWorkingDirectory.count)
+        Alias records marked missing: \(aliasCount)
+        Todo groups/tasks: \(todoGroupCount)/\(todoCount)
+        Finder items affected: 0
+        """
+    }
+
+    private func workspaceDeletionPlan(for workspace: WorkspaceModel) -> WorkspaceDeletionPlan {
+        let workspaceResources = resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+        let workspaceSnippets = snippets.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+        return WorkspaceDeletionPolicy.plan(
+            workspaceId: workspace.id,
+            canvases: canvases.map { WorkspaceDeletionCanvasRecord(id: $0.id, workspaceId: $0.workspaceId) },
+            nodes: nodes.map {
+                WorkspaceDeletionNodeRecord(
+                    id: $0.id,
+                    canvasId: $0.canvasId,
+                    objectType: $0.objectType,
+                    objectId: $0.objectId
+                )
+            },
+            edges: edges.map {
+                WorkspaceDeletionEdgeRecord(
+                    id: $0.id,
+                    canvasId: $0.canvasId,
+                    sourceNodeId: $0.sourceNodeId,
+                    targetNodeId: $0.targetNodeId
+                )
+            },
+            snippets: snippets.map {
+                WorkspaceDeletionSnippetRecord(id: $0.id, workingDirectoryRef: $0.workingDirectoryRef)
+            },
+            resourceIds: Set(workspaceResources.map(\.id)),
+            snippetIds: Set(workspaceSnippets.map(\.id))
+        )
+    }
+
     private func deleteWorkspace(_ workspace: WorkspaceModel) {
         do {
             let workspaceCanvases = canvases.filter { $0.workspaceId == workspace.id }
@@ -819,31 +932,7 @@ struct ContentView: View {
             let workspaceTodoGroups = todoGroups.filter { $0.workspaceId == workspace.id }
             let deletedResourceIds = Set(workspaceResources.map(\.id))
             let deletedSnippetIds = Set(workspaceSnippets.map(\.id))
-            let deletionPlan = WorkspaceDeletionPolicy.plan(
-                workspaceId: workspace.id,
-                canvases: canvases.map { WorkspaceDeletionCanvasRecord(id: $0.id, workspaceId: $0.workspaceId) },
-                nodes: nodes.map {
-                    WorkspaceDeletionNodeRecord(
-                        id: $0.id,
-                        canvasId: $0.canvasId,
-                        objectType: $0.objectType,
-                        objectId: $0.objectId
-                    )
-                },
-                edges: edges.map {
-                    WorkspaceDeletionEdgeRecord(
-                        id: $0.id,
-                        canvasId: $0.canvasId,
-                        sourceNodeId: $0.sourceNodeId,
-                        targetNodeId: $0.targetNodeId
-                    )
-                },
-                snippets: snippets.map {
-                    WorkspaceDeletionSnippetRecord(id: $0.id, workingDirectoryRef: $0.workingDirectoryRef)
-                },
-                resourceIds: deletedResourceIds,
-                snippetIds: deletedSnippetIds
-            )
+            let deletionPlan = workspaceDeletionPlan(for: workspace)
             let nodeIds = Set(deletionPlan.nodeIds)
             let edgeIds = Set(deletionPlan.edgeIds)
             let snippetIdsClearingWorkingDirectory = Set(deletionPlan.snippetIdsClearingWorkingDirectory)
@@ -858,7 +947,9 @@ struct ContentView: View {
             for canvas in workspaceCanvases {
                 modelContext.delete(canvas)
             }
-            for alias in aliases where deletedResourceIds.contains(alias.sourceObjectId) || deletedSnippetIds.contains(alias.sourceObjectId) {
+            for alias in aliases where
+                (alias.sourceObjectType == "resourcePin" && deletedResourceIds.contains(alias.sourceObjectId)) ||
+                (alias.sourceObjectType == "snippet" && deletedSnippetIds.contains(alias.sourceObjectId)) {
                 alias.status = .missing
             }
             for snippet in snippets where snippetIdsClearingWorkingDirectory.contains(snippet.id) {
@@ -997,9 +1088,10 @@ struct ContentView: View {
     }
 
     private func exportManifest() {
+        guard let exportOptions = requestManifestExportOptions() else { return }
         guard let url = FileDialogs.saveJSON() else { return }
         do {
-            let manifest = ImportExportService().makeManifest(
+            let baseManifest = ImportExportService().makeManifest(
                 workspaces: workspaces,
                 resources: resources,
                 snippets: snippets,
@@ -1008,6 +1100,13 @@ struct ContentView: View {
                 edges: edges,
                 aliases: aliases
             )
+            let scopedManifest = ExportManifestScopePolicy.manifest(
+                from: baseManifest,
+                scope: exportOptions.scope
+            )
+            let manifest = exportOptions.includesUsageDates
+                ? scopedManifest
+                : ExportManifestUsageDatePolicy.removingUsageDates(from: scopedManifest)
             let data = try JSONEncoder.minddesk.encode(manifest)
             try data.write(to: url, options: .atomic)
             setStatus("Exported MindDesk manifest to \(url.path)")
@@ -1016,10 +1115,72 @@ struct ContentView: View {
         }
     }
 
+    private func requestManifestExportOptions() -> ManifestExportOptions? {
+        let currentScope = ManifestExportScope.resolved(manifestExportScopeRaw)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Export MindDesk JSON"
+        alert.informativeText = "Choose what this export contains. Complete Workspace Map is the only portable backup-style JSON export."
+        alert.addButton(withTitle: "Export")
+        alert.addButton(withTitle: "Cancel")
+
+        let scopeLabel = NSTextField(labelWithString: "Scope")
+        scopeLabel.alignment = .right
+        scopeLabel.widthAnchor.constraint(equalToConstant: 118).isActive = true
+
+        let scopePicker = NSPopUpButton(frame: .zero, pullsDown: false)
+        for scope in ManifestExportScope.allCases {
+            scopePicker.addItem(withTitle: exportScopeTitle(scope))
+            scopePicker.lastItem?.representedObject = scope.rawValue
+        }
+        scopePicker.selectItem(withTitle: exportScopeTitle(currentScope))
+        scopePicker.widthAnchor.constraint(equalToConstant: 260).isActive = true
+
+        let scopeRow = NSStackView(views: [scopeLabel, scopePicker])
+        scopeRow.orientation = .horizontal
+        scopeRow.alignment = .centerY
+        scopeRow.spacing = 8
+
+        let includeUsageDates = NSButton(
+            checkboxWithTitle: "Include usage dates such as last opened or last run",
+            target: nil,
+            action: nil
+        )
+        includeUsageDates.state = manifestExportIncludesUsageDates ? .on : .off
+
+        let helpText = NSTextField(wrappingLabelWithString: "Global Library Only excludes workspaces, canvases, cards, links, and aliases. Portable JSON never includes security-scoped bookmark authorization data, but it can include paths, notes, snippets, and canvas text.")
+        helpText.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [scopeRow, includeUsageDates, helpText])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.widthAnchor.constraint(equalToConstant: 420).isActive = true
+        alert.accessoryView = stack
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let scopeRaw = scopePicker.selectedItem?.representedObject as? String
+        let scope = ManifestExportScope.resolved(scopeRaw ?? currentScope.rawValue)
+        let includesUsageDates = includeUsageDates.state == .on
+        manifestExportScopeRaw = scope.rawValue
+        manifestExportIncludesUsageDates = includesUsageDates
+        return ManifestExportOptions(scope: scope, includesUsageDates: includesUsageDates)
+    }
+
+    private func exportScopeTitle(_ scope: ManifestExportScope) -> String {
+        switch scope {
+        case .completeWorkspaceMap:
+            "Complete Workspace Map"
+        case .globalLibraryOnly:
+            "Global Library Only"
+        }
+    }
+
     private func importManifest() {
         guard let url = FileDialogs.openJSON() else { return }
         do {
-            let data = try Data(contentsOf: url)
+            let data = try readManifestData(from: url)
             let manifest = try ImportExportService().decodeManifest(from: data)
             try importRecords(from: manifest)
             setStatus("Imported \(manifest.workspaces.count) workspaces, \(manifest.resources.count) resources, and \(manifest.snippets.count) snippets. Resources require reauthorization.")
@@ -1027,6 +1188,25 @@ struct ContentView: View {
             modelContext.rollback()
             setStatus(error.localizedDescription)
         }
+    }
+
+    private func readManifestData(from url: URL) throws -> Data {
+        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+        guard values.isRegularFile == true else {
+            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: choose a regular JSON file.")
+        }
+        guard let fileSize = values.fileSize else {
+            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file size could not be read.")
+        }
+        guard fileSize <= ManifestImportLimits.maximumManifestBytes else {
+            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file is larger than 64 MiB.")
+        }
+
+        let data = try Data(contentsOf: url)
+        guard data.count <= ManifestImportLimits.maximumManifestBytes else {
+            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file is larger than 64 MiB.")
+        }
+        return data
     }
 
     private func importRecords(from manifest: ExportManifest) throws {
@@ -1192,7 +1372,7 @@ struct QuickOpenPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             if results.isEmpty {
-                ContentUnavailableView("No matching commands", systemImage: "magnifyingglass", description: Text(query.isEmpty ? "Start typing to search MindDesk." : query))
+                ContentUnavailableView("No matching items", systemImage: "magnifyingglass", description: Text(query.isEmpty ? "Start typing to search MindDesk." : query))
                     .frame(maxWidth: .infinity, minHeight: 320)
             } else {
                 ScrollViewReader { proxy in
@@ -1398,6 +1578,7 @@ struct SidebarWorkspaceRow: View {
 struct SidebarResourceRow: View {
     let resource: ResourcePinModel
     let onCopy: () -> Void
+    let onOpen: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -1423,6 +1604,7 @@ struct SidebarResourceRow: View {
             .help("Copy full path")
         }
         .contentShape(Rectangle())
+        .onTapGesture(count: 2, perform: onOpen)
         .help(resource.displayPath)
     }
 }

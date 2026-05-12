@@ -452,7 +452,7 @@ public enum CanvasPerformancePolicy {
     public static func usesObstacleRouting(edgeCount: Int, obstacleCount: Int, isInteracting: Bool) -> Bool {
         guard !isInteracting, edgeCount > 0, obstacleCount >= 0 else { return false }
         guard edgeCount <= maximumRoutedEdgeCount, obstacleCount <= maximumRoutingObstacleCount else { return false }
-        guard obstacleCount > 0 else { return true }
+        guard obstacleCount > 0 else { return false }
         return edgeCount <= maximumRoutingWorkload / obstacleCount
     }
 }
@@ -1307,9 +1307,10 @@ public enum CanvasViewportProjection {
 }
 
 public enum CanvasEdgeControlHandleMetrics {
-    public static func diameter(zoom: Double, baseDiameter: Double) -> Double {
+    public static func diameter(zoom: Double, baseDiameter: Double, minimumDiameter: Double = 8) -> Double {
         let safeBase = baseDiameter.isFinite ? max(0, baseDiameter) : 0
-        return safeBase * CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
+        let safeMinimum = minimumDiameter.isFinite ? max(0, minimumDiameter) : 0
+        return max(safeMinimum, safeBase * CanvasZoomScale.safeZoom(zoom, minimum: 0.01))
     }
 }
 
@@ -1566,16 +1567,6 @@ public enum CanvasDropPlacement {
     }
 }
 
-public enum AppPreferenceKeys {
-    public static let canvasScrollZoomDirection = "canvasScrollZoomDirection"
-    public static let canvasDefaultZoomPercent = "canvasDefaultZoomPercent"
-    public static let canvasConnectSingleShot = "canvasConnectSingleShot"
-    public static let workspaceCanvasTodoPanelDefaultOpen = "workspaceCanvasTodoPanelDefaultOpen"
-    public static let workspaceCanvasTodoDoneColumnDefaultOpen = "workspaceCanvasTodoDoneColumnDefaultOpen"
-    public static let workspaceCanvasTodoDoneColumnOpen = "workspaceCanvasTodoDoneColumnOpen"
-    public static let workspaceCanvasTodoColumnRatio = "workspaceCanvasTodoColumnRatio"
-}
-
 public struct CanvasConnectionCompletion: Equatable, Sendable {
     public var nextSourceNodeId: String?
     public var returnsToSelectMode: Bool
@@ -1718,7 +1709,13 @@ public enum WebCardURL {
     public static func normalized(_ rawValue: String) -> URL? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains(where: \.isWhitespace) else { return nil }
-        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        let candidate: String
+        if trimmed.contains("://") {
+            candidate = trimmed
+        } else {
+            guard !hasNonPortColon(trimmed) else { return nil }
+            candidate = "https://\(trimmed)"
+        }
         guard let components = URLComponents(string: candidate),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
@@ -1728,6 +1725,15 @@ public enum WebCardURL {
             return nil
         }
         return url
+    }
+
+    private static func hasNonPortColon(_ value: String) -> Bool {
+        guard let colonIndex = value.firstIndex(of: ":") else { return false }
+        let delimiterIndex = value[colonIndex...].firstIndex { character in
+            character == "/" || character == "?" || character == "#"
+        } ?? value.endIndex
+        let portSlice = value[value.index(after: colonIndex)..<delimiterIndex]
+        return portSlice.isEmpty || portSlice.contains { !$0.isNumber }
     }
 }
 
@@ -1923,6 +1929,59 @@ public enum CanvasZoomScale {
         return (
             x: screenX - canvasX * resolvedZoom,
             y: screenY - canvasY * resolvedZoom
+        )
+    }
+}
+
+public struct CanvasViewportFitResult: Equatable, Sendable {
+    public var zoom: Double
+    public var viewportX: Double
+    public var viewportY: Double
+
+    public init(zoom: Double, viewportX: Double, viewportY: Double) {
+        self.zoom = zoom
+        self.viewportX = viewportX
+        self.viewportY = viewportY
+    }
+}
+
+public enum CanvasViewportFitPolicy {
+    public static func fit(
+        bounds: CanvasFrameRect,
+        viewportWidth: Double,
+        viewportHeight: Double,
+        padding: Double,
+        minimumZoom: Double,
+        maximumZoom: Double
+    ) -> CanvasViewportFitResult? {
+        guard bounds.x.isFinite,
+              bounds.y.isFinite,
+              bounds.width.isFinite,
+              bounds.height.isFinite,
+              viewportWidth.isFinite,
+              viewportHeight.isFinite,
+              padding.isFinite,
+              bounds.width > 0,
+              bounds.height > 0,
+              viewportWidth > 0,
+              viewportHeight > 0 else {
+            return nil
+        }
+
+        let safePadding = max(0, padding)
+        let availableWidth = max(1, viewportWidth - safePadding * 2)
+        let availableHeight = max(1, viewportHeight - safePadding * 2)
+        let zoom = CanvasZoomScale.clamped(
+            min(availableWidth / bounds.width, availableHeight / bounds.height),
+            minimum: minimumZoom,
+            maximum: maximumZoom
+        )
+        let centerX = bounds.x + bounds.width / 2
+        let centerY = bounds.y + bounds.height / 2
+        return CanvasViewportFitResult(
+            zoom: zoom,
+            viewportX: viewportWidth / 2 - centerX * zoom,
+            viewportY: viewportHeight / 2 - centerY * zoom
         )
     }
 }

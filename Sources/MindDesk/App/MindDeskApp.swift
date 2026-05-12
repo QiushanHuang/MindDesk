@@ -13,6 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MindDeskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    @AppStorage(AppPreferenceKeys.appearanceMode) private var appearanceModeRaw = AppAppearanceMode.system.rawValue
+    @AppStorage(AppPreferenceKeys.interfaceTextScale) private var interfaceTextScaleRaw = AppInterfaceTextScale.system.rawValue
+    @AppStorage(AppPreferenceKeys.interfaceDensity) private var interfaceDensityRaw = AppInterfaceDensity.balanced.rawValue
     private let modelContainerResult = Result { try PersistentStoreBootstrap.makeModelContainer() }
 
     var body: some Scene {
@@ -22,9 +25,15 @@ struct MindDeskApp: App {
                 ContentView()
                     .frame(minWidth: 1120, minHeight: 720)
                     .modelContainer(modelContainer)
+                    .preferredColorScheme(preferredColorScheme)
+                    .mindDeskDynamicTypeOverride(dynamicTypeOverride)
+                    .controlSize(controlSize)
             case .failure(let error):
                 StorageFailureView(error: error)
                     .frame(minWidth: 720, minHeight: 420)
+                    .preferredColorScheme(preferredColorScheme)
+                    .mindDeskDynamicTypeOverride(dynamicTypeOverride)
+                    .controlSize(controlSize)
             }
         }
         .commands {
@@ -44,6 +53,57 @@ struct MindDeskApp: App {
 
         Settings {
             AppSettingsView()
+                .preferredColorScheme(preferredColorScheme)
+                .mindDeskDynamicTypeOverride(dynamicTypeOverride)
+                .controlSize(controlSize)
+        }
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch AppAppearanceMode.resolved(appearanceModeRaw) {
+        case .system:
+            nil
+        case .light:
+            .light
+        case .dark:
+            .dark
+        }
+    }
+
+    private var dynamicTypeOverride: DynamicTypeSize? {
+        switch AppInterfaceTextScale.resolved(interfaceTextScaleRaw) {
+        case .system:
+            nil
+        case .compact:
+            .small
+        case .standard:
+            .medium
+        case .large:
+            .large
+        case .extraLarge:
+            .xLarge
+        }
+    }
+
+    private var controlSize: ControlSize {
+        switch AppInterfaceDensity.resolved(interfaceDensityRaw) {
+        case .compact:
+            .small
+        case .balanced:
+            .regular
+        case .spacious:
+            .large
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func mindDeskDynamicTypeOverride(_ size: DynamicTypeSize?) -> some View {
+        if let size {
+            dynamicTypeSize(size)
+        } else {
+            self
         }
     }
 }
