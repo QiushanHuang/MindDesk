@@ -61,6 +61,55 @@ jobs:
           plutil -lint script/release.entitlements
           git diff --check
 
+      - name: Validate signing and notarization secrets
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.SIGNING_KEYCHAIN_PASSWORD }}
+          CODESIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+
+          require_secret() {
+            local name="$1"
+            local value="$2"
+            if [[ -z "$value" ]]; then
+              echo "::error::$name is missing. Configure this repository secret before running the Release workflow."
+              exit 1
+            fi
+          }
+
+          require_secret "DEVELOPER_ID_CERTIFICATE_BASE64" "$CERTIFICATE_BASE64"
+          require_secret "DEVELOPER_ID_CERTIFICATE_PASSWORD" "$CERTIFICATE_PASSWORD"
+          require_secret "SIGNING_KEYCHAIN_PASSWORD" "$KEYCHAIN_PASSWORD"
+          require_secret "DEVELOPER_ID_IDENTITY" "$CODESIGN_IDENTITY"
+          require_secret "APPLE_TEAM_ID" "$TEAM_ID"
+          require_secret "APP_STORE_CONNECT_API_KEY_BASE64" "$API_KEY_BASE64"
+          require_secret "APP_STORE_CONNECT_KEY_ID" "$API_KEY_ID"
+          require_secret "APP_STORE_CONNECT_ISSUER_ID" "$API_ISSUER_ID"
+
+          python3 - <<'PY'
+          import base64
+          import os
+          import sys
+
+          checks = [
+              ("DEVELOPER_ID_CERTIFICATE_BASE64", os.environ["CERTIFICATE_BASE64"]),
+              ("APP_STORE_CONNECT_API_KEY_BASE64", os.environ["API_KEY_BASE64"]),
+          ]
+
+          for name, encoded in checks:
+              try:
+                  base64.b64decode(encoded, validate=True)
+              except Exception as exc:
+                  print(f"::error::{name} is not valid base64 data: {exc}")
+                  sys.exit(1)
+          PY
+
       - name: Import Developer ID certificate
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
