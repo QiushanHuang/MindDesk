@@ -211,13 +211,27 @@ jobs:
           set -euo pipefail
           VERSION="$(tr -d '[:space:]' <VERSION)"
           ARTIFACT_DIR="dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}/artifacts"
-          gh release create "v${VERSION}" \
-            "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.zip" \
-            "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.dmg" \
-            "$ARTIFACT_DIR/SHA256SUMS.txt" \
-            "$ARTIFACT_DIR/INSTALL.txt" \
-            "$ARTIFACT_DIR/RELEASE-NOTES.md" \
-            --draft \
-            --verify-tag \
-            --title "MindDesk v${VERSION}" \
-            --notes-file "$ARTIFACT_DIR/RELEASE-NOTES.md"
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            gh release edit "v${VERSION}" \
+              --draft=true \
+              --title "MindDesk v${VERSION}" \
+              --notes-file "$ARTIFACT_DIR/RELEASE-NOTES.md"
+            gh release upload "v${VERSION}" \
+              "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.zip" \
+              "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.dmg" \
+              "$ARTIFACT_DIR/SHA256SUMS.txt" \
+              "$ARTIFACT_DIR/INSTALL.txt" \
+              "$ARTIFACT_DIR/RELEASE-NOTES.md" \
+              --clobber
+          else
+            gh release create "v${VERSION}" \
+              "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.zip" \
+              "$ARTIFACT_DIR/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}.dmg" \
+              "$ARTIFACT_DIR/SHA256SUMS.txt" \
+              "$ARTIFACT_DIR/INSTALL.txt" \
+              "$ARTIFACT_DIR/RELEASE-NOTES.md" \
+              --draft \
+              --verify-tag \
+              --title "MindDesk v${VERSION}" \
+              --notes-file "$ARTIFACT_DIR/RELEASE-NOTES.md"
+          fi
