@@ -36,7 +36,7 @@ struct AppSettingsView: View {
 }
 
 private struct GeneralSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppStartupDestination.home.rawValue
+    @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppPreferenceDefaults.startupDestination
 
     var body: some View {
         SettingsForm {
@@ -62,6 +62,15 @@ private struct GeneralSettingsPane: View {
             } header: {
                 Text("Localization")
             }
+
+            Section {
+                Button("Reset All Settings...") {
+                    resetAllSettings()
+                }
+                SettingsHelpText("Restores global preferences and layout memory to product defaults. This does not delete workspaces, resources, snippets, tasks, canvases, exports, raw backups, or quarantined data.")
+            } header: {
+                Text("Reset")
+            }
         }
         .onAppear {
             startupDestinationRaw = AppStartupDestination.resolved(startupDestinationRaw).rawValue
@@ -74,12 +83,24 @@ private struct GeneralSettingsPane: View {
             set: { startupDestinationRaw = AppStartupDestination.resolved($0).rawValue }
         )
     }
+
+    private func resetAllSettings() {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Reset all MindDesk settings?"
+        alert.informativeText = "This restores global preferences and layout memory to product defaults. Your MindDesk data and local recovery files are not deleted."
+        alert.addButton(withTitle: "Reset Settings")
+        alert.addButton(withTitle: "Cancel")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        AppPreferenceDefaults.restore()
+    }
 }
 
 private struct AppearanceSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.appearanceMode) private var appearanceModeRaw = AppAppearanceMode.system.rawValue
-    @AppStorage(AppPreferenceKeys.interfaceTextScale) private var interfaceTextScaleRaw = AppInterfaceTextScale.system.rawValue
-    @AppStorage(AppPreferenceKeys.interfaceDensity) private var interfaceDensityRaw = AppInterfaceDensity.balanced.rawValue
+    @AppStorage(AppPreferenceKeys.appearanceMode) private var appearanceModeRaw = AppPreferenceDefaults.appearanceMode
+    @AppStorage(AppPreferenceKeys.interfaceTextScale) private var interfaceTextScaleRaw = AppPreferenceDefaults.interfaceTextScale
+    @AppStorage(AppPreferenceKeys.interfaceDensity) private var interfaceDensityRaw = AppPreferenceDefaults.interfaceDensity
 
     var body: some View {
         SettingsForm {
@@ -141,9 +162,9 @@ private struct AppearanceSettingsPane: View {
 }
 
 private struct CanvasSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue
-    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
-    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var canvasConnectSingleShot = true
+    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
+    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
+    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var canvasConnectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
 
     var body: some View {
         SettingsForm {
@@ -178,7 +199,7 @@ private struct CanvasSettingsPane: View {
             scrollZoomDirectionRaw = CanvasScrollZoomDirection.resolved(scrollZoomDirectionRaw).rawValue
             canvasDefaultZoomPercent = canvasDefaultZoomPercent.isFinite
                 ? min(max(canvasDefaultZoomPercent, 35), 500)
-                : CanvasZoomBaseline.defaultPercent
+                : AppPreferenceDefaults.canvasDefaultZoomPercent
         }
     }
 
@@ -191,8 +212,8 @@ private struct CanvasSettingsPane: View {
 }
 
 private struct WorkspaceTaskSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var workspaceCanvasTodoPanelDefaultOpen = true
-    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var workspaceCanvasTodoDoneColumnDefaultOpen = false
+    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var workspaceCanvasTodoPanelDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
+    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var workspaceCanvasTodoDoneColumnDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoDoneColumnDefaultOpen
 
     var body: some View {
         SettingsForm {
@@ -209,8 +230,8 @@ private struct WorkspaceTaskSettingsPane: View {
 }
 
 private struct DataSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = ManifestExportScope.completeWorkspaceMap.rawValue
-    @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = false
+    @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
+    @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
 
     private let layout = MindDeskStoreLayout(
         applicationSupportDirectory: FileManager.default.urls(
@@ -285,6 +306,10 @@ private struct SettingsManualPane: View {
             ManualSection(
                 title: "Import And Export",
                 text: "Export creates a portable metadata JSON file and asks you to confirm scope and usage-date options each time. Complete Workspace Map keeps workspaces, resources, snippets, canvases, cards, links, and aliases. Global Library Only is not a complete backup; it exports reusable global resources and snippets without workspace maps. Import adds new MindDesk metadata and marks imported resources for reauthorization."
+            )
+            ManualSection(
+                title: "Reset Settings",
+                text: "Reset All Settings restores global preferences and layout memory to product defaults. It does not delete workspaces, resources, snippets, tasks, canvases, portable exports, raw backups, or quarantined files."
             )
             ManualSection(
                 title: "Local Recovery Data",

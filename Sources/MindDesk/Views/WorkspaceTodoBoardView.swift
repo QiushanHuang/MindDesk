@@ -115,7 +115,7 @@ private func fetchTodoForUndo(id: String, in context: ModelContext) -> Workspace
 struct WorkspaceTodoBoardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager) private var undoManager
-    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoColumnRatio) private var columnRatio = TodoBoardColumnSplit.defaultRatio
+    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoColumnRatio) private var columnRatio = AppPreferenceDefaults.workspaceCanvasTodoColumnRatio
 
     let workspaceId: String
     let resources: [ResourcePinModel]

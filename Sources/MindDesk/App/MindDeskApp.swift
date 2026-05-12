@@ -13,9 +13,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct MindDeskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @AppStorage(AppPreferenceKeys.appearanceMode) private var appearanceModeRaw = AppAppearanceMode.system.rawValue
-    @AppStorage(AppPreferenceKeys.interfaceTextScale) private var interfaceTextScaleRaw = AppInterfaceTextScale.system.rawValue
-    @AppStorage(AppPreferenceKeys.interfaceDensity) private var interfaceDensityRaw = AppInterfaceDensity.balanced.rawValue
+    @AppStorage(AppPreferenceKeys.appearanceMode) private var appearanceModeRaw = AppPreferenceDefaults.appearanceMode
+    @AppStorage(AppPreferenceKeys.interfaceTextScale) private var interfaceTextScaleRaw = AppPreferenceDefaults.interfaceTextScale
+    @AppStorage(AppPreferenceKeys.interfaceDensity) private var interfaceDensityRaw = AppPreferenceDefaults.interfaceDensity
     private let modelContainerResult = Result { try PersistentStoreBootstrap.makeModelContainer() }
 
     var body: some Scene {

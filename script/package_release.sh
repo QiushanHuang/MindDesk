@@ -242,7 +242,20 @@ else
 fi
 
 IFS=. read -r VERSION_MAJOR VERSION_MINOR VERSION_PATCH <<<"$VERSION"
-BUILD_NUMBER="${BUILD_NUMBER:-$((VERSION_MAJOR * 10000 + VERSION_MINOR * 100 + VERSION_PATCH))}"
+VERSION_MAJOR_DEC=$((10#$VERSION_MAJOR))
+VERSION_MINOR_DEC=$((10#$VERSION_MINOR))
+VERSION_PATCH_DEC=$((10#$VERSION_PATCH))
+if [[ -z "${BUILD_NUMBER:-}" ]]; then
+  if (( VERSION_MINOR_DEC > 99 || VERSION_PATCH_DEC > 99 )); then
+    echo "VERSION minor and patch components must be 0...99 for CFBundleVersion derivation." >&2
+    exit 1
+  fi
+  BUILD_NUMBER="$((VERSION_MAJOR_DEC * 10000 + VERSION_MINOR_DEC * 100 + VERSION_PATCH_DEC))"
+fi
+if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ || "$BUILD_NUMBER" == "0" ]]; then
+  echo "BUILD_NUMBER must be a positive integer, got: ${BUILD_NUMBER:-<empty>}" >&2
+  exit 1
+fi
 RELEASE_NAME="$APP_DISPLAY_NAME-v$VERSION-$RELEASE_PLATFORM_SUFFIX"
 if [[ "$MODE" == "adhoc" ]]; then
   RELEASE_NAME="$RELEASE_NAME-adhoc"

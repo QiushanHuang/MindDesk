@@ -188,16 +188,29 @@ struct ResourceListView: View {
             onStatus("Drop did not include files or folders.")
             return
         }
+        let acceptedURLs = urls.filter { url in
+            ResourceDropTargetPolicy.accepts(
+                targetType: ResourceImportService.targetType(for: url).rawValue,
+                targetFilter: targetFilter?.rawValue
+            )
+        }
+        let skippedCount = urls.count - acceptedURLs.count
+        guard !acceptedURLs.isEmpty else {
+            let targetDescription = targetFilter == .folder ? "folders" : targetFilter == .file ? "files" : "files or folders"
+            onStatus("Drop did not include matching \(targetDescription).")
+            return
+        }
         do {
             let summary = try ResourceImportService().importURLs(
-                urls,
+                acceptedURLs,
                 existingResources: knownResources,
                 into: modelContext,
                 scope: scope,
                 workspaceId: workspaceId,
                 pinImported: pinImported
             )
-            onStatus(summary.statusText)
+            let skippedText = skippedCount > 0 ? " Skipped \(skippedCount) unmatched item\(skippedCount == 1 ? "" : "s")." : ""
+            onStatus("\(summary.statusText)\(skippedText)")
         } catch {
             modelContext.rollback()
             onStatus(error.localizedDescription)
@@ -383,6 +396,9 @@ struct ResourcePreviewView: View {
             previewError = nil
         }
         .onChange(of: resource.lastResolvedPath) { _, _ in
+            previewError = nil
+        }
+        .onChange(of: resource.securityScopedBookmarkData) { _, _ in
             previewError = nil
         }
         .onDisappear {
@@ -1271,9 +1287,12 @@ struct SnippetLibraryView: View {
     }
 
     private func resolvedWorkingDirectory(for snippet: SnippetModel) throws -> String {
+        guard !CommandWorkingDirectoryPolicy.allowsHomeFallback(workingDirectoryRef: snippet.workingDirectoryRef) else {
+            return FileManager.default.homeDirectoryForCurrentUser.path
+        }
         guard let ref = snippet.workingDirectoryRef,
               let resource = resources.first(where: { $0.id == ref }) else {
-            return FileManager.default.homeDirectoryForCurrentUser.path
+            throw WorkbenchError.invalidWorkingDirectory("Configured working directory is missing. Choose a folder or clear the working directory.")
         }
         let records = resources.map {
             ResourceLibraryRecord(
@@ -1289,7 +1308,7 @@ struct SnippetLibraryView: View {
             )
         }
         guard SnippetWorkingDirectoryOptions.validSelection(ref, in: records) != nil else {
-            return FileManager.default.homeDirectoryForCurrentUser.path
+            throw WorkbenchError.invalidWorkingDirectory("Configured working directory is not an available folder. Choose a folder or clear the working directory.")
         }
 
         let bookmarkService = BookmarkService()

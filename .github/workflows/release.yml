@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Validate release ref
         env:
@@ -84,7 +86,8 @@ jobs:
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" \
             -P "$CERTIFICATE_PASSWORD" \
-            -A \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
             -t cert \
             -f pkcs12 \
             -k "$KEYCHAIN_PATH"

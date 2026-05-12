@@ -613,6 +613,9 @@ public enum ManifestImportValidation {
             if requiresWorkspaceID(scope: resource.scope), resource.workspaceId == nil {
                 issues.append("Resource \(resource.id) has workspace scope without a workspace id.")
             }
+            if hasGlobalScope(scope: resource.scope), resource.workspaceId != nil {
+                issues.append("Resource \(resource.id) has global scope with a workspace id.")
+            }
             if let workspaceId = resource.workspaceId, !workspaceIds.contains(workspaceId) {
                 issues.append("Resource \(resource.id) references missing workspace \(workspaceId).")
             }
@@ -628,6 +631,9 @@ public enum ManifestImportValidation {
             appendAllowedIssue(snippet.scope, allowed: allowedScopes, ownerDescription: "Snippet \(snippet.id)", fieldDescription: "scope", issues: &issues)
             if requiresWorkspaceID(scope: snippet.scope), snippet.workspaceId == nil {
                 issues.append("Snippet \(snippet.id) has workspace scope without a workspace id.")
+            }
+            if hasGlobalScope(scope: snippet.scope), snippet.workspaceId != nil {
+                issues.append("Snippet \(snippet.id) has global scope with a workspace id.")
             }
             if let workspaceId = snippet.workspaceId, !workspaceIds.contains(workspaceId) {
                 issues.append("Snippet \(snippet.id) references missing workspace \(workspaceId).")
@@ -907,6 +913,10 @@ public enum ManifestImportValidation {
 
     private static func requiresWorkspaceID(scope: String) -> Bool {
         scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "workspace"
+    }
+
+    private static func hasGlobalScope(scope: String) -> Bool {
+        scope.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "global"
     }
 
     private static func normalizedReference(

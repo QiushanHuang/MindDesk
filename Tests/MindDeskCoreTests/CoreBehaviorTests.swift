@@ -24,6 +24,10 @@ final class CoreBehaviorTests: XCTestCase {
             "cd -- '/tmp/Missing Folder' && rm -rf build"
         )
         XCTAssertEqual(
+            ShellQuoter.changeDirectoryCommand(workingDirectory: "-P"),
+            "cd -- '-P'"
+        )
+        XCTAssertEqual(
             ShellQuoter.terminalCommand(command: "pwd", workingDirectory: "-P"),
             "cd -- '-P' && pwd"
         )
@@ -437,6 +441,44 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(AppInterfaceDensity.resolved("unknown"), .balanced)
         XCTAssertEqual(AppStartupDestination.resolved("unknown"), .home)
         XCTAssertEqual(ManifestExportScope.resolved("unknown"), .completeWorkspaceMap)
+    }
+
+    func testAppPreferenceDefaultsRestoreGlobalSettingsAndClearObsoleteViewState() throws {
+        let suiteName = "MindDeskTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(AppAppearanceMode.dark.rawValue, forKey: AppPreferenceKeys.appearanceMode)
+        defaults.set(AppInterfaceTextScale.extraLarge.rawValue, forKey: AppPreferenceKeys.interfaceTextScale)
+        defaults.set(AppInterfaceDensity.spacious.rawValue, forKey: AppPreferenceKeys.interfaceDensity)
+        defaults.set(AppStartupDestination.snippets.rawValue, forKey: AppPreferenceKeys.startupDestination)
+        defaults.set(ManifestExportScope.globalLibraryOnly.rawValue, forKey: AppPreferenceKeys.manifestExportScope)
+        defaults.set(true, forKey: AppPreferenceKeys.manifestExportIncludesUsageDates)
+        defaults.set(CanvasScrollZoomDirection.scrollDownZoomsIn.rawValue, forKey: AppPreferenceKeys.canvasScrollZoomDirection)
+        defaults.set(250.0, forKey: AppPreferenceKeys.canvasDefaultZoomPercent)
+        defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
+        defaults.set(false, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
+        defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen)
+        defaults.set(0.7, forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio)
+        defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen)
+
+        AppPreferenceDefaults.restore(in: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.appearanceMode), AppAppearanceMode.system.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.interfaceTextScale), AppInterfaceTextScale.system.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.interfaceDensity), AppInterfaceDensity.balanced.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.startupDestination), AppStartupDestination.home.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.manifestExportScope), ManifestExportScope.completeWorkspaceMap.rawValue)
+        XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.manifestExportIncludesUsageDates))
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasScrollZoomDirection), CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue)
+        XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.canvasDefaultZoomPercent), CanvasZoomBaseline.defaultPercent, accuracy: 0.0001)
+        XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.canvasConnectSingleShot))
+        XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
+        XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen))
+        XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio), TodoBoardColumnSplit.defaultRatio, accuracy: 0.0001)
+        XCTAssertNil(defaults.object(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen))
     }
 
     func testExportManifestUsageDatePolicyRemovesBehaviorDatesOnly() {
@@ -1720,6 +1762,31 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Workspace workspace title is too long."))
     }
 
+    func testManifestImportValidationRejectsGlobalRecordsWithWorkspaceIDs() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: "workspace", title: "Resource", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: "workspace", title: "Snippet", kind: "prompt", body: "Body", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Resource resource has global scope with a workspace id."))
+        XCTAssertTrue(issues.contains("Snippet snippet has global scope with a workspace id."))
+    }
+
     func testLegacySnippetRecordDefaultsMissingCommandConfirmationToSafeValue() throws {
         let json = """
         {
@@ -1765,6 +1832,19 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(SnippetImportTrustPolicy.requiresConfirmation(kind: "prompt", exportedRequiresConfirmation: false))
     }
 
+    func testCommandWorkingDirectoryPolicyFallsBackOnlyWhenNoReferenceWasConfigured() {
+        XCTAssertTrue(CommandWorkingDirectoryPolicy.allowsHomeFallback(workingDirectoryRef: nil))
+        XCTAssertTrue(CommandWorkingDirectoryPolicy.allowsHomeFallback(workingDirectoryRef: "  "))
+        XCTAssertFalse(CommandWorkingDirectoryPolicy.allowsHomeFallback(workingDirectoryRef: "folder-resource"))
+    }
+
+    func testResourceDropTargetPolicyFiltersMismatchedDropZones() {
+        XCTAssertTrue(ResourceDropTargetPolicy.accepts(targetType: "folder", targetFilter: "folder"))
+        XCTAssertTrue(ResourceDropTargetPolicy.accepts(targetType: "file", targetFilter: nil))
+        XCTAssertFalse(ResourceDropTargetPolicy.accepts(targetType: "file", targetFilter: "folder"))
+        XCTAssertFalse(ResourceDropTargetPolicy.accepts(targetType: "folder", targetFilter: "file"))
+    }
+
     func testImportedResourcesRequireCurrentBookmarkBeforeFileAccess() {
         XCTAssertFalse(ResourceAuthorizationPolicy.canAccessFileSystem(status: "unavailable", hasBookmarkData: false))
         XCTAssertFalse(ResourceAuthorizationPolicy.canAccessFileSystem(status: "available", hasBookmarkData: false))
@@ -1790,6 +1870,13 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: -1, obstacleCount: 20, isInteracting: false))
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: 20, obstacleCount: -1, isInteracting: false))
         XCTAssertFalse(CanvasPerformancePolicy.usesObstacleRouting(edgeCount: Int.max, obstacleCount: Int.max, isInteracting: false))
+    }
+
+    func testFolderPreviewScanPolicyBoundsEnumerationBeforeSorting() {
+        XCTAssertEqual(FolderPreviewScanPolicy.scanLimit(requestedLimit: 200), 256)
+        XCTAssertEqual(FolderPreviewScanPolicy.scanLimit(requestedLimit: 1), 57)
+        XCTAssertEqual(FolderPreviewScanPolicy.scanLimit(requestedLimit: 0), 0)
+        XCTAssertEqual(FolderPreviewScanPolicy.scanLimit(requestedLimit: -10), 0)
     }
 
     func testCanvasNodeColorStyleParsesHexInputs() {
@@ -2404,6 +2491,28 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(rect.y, 49.53, accuracy: 0.0001)
         XCTAssertEqual(rect.width, 116.095, accuracy: 0.0001)
         XCTAssertEqual(rect.height, 71.61, accuracy: 0.0001)
+    }
+
+    func testCanvasViewportProjectionSanitizesNonFiniteGeometry() {
+        let rect = CanvasViewportProjection.screenRect(
+            id: "bad",
+            x: .nan,
+            y: .infinity,
+            width: .nan,
+            height: -.infinity,
+            offsetX: .infinity,
+            offsetY: .nan,
+            zoom: .nan,
+            viewportX: .infinity,
+            viewportY: .nan
+        )
+
+        XCTAssertTrue(rect.x.isFinite)
+        XCTAssertTrue(rect.y.isFinite)
+        XCTAssertTrue(rect.width.isFinite)
+        XCTAssertTrue(rect.height.isFinite)
+        XCTAssertGreaterThanOrEqual(rect.width, 0)
+        XCTAssertGreaterThanOrEqual(rect.height, 0)
     }
 
     func testProjectedEdgeAnchorsLandOnTargetVisibleBorder() {

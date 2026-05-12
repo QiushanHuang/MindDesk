@@ -406,11 +406,11 @@ private struct WorkspaceResourceMenuGroup {
 struct WorkspaceCanvasView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue
-    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
-    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var todoPanelDefaultOpen = true
-    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var todoDoneColumnDefaultOpen = false
-    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = true
+    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
+    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
+    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var todoPanelDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
+    @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var todoDoneColumnDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoDoneColumnDefaultOpen
+    @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
     let canvas: CanvasModel
     let resources: [ResourcePinModel]
     let allResources: [ResourcePinModel]
@@ -1607,17 +1607,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func screenHitRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-        let size = nodeSize(for: node)
-        return CanvasViewportProjection.screenRect(
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            width: size.width,
-            height: size.height,
-            zoom: effectiveZoom,
-            viewportX: effectiveViewportX,
-            viewportY: effectiveViewportY
-        )
+        screenRect(for: node)
     }
 
     private func backgroundDragStartsOnNode(_ point: CGPoint) -> Bool {

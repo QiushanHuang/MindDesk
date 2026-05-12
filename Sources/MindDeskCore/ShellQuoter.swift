@@ -40,7 +40,11 @@ public enum ShellQuoter {
         return "\"\(escaped)\""
     }
 
+    public static func changeDirectoryCommand(workingDirectory: String) -> String {
+        "cd -- \(singleQuote(workingDirectory))"
+    }
+
     public static func terminalCommand(command: String, workingDirectory: String) -> String {
-        "cd -- \(singleQuote(workingDirectory)) && \(command)"
+        "\(changeDirectoryCommand(workingDirectory: workingDirectory)) && \(command)"
     }
 }

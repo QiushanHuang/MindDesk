@@ -399,6 +399,20 @@ public enum SnippetWorkingDirectoryOptions {
     }
 }
 
+public enum CommandWorkingDirectoryPolicy {
+    public static func allowsHomeFallback(workingDirectoryRef: String?) -> Bool {
+        guard let workingDirectoryRef else { return true }
+        return workingDirectoryRef.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+public enum ResourceDropTargetPolicy {
+    public static func accepts(targetType: String, targetFilter: String?) -> Bool {
+        guard let targetFilter, !targetFilter.isEmpty else { return true }
+        return targetType == targetFilter
+    }
+}
+
 public struct FolderPreviewItemRecord: Equatable, Identifiable, Sendable {
     public var id: String
     public var name: String
@@ -423,6 +437,15 @@ public enum FolderPreviewOrdering {
             }
             return lhs.id < rhs.id
         }
+    }
+}
+
+public enum FolderPreviewScanPolicy {
+    public static let defaultOverscan = 56
+
+    public static func scanLimit(requestedLimit: Int) -> Int {
+        guard requestedLimit > 0 else { return 0 }
+        return requestedLimit > Int.max - defaultOverscan ? Int.max : requestedLimit + defaultOverscan
     }
 }
 
@@ -1245,8 +1268,8 @@ public enum CanvasViewportProjection {
     ) -> CanvasEdgePoint {
         let safeZoom = CanvasZoomScale.safeZoom(zoom)
         return CanvasEdgePoint(
-            x: x * safeZoom + viewportX,
-            y: y * safeZoom + viewportY
+            x: finite(x) * safeZoom + finite(viewportX),
+            y: finite(y) * safeZoom + finite(viewportY)
         )
     }
 
@@ -1264,8 +1287,8 @@ public enum CanvasViewportProjection {
     ) -> CanvasEdgePoint {
         let safeZoom = CanvasZoomScale.safeZoom(zoom)
         return CanvasEdgePoint(
-            x: (x + offsetX + width / 2) * safeZoom + viewportX,
-            y: (y + offsetY + height / 2) * safeZoom + viewportY
+            x: (finite(x) + finite(offsetX) + nonNegativeFinite(width) / 2) * safeZoom + finite(viewportX),
+            y: (finite(y) + finite(offsetY) + nonNegativeFinite(height) / 2) * safeZoom + finite(viewportY)
         )
     }
 
@@ -1284,10 +1307,10 @@ public enum CanvasViewportProjection {
         let safeZoom = CanvasZoomScale.safeZoom(zoom)
         return CanvasFrameRect(
             id: id,
-            x: (x + offsetX) * safeZoom + viewportX,
-            y: (y + offsetY) * safeZoom + viewportY,
-            width: width * safeZoom,
-            height: height * safeZoom
+            x: (finite(x) + finite(offsetX)) * safeZoom + finite(viewportX),
+            y: (finite(y) + finite(offsetY)) * safeZoom + finite(viewportY),
+            width: nonNegativeFinite(width) * safeZoom,
+            height: nonNegativeFinite(height) * safeZoom
         )
     }
 
@@ -1300,9 +1323,18 @@ public enum CanvasViewportProjection {
     ) -> CanvasEdgePoint {
         let safeZoom = CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
         return CanvasEdgePoint(
-            x: (screenX - viewportX) / safeZoom,
-            y: (screenY - viewportY) / safeZoom
+            x: (finite(screenX) - finite(viewportX)) / safeZoom,
+            y: (finite(screenY) - finite(viewportY)) / safeZoom
         )
+    }
+
+    private static func finite(_ value: Double, fallback: Double = 0) -> Double {
+        value.isFinite ? value : fallback
+    }
+
+    private static func nonNegativeFinite(_ value: Double) -> Double {
+        guard value.isFinite, value > 0 else { return 0 }
+        return value
     }
 }
 

@@ -13,6 +13,7 @@ enum WorkbenchError: LocalizedError {
     case reauthorizationRequired(String)
     case resourceTypeMismatch(expected: String, selected: String)
     case invalidManifestReferences(String)
+    case invalidWorkingDirectory(String)
 
     var errorDescription: String? {
         switch self {
@@ -33,6 +34,8 @@ enum WorkbenchError: LocalizedError {
         case .resourceTypeMismatch(let expected, let selected):
             return "Selected \(selected) does not match this resource's \(expected) type."
         case .invalidManifestReferences(let message):
+            return message
+        case .invalidWorkingDirectory(let message):
             return message
         }
     }
@@ -86,40 +89,50 @@ struct FolderPreviewService {
     func contents(bookmarkData: Data?, fallbackPath: String, statusRaw: String, limit: Int = 200) throws -> [FolderPreviewItem] {
         let resolved = try bookmarkService.resolveAuthorizedBookmark(bookmarkData, fallbackPath: fallbackPath, statusRaw: statusRaw)
         let folderURL = resolved.url
+        let boundedLimit = max(0, limit)
+        let scanLimit = FolderPreviewScanPolicy.scanLimit(requestedLimit: boundedLimit)
+        guard boundedLimit > 0 else { return [] }
 
         return try bookmarkService.access(folderURL) {
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
                 throw WorkbenchError.missingPath(folderURL.path)
             }
-            let urls = try FileManager.default.contentsOfDirectory(
+            guard let enumerator = FileManager.default.enumerator(
                 at: folderURL,
                 includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey],
                 options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            )
-            let items = urls.map { url in
+            ) else {
+                throw WorkbenchError.missingPath(folderURL.path)
+            }
+            var items: [FolderPreviewItem] = []
+            while let url = enumerator.nextObject() as? URL {
+                enumerator.skipDescendants()
                 let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
                 let isDirectory = values?.isDirectory ?? false
-                return FolderPreviewItem(
+                items.append(FolderPreviewItem(
                     id: url.path,
                     name: url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent,
                     path: url.path,
                     url: url,
                     isDirectory: isDirectory,
                     size: values?.fileSize.map(Int64.init)
-                )
+                ))
+                if items.count >= scanLimit {
+                    break
+                }
             }
             let records = items.map { FolderPreviewItemRecord(id: $0.id, name: $0.name, isDirectory: $0.isDirectory) }
             let itemById = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0) })
             return FolderPreviewOrdering.ordered(records)
-                .prefix(limit)
+                .prefix(boundedLimit)
                 .compactMap { itemById[$0.id] }
         }
     }
 }
 
 struct BookmarkService {
-    func makeBookmark(for url: URL) throws -> Data? {
+    func makeBookmark(for url: URL) throws -> Data {
         try url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
@@ -227,6 +240,7 @@ struct ResourceImportService {
             }
 
             let type = Self.targetType(for: url)
+            let bookmarkData = try bookmarkService.makeBookmark(for: url)
             let originalName = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
             let resource = ResourcePinModel(
                 workspaceId: scope == .workspace ? workspaceId : nil,
@@ -234,7 +248,7 @@ struct ResourceImportService {
                 targetType: type,
                 displayPath: url.path,
                 lastResolvedPath: url.path,
-                securityScopedBookmarkData: try? bookmarkService.makeBookmark(for: url),
+                securityScopedBookmarkData: bookmarkData,
                 scope: scope,
                 isPinned: pinImported,
                 originalName: originalName,
@@ -284,7 +298,7 @@ struct TerminalService {
     private let runner = AppleScriptRunner()
 
     func open(at path: String) throws {
-        let command = "cd \(ShellQuoter.singleQuote(path))"
+        let command = ShellQuoter.changeDirectoryCommand(workingDirectory: path)
         try runTerminalCommand(command)
     }
 

@@ -30,10 +30,10 @@ struct ContentView: View {
     @Query private var nodes: [CanvasNodeModel]
     @Query private var edges: [CanvasEdgeModel]
     @Query private var aliases: [FinderAliasRecordModel]
-    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
-    @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppStartupDestination.home.rawValue
-    @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = ManifestExportScope.completeWorkspaceMap.rawValue
-    @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = false
+    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
+    @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppPreferenceDefaults.startupDestination
+    @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
+    @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
 
     @State private var selection: SidebarSelection? = .home
     @State private var inspectorSelection: InspectorSelection?
@@ -108,7 +108,7 @@ struct ContentView: View {
                     .tag(SidebarSelection.pinnedFolders)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $pinnedFoldersDropTarget) { providers in
                         FileDropLoader.loadFileURLs(from: providers) { urls in
-                            importPinnedDrop(urls)
+                            importPinnedDrop(urls, targetFilter: .folder)
                         }
                     }
 
@@ -144,7 +144,7 @@ struct ContentView: View {
                     .tag(SidebarSelection.pinnedFiles)
                     .onDrop(of: [UTType.fileURL.identifier], isTargeted: $pinnedFilesDropTarget) { providers in
                         FileDropLoader.loadFileURLs(from: providers) { urls in
-                            importPinnedDrop(urls)
+                            importPinnedDrop(urls, targetFilter: .file)
                         }
                     }
                 }
@@ -644,21 +644,34 @@ struct ContentView: View {
         }
     }
 
-    private func importPinnedDrop(_ urls: [URL]) {
+    private func importPinnedDrop(_ urls: [URL], targetFilter: ResourceTargetType? = nil) {
         guard !urls.isEmpty else {
             setStatus("Drop did not include files or folders.")
             return
         }
+        let acceptedURLs = urls.filter { url in
+            ResourceDropTargetPolicy.accepts(
+                targetType: ResourceImportService.targetType(for: url).rawValue,
+                targetFilter: targetFilter?.rawValue
+            )
+        }
+        let skippedCount = urls.count - acceptedURLs.count
+        guard !acceptedURLs.isEmpty else {
+            let targetDescription = targetFilter == .folder ? "folders" : targetFilter == .file ? "files" : "files or folders"
+            setStatus("Drop did not include matching \(targetDescription).")
+            return
+        }
         do {
             let summary = try ResourceImportService().importURLs(
-                urls,
+                acceptedURLs,
                 existingResources: resources,
                 into: modelContext,
                 scope: .global,
                 workspaceId: nil,
                 pinImported: true
             )
-            setStatus("Pinned drop: \(summary.statusText)")
+            let skippedText = skippedCount > 0 ? " Skipped \(skippedCount) unmatched item\(skippedCount == 1 ? "" : "s")." : ""
+            setStatus("Pinned drop: \(summary.statusText)\(skippedText)")
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
@@ -1231,15 +1244,16 @@ struct ContentView: View {
         }
 
         for record in manifest.resources {
+            let scope = WorkbenchScope(rawValue: record.scope) ?? .global
             let resource = ResourcePinModel(
-                workspaceId: record.workspaceId.flatMap { workspaceMap[$0] },
+                workspaceId: scope == .workspace ? record.workspaceId.flatMap { workspaceMap[$0] } : nil,
                 title: record.title,
                 targetType: ResourceTargetType(rawValue: record.targetType) ?? .folder,
                 displayPath: record.displayPath,
                 lastResolvedPath: record.lastResolvedPath,
                 note: record.note,
                 tags: record.tags,
-                scope: WorkbenchScope(rawValue: record.scope) ?? .global,
+                scope: scope,
                 sortIndex: record.sortIndex,
                 isPinned: record.isPinned,
                 originalName: record.originalName,
@@ -1255,14 +1269,15 @@ struct ContentView: View {
         }
 
         for record in manifest.snippets {
+            let scope = WorkbenchScope(rawValue: record.scope) ?? .global
             let snippet = SnippetModel(
-                workspaceId: record.workspaceId.flatMap { workspaceMap[$0] },
+                workspaceId: scope == .workspace ? record.workspaceId.flatMap { workspaceMap[$0] } : nil,
                 title: record.title,
                 kind: SnippetKind(rawValue: record.kind) ?? .prompt,
                 body: record.body,
                 details: record.details,
                 tags: record.tags,
-                scope: WorkbenchScope(rawValue: record.scope) ?? .global,
+                scope: scope,
                 workingDirectoryRef: record.workingDirectoryRef.flatMap { resourceMap[$0] },
                 requiresConfirmation: SnippetImportTrustPolicy.requiresConfirmation(
                     kind: record.kind,
@@ -2099,7 +2114,7 @@ struct WorkspaceDetailView: View {
     let onEditSnippet: (SnippetModel) -> Void
     let onDeleteSnippet: (SnippetModel) -> Void
     let onSelectWorkspace: (String) -> Void
-    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
+    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @State private var tab = "Canvas"
     @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
 
