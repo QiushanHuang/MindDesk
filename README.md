@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v1.4.1-0A84FF)
+![Release](https://img.shields.io/badge/release-v2.0.0-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v1.4.1](#whats-new-in-v141)
+- [What's New in v2.0.0](#whats-new-in-v200)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -115,14 +115,14 @@ Download the latest package from [GitHub Releases](https://github.com/QiushanHua
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v1.4.1-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v1.4.1-macOS-arm64.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -200,15 +200,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v1.4.1-macOS/artifacts/
+dist/release/MindDesk-v2.0.0-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v1.4.1-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.0.0-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v1.4.1-macOS.dmg`
-- `MindDesk-v1.4.1-macOS.zip`
+- `MindDesk-v2.0.0-macOS.dmg`
+- `MindDesk-v2.0.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -262,36 +262,31 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v1.4.1`
+Current release: `v2.0.0`
 
 Highlights:
 
-- v1.4 interaction upgrade coverage: Redo, Reverse Selected Link, Start Link From Card, Canvas smoothness work, and release documentation.
-- Migration and recovery hardening: 30-minute startup backup throttling, `.complete` markers, quarantine folders, staging restore, and SQLite trio recovery.
-- Three responsiveness passes: Quick Open, Todo rename/editing, Canvas text redraw reduction, release metadata checks, and CI guardrails.
-- Large-canvas responsiveness pass for dragging, zooming, panning, resizing, and link editing.
-- Visibility-aware Canvas rendering that limits expensive obstacle routing, animated link flow, passive resize handles, and passive link controls on dense canvases.
-- Lightweight card rendering during active interaction or dense zoomed-out views, while preserving detail for selected and edited cards.
-- Frame drag improvements that move contained cards and edge bend points from drag-start snapshots for steadier undo and lower CPU churn.
-- Canvas performance policies and regression tests for animation, routing, visibility, card detail, and control-handle behavior.
-- Import, layout, shell quoting, security-scoped bookmark, folder preview, and release metadata hardening from the same upgrade branch.
-- Developer ID notarization scripting, CI, manual GitHub Release workflow, and release environment documentation.
+- Workspace and global-library import safety was tightened: scope-aware manifest validation, drop-target filtering, bookmark persistence, bounded folder previews, and working-directory validation now fail closed instead of silently drifting.
+- Settings are now versioned and resettable from the app, with centralized defaults shared across Home, Canvas, Todo Board, and command/snippet behaviors.
+- The large-canvas responsiveness work from v1.4 is now paired with safer geometry guards, finite-value sanitization, and denser regression coverage around routing, visibility, and interaction states.
+- Release packaging, CI, README metadata, version artifacts, and GitHub release workflow are aligned for a full v2.0.0 publication pass.
 
-Full release notes are available in [`docs/releases/v1.4.1.md`](docs/releases/v1.4.1.md).
+Full release notes are available in [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md).
 
-### What's New in v1.4.1
+### What's New in v2.0.0
 
-This release consolidates three parallel upgrade threads into one v1.4.1 package:
+MindDesk v2.0.0 is the first major release built from the fully merged upgrade set:
 
-| Thread | Included Scope |
+| Release Area | Included Scope |
 | --- | --- |
-| `019e0bec...` | v1.4 interaction upgrade: Redo, Reverse Selected Link, Start Link From Card, Canvas smoothness work, and release notes. |
-| `019e0efb...` | Migration and recovery strategy: 30-minute startup backup throttling, `.complete` markers, `Quarantine/`, staging restore, and SQLite trio recovery. |
-| `019e0c2f...` | Three responsiveness and release-guard passes: Quick Open, Todo rename/editing, Canvas text redraw reduction, release checks, and CI. |
+| Canvas performance | Visible-work-only routing, lighter rendering during interaction, stable frame dragging, edge animation limits, and density-aware controls for large canvases. |
+| Resource and snippet safety | Scope-aware import/export validation, target-aware drag/drop filtering, stricter bookmark persistence, bounded folder preview enumeration, and invalid working-directory rejection for command snippets. |
+| Settings and consistency | Centralized defaults, reset-all settings support, safer non-finite geometry handling, and shared behavior across Home, Canvas, Todo Board, and Settings surfaces. |
+| Release operations | Updated release metadata, package naming, versioned notes, CI guardrails, and GitHub workflow packaging for the formal v2.0.0 rollout. |
 
-Dense canvases now spend less work on invisible cards, invisible links, passive handles, obstacle routing, and animated link flow during active interaction.
+This release turns the app from a polished feature branch into a publishable major version: the visible interaction model stays familiar, while the failure paths, import boundaries, release metadata, and packaging path are all tightened enough to ship as a coherent new baseline.
 
-The Canvas keeps schema changes conservative. The upgrade adds rendering policies, viewport-aware edge work, drag-start frame snapshots, lightweight card drawing during motion, and focused regression coverage without changing the exported manifest schema.
+The manifest schema remains conservative. The upgrade focuses on safety, behavior consistency, and packaging maturity rather than introducing a disruptive new storage format.
 
 ### Project Structure
 
@@ -331,7 +326,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v1.4.1 新增内容](#v141-新增内容)
+- [v2.0.0 新增内容](#v200-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -412,14 +407,14 @@ flowchart LR
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v1.4.1-macOS-arm64.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.0.0-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v1.4.1-macOS-arm64.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.0.0-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -486,15 +481,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v1.4.1-macOS/artifacts/
+dist/release/MindDesk-v2.0.0-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v1.4.1-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.0.0-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v1.4.1-macOS.dmg`
-- `MindDesk-v1.4.1-macOS.zip`
+- `MindDesk-v2.0.0-macOS.dmg`
+- `MindDesk-v2.0.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -548,36 +543,31 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v1.4.1`
+当前版本：`v2.0.0`
 
 重点更新：
 
-- v1.4 交互升级合并：Redo、反转连线、Start Link From Card、Canvas 流畅度专项和发布说明。
-- 迁移/恢复策略合并：30 分钟启动备份节流、`.complete` marker、`Quarantine/` 隔离、staging restore 和 SQLite 三件套恢复。
-- 三轮响应速度和发布守卫合并：Quick Open、Todo rename/editing、Canvas 文本重绘优化、发布校验和 CI。
-- 大 Canvas 拖拽、缩放、平移、拉伸和连线编辑的响应速度专项优化。
-- 根据视口和密度限制昂贵的连线避让、连线动画、被动 resize handle 和被动连线控制点。
-- Canvas 交互中使用轻量卡片渲染，同时保留选中和编辑中卡片的完整细节。
-- Frame 拖拽使用拖拽开始时的卡片和连线弯点快照，降低 CPU 消耗并让 undo 数据更稳定。
-- 补齐 Canvas 性能策略测试，覆盖动画、路由、可见性、卡片细节和控制点显示逻辑。
-- 同步合入 import 校验、自动布局、Shell quoting、安全作用域 bookmark、文件夹预览和 release metadata 的加固。
-- 补齐正式 release notarization 脚本、GitHub Actions CI、手动 Release workflow 和发布环境说明。
+- 导入和资源访问链路做了 fail-closed 加固：manifest scope 校验、拖放目标过滤、bookmark 持久化、文件夹预览扫描上限、命令 snippet 工作目录校验都更严格。
+- 设置系统升级为统一默认值和可重置模型，Home、Canvas、Todo Board、Snippet/Command 行为不再各自漂移。
+- 延续 v1.4 的大画布性能专项，同时补齐非有限几何值保护、更多回归测试和交互态边界校验。
+- README、版本元数据、发布说明、CI 守卫和 GitHub Release 打包链路整体切到 `v2.0.0`。
 
-完整更新内容见 [`docs/releases/v1.4.1.md`](docs/releases/v1.4.1.md)。
+完整更新内容见 [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md)。
 
-### v1.4.1 新增内容
+### v2.0.0 新增内容
 
-本版本把三个并行升级线程合并为一个 v1.4.1 包：
+MindDesk v2.0.0 是把并行升级线程、交互性能优化、导入与设置加固、发布流程整理后形成的第一个正式大版本：
 
-| 线程 | 已纳入范围 |
+| 发布面向 | 已纳入范围 |
 | --- | --- |
-| `019e0bec...` | v1.4 交互升级：Redo、反转连线、Start Link From Card、Canvas 流畅度专项和发布说明。 |
-| `019e0efb...` | 迁移/恢复策略：30 分钟启动备份节流、`.complete` marker、`Quarantine/` 隔离、staging restore 和 SQLite 三件套恢复。 |
-| `019e0c2f...` | 三轮响应速度和发布守卫：Quick Open、Todo rename/editing、Canvas 文本重绘优化、发布校验和 CI。 |
+| Canvas 性能 | 视口可见性裁剪、交互态轻量绘制、Frame 拖拽稳定化、连线动画限流、大画布密度控制。 |
+| 资源与 Snippet 安全性 | scope 感知的导入导出校验、拖放目标过滤、bookmark 持久化、文件夹预览限流、命令工作目录严格校验。 |
+| 设置与一致性 | 集中默认值、全局重置设置、非有限几何值保护，以及 Home / Canvas / Todo / Settings 的共享行为规则。 |
+| 发布运营 | 版本说明、产物命名、CI 发布守卫和 GitHub workflow 打包链路全部切换到正式 `v2.0.0` 发布口径。 |
 
-大画布现在会减少不可见卡片、不可见连线、被动控制点、连线避让和流光动画在交互过程中的计算压力。
+这个版本不是换一套产品交互，而是把现有能力补到可正式发布的强度：保留已有使用习惯，同时把失败路径、导入边界、设置一致性和发布链路整理到一个稳定基线。
 
-这次升级保持数据结构保守：新增的是渲染策略、视口可见性判断、Frame 拖拽快照、交互中的轻量卡片绘制和对应回归测试，不改变导出的 manifest schema。
+底层 manifest schema 依旧保持保守，没有为了发大版本引入破坏式数据格式切换；重点是稳定性、行为一致性和可发布性。
 
 ### 项目结构
 
