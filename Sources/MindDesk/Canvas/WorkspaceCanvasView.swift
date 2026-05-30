@@ -2894,7 +2894,7 @@ struct WorkspaceCanvasView: View {
     private func importDroppedResources(_ urls: [URL], at dropLocation: CGPoint) {
         guard !urls.isEmpty else { return }
         do {
-            let summary = try ResourceImportService().importURLs(
+            var summary = try ResourceImportService().importURLs(
                 urls,
                 existingResources: resources,
                 into: modelContext,
@@ -2903,8 +2903,35 @@ struct WorkspaceCanvasView: View {
                 pinImported: false,
                 saveChanges: false
             )
+            let resourceById = Dictionary(summary.resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let dropPlan = CanvasResourceDropPolicy.plan(
+                resourceIds: summary.resources.map(\.id),
+                canvasId: canvas.id,
+                existingNodes: nodes.map {
+                    CanvasObjectReference(
+                        nodeId: $0.id,
+                        canvasId: $0.canvasId,
+                        workspaceId: canvas.workspaceId,
+                        objectType: $0.objectType,
+                        objectId: $0.objectId
+                    )
+                }
+            )
+            summary.skipped += dropPlan.skippedExistingResourceIds.map { resourceId in
+                ResourceImportItemIssue(
+                    path: resourceById[resourceId]?.displayPath ?? resourceId,
+                    reason: "Already on this canvas"
+                )
+            }
+            summary.skipped += dropPlan.skippedDuplicateInputResourceIds.map { resourceId in
+                ResourceImportItemIssue(
+                    path: resourceById[resourceId]?.displayPath ?? resourceId,
+                    reason: "Duplicate canvas drop"
+                )
+            }
             var addedIDs: [String] = []
-            for (index, resource) in summary.resources.enumerated() {
+            for (index, resourceId) in dropPlan.resourceIdsToCreateNodes.enumerated() {
+                guard let resource = resourceById[resourceId] else { continue }
                 let point = dropNodePosition(at: dropLocation, offset: index)
                 let node = CanvasNodeModel(canvasId: canvas.id, title: resource.effectiveName, body: resource.note, nodeType: .resource, objectType: "resourcePin", objectId: resource.id, x: point.x, y: point.y, width: CanvasNodeMetrics.cardWidth, height: CanvasNodeMetrics.cardHeight, collapsed: true)
                 modelContext.insert(node)

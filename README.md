@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v2.0.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v2.1.0-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v2.0.0](#whats-new-in-v200)
+- [What's New in v2.1.0](#whats-new-in-v210)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -111,18 +111,18 @@ This creates a practical middle layer between strict file classification and fre
 
 ### Install the App Package
 
-Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases).
+Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases).
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG for your architecture, for example `MindDesk-v2.1.0-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v2.1.0-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -140,8 +140,8 @@ Use the source package when you want to inspect the implementation, build locall
 You can also clone the repository directly:
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### Build From Source
@@ -200,15 +200,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v2.0.0-macOS/artifacts/
+dist/release/MindDesk-v2.1.0-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.0.0-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.1.0-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v2.0.0-macOS.dmg`
-- `MindDesk-v2.0.0-macOS.zip`
+- `MindDesk-v2.1.0-macOS.dmg`
+- `MindDesk-v2.1.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -262,31 +262,32 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v2.0.0`
+Current release: `v2.1.0`
 
 Highlights:
 
-- Workspace and global-library import safety was tightened: scope-aware manifest validation, drop-target filtering, bookmark persistence, bounded folder previews, and working-directory validation now fail closed instead of silently drifting.
-- Settings are now versioned and resettable from the app, with centralized defaults shared across Home, Canvas, Todo Board, and command/snippet behaviors.
-- The large-canvas responsiveness work from v1.4 is now paired with safer geometry guards, finite-value sanitization, and denser regression coverage around routing, visibility, and interaction states.
-- Release packaging, CI, README metadata, version artifacts, and GitHub release workflow are aligned for a full v2.0.0 publication pass.
+- Manifest v2 now carries workspace Todo groups and tasks, while v1 manifests still import with safe defaults.
+- Resource references are cleaned through a shared ReferenceIndex/CleanupPlan path, so deleting a MindDesk resource clears canvas cards, linked Todos, snippet working directories, and Finder alias state without touching Finder files.
+- Canvas resource drops now skip cards already present on the same canvas, and batch import status reports imported, reused, skipped, failed, and over-limit items.
+- Store recovery now rolls back quarantined SQLite files if publishing a restored backup fails, reducing the chance of a partial recovery replacing a usable local store.
 
-Full release notes are available in [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md).
+Full release notes are available in [`docs/releases/v2.1.0.md`](docs/releases/v2.1.0.md).
 
-### What's New in v2.0.0
+### What's New in v2.1.0
 
-MindDesk v2.0.0 is the first major release built from the fully merged upgrade set:
+MindDesk v2.1.0 is a trust and portability update focused on making project re-entry safer:
 
 | Release Area | Included Scope |
 | --- | --- |
-| Canvas performance | Visible-work-only routing, lighter rendering during interaction, stable frame dragging, edge animation limits, and density-aware controls for large canvases. |
-| Resource and snippet safety | Scope-aware import/export validation, target-aware drag/drop filtering, stricter bookmark persistence, bounded folder preview enumeration, and invalid working-directory rejection for command snippets. |
-| Settings and consistency | Centralized defaults, reset-all settings support, safer non-finite geometry handling, and shared behavior across Home, Canvas, Todo Board, and Settings surfaces. |
-| Release operations | Updated release metadata, package naming, versioned notes, CI guardrails, and GitHub workflow packaging for the formal v2.0.0 rollout. |
+| Portable workspace state | Manifest schema v2 exports and imports Todo groups, Todo details, completion state, due dates, pinned order, and linked resources. |
+| Backward compatibility | Legacy v1 manifests decode without Todo records, and the import gate still rejects broken references, invalid canvas styles, unsafe geometry, and oversized files. |
+| Resource reference cleanup | A shared ReferenceIndex/CleanupPlan describes where a resource is used and clears Todo, snippet, canvas, and alias references when MindDesk metadata is removed. |
+| Import and drop feedback | Resource import is capped at 200 inputs per batch, keeps per-item skipped/failed reasons, and Canvas drops avoid duplicate resource cards on the same canvas. |
+| Store recovery | Failed backup publication rolls quarantined SQLite files back into place instead of leaving a partial destination store. |
 
-This release turns the app from a polished feature branch into a publishable major version: the visible interaction model stays familiar, while the failure paths, import boundaries, release metadata, and packaging path are all tightened enough to ship as a coherent new baseline.
+This release does not change where real Finder files live. It tightens the metadata graph that MindDesk owns: portable exports now preserve more of the workspace, destructive metadata actions clear linked state consistently, and import/drop flows give clearer feedback when some items are skipped.
 
-The manifest schema remains conservative. The upgrade focuses on safety, behavior consistency, and packaging maturity rather than introducing a disruptive new storage format.
+The manifest schema advances to v2 only for portable JSON export/import. Existing v1 JSON exports remain supported.
 
 ### Project Structure
 
@@ -326,7 +327,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v2.0.0 新增内容](#v200-新增内容)
+- [v2.1.0 新增内容](#v210-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -403,18 +404,18 @@ flowchart LR
 
 ### 安装 App 包
 
-从 [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases) 下载最新版本。
+从 [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases) 下载最新版本。
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.0.0-macOS-arm64.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.1.0-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.0.0-macOS-arm64.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.1.0-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -432,8 +433,8 @@ GitHub Releases 会同时提供源码包：
 也可以直接克隆仓库：
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### 从源码构建
@@ -481,15 +482,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v2.0.0-macOS/artifacts/
+dist/release/MindDesk-v2.1.0-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.0.0-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.1.0-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v2.0.0-macOS.dmg`
-- `MindDesk-v2.0.0-macOS.zip`
+- `MindDesk-v2.1.0-macOS.dmg`
+- `MindDesk-v2.1.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -543,31 +544,32 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v2.0.0`
+当前版本：`v2.1.0`
 
 重点更新：
 
-- 导入和资源访问链路做了 fail-closed 加固：manifest scope 校验、拖放目标过滤、bookmark 持久化、文件夹预览扫描上限、命令 snippet 工作目录校验都更严格。
-- 设置系统升级为统一默认值和可重置模型，Home、Canvas、Todo Board、Snippet/Command 行为不再各自漂移。
-- 延续 v1.4 的大画布性能专项，同时补齐非有限几何值保护、更多回归测试和交互态边界校验。
-- README、版本元数据、发布说明、CI 守卫和 GitHub Release 打包链路整体切到 `v2.0.0`。
+- Manifest v2 会导出和导入 Workspace Todo Group 与任务，v1 旧 manifest 仍可用安全默认值导入。
+- 删除 MindDesk 资源 metadata 时，会通过统一的 ReferenceIndex/CleanupPlan 清理 Canvas 卡片、Todo 关联资源、Snippet 工作目录和 Finder alias 状态，不删除真实 Finder 文件。
+- Canvas 拖入资源时会跳过当前画布已存在的资源卡片；批量导入状态会明确显示 imported、reused、skipped、failed 和超过 200 上限未处理的数量。
+- Store 恢复发布失败时会把已隔离的 SQLite 文件集回滚回原位置，降低部分恢复覆盖可用本地 store 的风险。
 
-完整更新内容见 [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md)。
+完整更新内容见 [`docs/releases/v2.1.0.md`](docs/releases/v2.1.0.md)。
 
-### v2.0.0 新增内容
+### v2.1.0 新增内容
 
-MindDesk v2.0.0 是把并行升级线程、交互性能优化、导入与设置加固、发布流程整理后形成的第一个正式大版本：
+MindDesk v2.1.0 是一次围绕“数据可信、引用可信、恢复可信”的小版本更新：
 
 | 发布面向 | 已纳入范围 |
 | --- | --- |
-| Canvas 性能 | 视口可见性裁剪、交互态轻量绘制、Frame 拖拽稳定化、连线动画限流、大画布密度控制。 |
-| 资源与 Snippet 安全性 | scope 感知的导入导出校验、拖放目标过滤、bookmark 持久化、文件夹预览限流、命令工作目录严格校验。 |
-| 设置与一致性 | 集中默认值、全局重置设置、非有限几何值保护，以及 Home / Canvas / Todo / Settings 的共享行为规则。 |
-| 发布运营 | 版本说明、产物命名、CI 发布守卫和 GitHub workflow 打包链路全部切换到正式 `v2.0.0` 发布口径。 |
+| 可移植 Workspace 状态 | Manifest schema v2 保存 Todo Group、任务详情、完成状态、DDL、置顶排序和关联资源。 |
+| 兼容性 | v1 JSON manifest 仍能导入，新字段默认为空；导入校验继续拦截坏引用、非法样式、不安全几何值和过大文件。 |
+| 资源引用清理 | 统一的 ReferenceIndex/CleanupPlan 能说明资源被哪里使用，并在删除 metadata 时清理 Todo、Snippet、Canvas、Alias 引用。 |
+| 导入与拖放反馈 | 单次资源批量导入上限为 200，记录每项 skipped/failed 原因，Canvas 拖放不会在同一画布重复创建同一资源卡片。 |
+| Store 恢复 | 备份恢复发布失败时会尝试回滚已隔离的 SQLite 文件集，避免目的地只剩部分恢复文件。 |
 
-这个版本不是换一套产品交互，而是把现有能力补到可正式发布的强度：保留已有使用习惯，同时把失败路径、导入边界、设置一致性和发布链路整理到一个稳定基线。
+这个版本不改变真实 Finder 文件的位置，也不引入破坏式存储迁移。它主要加强 MindDesk 自己维护的 metadata 图：导出更完整，删除更一致，导入/拖放的异常反馈更明确。
 
-底层 manifest schema 依旧保持保守，没有为了发大版本引入破坏式数据格式切换；重点是稳定性、行为一致性和可发布性。
+Manifest schema 只在 JSON 导入导出层升级到 v2；已有 v1 JSON 导出仍保持兼容。
 
 ### 项目结构
 

@@ -181,16 +181,20 @@ struct ResourceImportSummary {
     var resources: [ResourcePinModel]
     var insertedCount: Int
     var reusedCount: Int
+    var skipped: [ResourceImportItemIssue] = []
+    var failed: [ResourceImportItemIssue] = []
+    var truncatedCount: Int = 0
+    var maximumInputCount: Int = 200
 
     var statusText: String {
-        let imported = insertedCount + reusedCount
-        if imported == 0 {
-            return "No files or folders imported."
-        }
-        if reusedCount > 0 {
-            return "Imported \(insertedCount), reused \(reusedCount)."
-        }
-        return "Imported \(insertedCount) item\(insertedCount == 1 ? "" : "s")."
+        ResourceImportBatchSummary(
+            insertedCount: insertedCount,
+            reusedCount: reusedCount,
+            skipped: skipped,
+            failed: failed,
+            truncatedCount: truncatedCount,
+            maximumInputCount: maximumInputCount
+        ).statusText
     }
 }
 
@@ -206,7 +210,9 @@ struct ResourceImportService {
         pinImported: Bool,
         saveChanges: Bool = true
     ) throws -> ResourceImportSummary {
-        let cleanURLs = Array(urls.prefix(200))
+        let maximumInputCount = 200
+        let cleanURLs = Array(urls.prefix(maximumInputCount))
+        let truncatedCount = max(0, urls.count - maximumInputCount)
         var resourcesByImportKey: [String: ResourcePinModel] = [:]
         for resource in existingResources {
             resourcesByImportKey[ResourceImportDeduplication.importKey(
@@ -218,15 +224,25 @@ struct ResourceImportService {
         var imported: [ResourcePinModel] = []
         var insertedCount = 0
         var reusedCount = 0
+        var skipped: [ResourceImportItemIssue] = []
+        var failed: [ResourceImportItemIssue] = []
+        var seenImportKeys: Set<String> = []
 
         for url in cleanURLs {
             let path = Self.normalizedPath(url.path)
-            guard !path.isEmpty else { continue }
+            guard !path.isEmpty else {
+                skipped.append(ResourceImportItemIssue(path: url.path, reason: "Empty path"))
+                continue
+            }
             let importKey = ResourceImportDeduplication.importKey(
                 path: path,
                 scope: scope.rawValue,
                 workspaceId: scope == .workspace ? workspaceId : nil
             )
+            guard seenImportKeys.insert(importKey).inserted else {
+                skipped.append(ResourceImportItemIssue(path: path, reason: "Duplicate input"))
+                continue
+            }
 
             if let existing = resourcesByImportKey[importKey] {
                 if pinImported, !existing.isPinned {
@@ -240,7 +256,13 @@ struct ResourceImportService {
             }
 
             let type = Self.targetType(for: url)
-            let bookmarkData = try bookmarkService.makeBookmark(for: url)
+            let bookmarkData: Data
+            do {
+                bookmarkData = try bookmarkService.makeBookmark(for: url)
+            } catch {
+                failed.append(ResourceImportItemIssue(path: path, reason: error.localizedDescription))
+                continue
+            }
             let originalName = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
             let resource = ResourcePinModel(
                 workspaceId: scope == .workspace ? workspaceId : nil,
@@ -264,11 +286,19 @@ struct ResourceImportService {
         if saveChanges {
             try context.save()
         }
-        return ResourceImportSummary(resources: imported, insertedCount: insertedCount, reusedCount: reusedCount)
+        return ResourceImportSummary(
+            resources: imported,
+            insertedCount: insertedCount,
+            reusedCount: reusedCount,
+            skipped: skipped,
+            failed: failed,
+            truncatedCount: truncatedCount,
+            maximumInputCount: maximumInputCount
+        )
     }
 
     static func normalizedPath(_ path: String) -> String {
-        (path as NSString).standardizingPath
+        ResourceIdentity.normalizedPath(path)
     }
 
     static func targetType(for url: URL) -> ResourceTargetType {
@@ -352,7 +382,7 @@ struct AliasService {
 }
 
 struct ImportExportService {
-    static let schemaVersion = 1
+    static let schemaVersion = 2
 
     func makeManifest(
         workspaces: [WorkspaceModel],
@@ -361,7 +391,9 @@ struct ImportExportService {
         canvases: [CanvasModel],
         nodes: [CanvasNodeModel],
         edges: [CanvasEdgeModel],
-        aliases: [FinderAliasRecordModel]
+        aliases: [FinderAliasRecordModel],
+        todoGroups: [WorkspaceTodoGroupModel],
+        todos: [WorkspaceTodoModel]
     ) -> ExportManifest {
         ExportManifest(
             schemaVersion: Self.schemaVersion,
@@ -386,13 +418,19 @@ struct ImportExportService {
             },
             aliases: aliases.map {
                 AliasRecord(id: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId, aliasDisplayPath: $0.aliasDisplayPath, status: $0.statusRaw, createdAt: $0.createdAt)
+            },
+            todoGroups: todoGroups.map {
+                TodoGroupRecord(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, isPinned: $0.isPinned, sortIndex: $0.sortIndex, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
+            },
+            todos: todos.map {
+                TodoRecord(id: $0.id, workspaceId: $0.workspaceId, groupId: $0.groupId, title: $0.title, details: $0.details, isCompleted: $0.isCompleted, isPinned: $0.isPinned, sortIndex: $0.sortIndex, createdAt: $0.createdAt, updatedAt: $0.updatedAt, completedAt: $0.completedAt, dueAt: $0.dueAt, linkedResourceId: $0.linkedResourceId)
             }
         )
     }
 
     func decodeManifest(from data: Data) throws -> ExportManifest {
         let manifest = try JSONDecoder.minddesk.decode(ExportManifest.self, from: data)
-        guard manifest.schemaVersion == Self.schemaVersion else {
+        guard manifest.schemaVersion == 1 || manifest.schemaVersion == Self.schemaVersion else {
             throw WorkbenchError.unsupportedManifestVersion(manifest.schemaVersion)
         }
         return manifest

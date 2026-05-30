@@ -8,7 +8,10 @@
 - [ ] 已有数据可正常打开，工作区、资源、snippet、canvas 节点都保留。
 - [ ] SwiftData store 打不开时显示可读错误页，不直接崩溃。
 - [ ] 导入 manifest 后资源、snippet、canvas 节点和连接关系可恢复。
+- [ ] 导入 v2 manifest 后 Todo Group、任务详情、DDL、完成状态和关联资源可恢复。
+- [ ] 导入 v1 manifest 时缺失 Todo 字段不会阻塞导入，Todo 默认为空集合。
 - [ ] 导出 manifest 后 JSON 可重新导入。
+- [ ] Global Library Only 导出不包含 Workspace、Canvas、Todo Group 或 Todo。
 
 ## 侧边栏与导航
 
@@ -27,6 +30,8 @@
 - [ ] 可 pin、unpin、重命名显示名、复制路径、查看详情。
 - [ ] 双击文件夹在 Finder 打开；双击文件在 Finder 中定位。
 - [ ] 删除资源只删除 MindDesk metadata，不删除 Finder 原始文件。
+- [ ] 删除 MindDesk 资源后，同资源的 Canvas 卡片被清理，Todo linked resource 被置空，Snippet 工作目录被置空，相关 Finder alias 标记为 missing。
+- [ ] 批量导入资源时，重复输入、bookmark 失败和超过 200 项的输入会在状态中显示 skipped / failed / over-limit 结果。
 
 ## Snippet Library
 
@@ -55,6 +60,7 @@
 - [ ] 卡片上的复制、详情、删除按钮可点击，并有按下反馈。
 - [ ] 只有点击卡片内的 info 按钮才打开 Inspector。
 - [ ] 双击资源卡片可打开 Finder。
+- [ ] 把已在当前 Canvas 上存在的资源再次拖入时，不会重复创建资源卡片，并显示 skipped 反馈。
 - [ ] Note 卡片可双击重命名，正文可编辑。
 - [ ] 文件/文件夹卡片底部 Note 可展开、编辑、滚动。
 
@@ -116,13 +122,20 @@
 - [ ] 启动备份先写隐藏 incomplete 目录，完整复制后才发布为时间戳备份。
 - [ ] 没有 `.complete` marker 但目录名合法且包含 `MindDesk.store` 的旧备份仍可作为恢复候选。
 - [ ] 主 store 打不开时，当前 SQLite 文件集被移动到 `Quarantine/`，再按时间顺序从最新可验证备份候选恢复。
+- [ ] 如果恢复备份发布失败，已移动到 `Quarantine/` 的原 SQLite 文件集会尽量回滚回原位置。
 
 ## 发布前命令
 
 - [ ] `swift test`
+- [ ] `swift build`
+- [ ] `swift build -c release`
 - [ ] `git diff --check`
 - [ ] `./script/build_and_run.sh --verify`
+- [ ] `./script/verify_release_metadata.sh`
+- [ ] `./script/package_release.sh --mode adhoc --allow-adhoc`
+- [ ] `bash -n script/build_and_run.sh`
 - [ ] `bash -n script/package_release.sh`
+- [ ] `bash -n script/verify_release_metadata.sh`
 - [ ] `plutil -lint script/release.entitlements`
 - [ ] GitHub Actions CI 通过。
 - [ ] 正式发布必须用 `./script/package_release.sh --mode notarized ...` 生成已签名、notarized、stapled 的 DMG。

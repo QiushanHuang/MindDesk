@@ -1049,18 +1049,38 @@ struct ContentView: View {
 
     private func removeResourceFromLibrary(_ resource: ResourcePinModel) {
         do {
-            let resourceNodeIds = Set(nodes.filter { $0.objectType == "resourcePin" && $0.objectId == resource.id }.map(\.id))
+            let index = ReferenceIndex(
+                canvasObjects: canvasObjectReferences(),
+                todoLinks: todos.map {
+                    TodoResourceReference(todoId: $0.id, workspaceId: $0.workspaceId, linkedResourceId: $0.linkedResourceId)
+                },
+                snippetWorkingDirectories: snippets.map {
+                    SnippetWorkingDirectoryReference(snippetId: $0.id, resourceId: $0.workingDirectoryRef)
+                },
+                aliases: aliases.map {
+                    AliasObjectReference(aliasId: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId)
+                }
+            )
+            let cleanup = CleanupPlan.deletingResource(resourceId: resource.id, index: index)
+            let resourceNodeIds = Set(cleanup.canvasNodeIdsToDelete)
+            let todoIdsClearingLinkedResource = Set(cleanup.todoIdsClearingLinkedResource)
+            let snippetIdsClearingWorkingDirectory = Set(cleanup.snippetIdsClearingWorkingDirectory)
+            let aliasIdsMarkingMissing = Set(cleanup.aliasIdsMarkingMissing)
             for edge in edges where resourceNodeIds.contains(edge.sourceNodeId) || resourceNodeIds.contains(edge.targetNodeId) {
                 modelContext.delete(edge)
             }
             for node in nodes where resourceNodeIds.contains(node.id) {
                 modelContext.delete(node)
             }
-            for snippet in snippets where snippet.workingDirectoryRef == resource.id {
+            for todo in todos where todoIdsClearingLinkedResource.contains(todo.id) {
+                todo.linkedResourceId = nil
+                todo.updatedAt = .now
+            }
+            for snippet in snippets where snippetIdsClearingWorkingDirectory.contains(snippet.id) {
                 snippet.workingDirectoryRef = nil
                 snippet.updatedAt = .now
             }
-            for alias in aliases where alias.sourceObjectType == "resourcePin" && alias.sourceObjectId == resource.id {
+            for alias in aliases where aliasIdsMarkingMissing.contains(alias.id) {
                 alias.status = .missing
             }
             modelContext.delete(resource)
@@ -1073,6 +1093,19 @@ struct ContentView: View {
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
+        }
+    }
+
+    private func canvasObjectReferences() -> [CanvasObjectReference] {
+        let workspaceIdByCanvasId = Dictionary(uniqueKeysWithValues: canvases.map { ($0.id, $0.workspaceId) })
+        return nodes.map {
+            CanvasObjectReference(
+                nodeId: $0.id,
+                canvasId: $0.canvasId,
+                workspaceId: workspaceIdByCanvasId[$0.canvasId] ?? "",
+                objectType: $0.objectType,
+                objectId: $0.objectId
+            )
         }
     }
 
@@ -1111,7 +1144,9 @@ struct ContentView: View {
                 canvases: canvases,
                 nodes: nodes,
                 edges: edges,
-                aliases: aliases
+                aliases: aliases,
+                todoGroups: todoGroups,
+                todos: todos
             )
             let scopedManifest = ExportManifestScopePolicy.manifest(
                 from: baseManifest,
@@ -1351,6 +1386,40 @@ struct ContentView: View {
         for record in manifest.aliases {
             let mappedSourceId = resourceMap[record.sourceObjectId] ?? snippetMap[record.sourceObjectId] ?? record.sourceObjectId
             modelContext.insert(FinderAliasRecordModel(sourceObjectType: record.sourceObjectType, sourceObjectId: mappedSourceId, aliasDisplayPath: record.aliasDisplayPath, status: AliasStatus(rawValue: record.status) ?? .missing, createdAt: record.createdAt))
+        }
+
+        var todoGroupMap: [String: String] = [:]
+        for record in manifest.todoGroups {
+            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
+            let group = WorkspaceTodoGroupModel(
+                workspaceId: workspaceId,
+                title: record.title,
+                isPinned: record.isPinned,
+                sortIndex: record.sortIndex,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt
+            )
+            todoGroupMap[record.id] = group.id
+            modelContext.insert(group)
+        }
+
+        for record in manifest.todos {
+            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
+            let todo = WorkspaceTodoModel(
+                workspaceId: workspaceId,
+                groupId: record.groupId.flatMap { todoGroupMap[$0] },
+                title: record.title,
+                details: record.details,
+                isCompleted: record.isCompleted,
+                isPinned: record.isPinned,
+                sortIndex: record.sortIndex,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
+                completedAt: record.completedAt,
+                dueAt: record.dueAt,
+                linkedResourceId: record.linkedResourceId.flatMap { resourceMap[$0] }
+            )
+            modelContext.insert(todo)
         }
 
         try modelContext.save()

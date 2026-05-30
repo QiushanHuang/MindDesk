@@ -1403,6 +1403,47 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.edges.first?.style, "dashed")
     }
 
+    func testManifestV2RoundTripKeepsTodoGroupsAndTasks() throws {
+        let due = Date(timeIntervalSince1970: 1_900_000_000)
+        let completed = Date(timeIntervalSince1970: 1_800_000_000)
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: "workspace", title: "Paper", targetType: "file", displayPath: "/tmp/Paper.pdf", lastResolvedPath: "/tmp/Paper.pdf", note: "", tags: [], scope: "workspace", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "workspace", title: "Writing", isPinned: true, sortIndex: 2, createdAt: .distantPast, updatedAt: .distantPast)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "group", title: "Revise intro", details: "Tighten claims", isCompleted: true, isPinned: true, sortIndex: 4, createdAt: .distantPast, updatedAt: .distantPast, completedAt: completed, dueAt: due, linkedResourceId: "resource")
+            ]
+        )
+
+        let data = try JSONEncoder.minddesk.encode(manifest)
+        let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: data)
+
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.todoGroups.first?.title, "Writing")
+        XCTAssertEqual(decoded.todoGroups.first?.isPinned, true)
+        XCTAssertEqual(decoded.todos.first?.title, "Revise intro")
+        XCTAssertEqual(decoded.todos.first?.details, "Tighten claims")
+        XCTAssertEqual(decoded.todos.first?.isCompleted, true)
+        XCTAssertEqual(decoded.todos.first?.isPinned, true)
+        XCTAssertEqual(decoded.todos.first?.groupId, "group")
+        XCTAssertEqual(decoded.todos.first?.linkedResourceId, "resource")
+        XCTAssertEqual(decoded.todos.first?.dueAt, due)
+        XCTAssertEqual(decoded.todos.first?.completedAt, completed)
+    }
+
     func testLegacyManifestDefaultsNewCanvasFields() throws {
         let json = """
         {
@@ -1427,6 +1468,8 @@ final class CoreBehaviorTests: XCTestCase {
         """
 
         let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.todoGroups, [])
+        XCTAssertEqual(decoded.todos, [])
         XCTAssertEqual(decoded.canvases.first?.viewportX, 0)
         XCTAssertEqual(decoded.canvases.first?.viewportY, 0)
         XCTAssertEqual(decoded.canvases.first?.zoom, 1)
@@ -1438,6 +1481,36 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.canvases.first?.animationsEnabled, true)
         XCTAssertEqual(decoded.nodes.first?.zIndex, 0)
         XCTAssertEqual(decoded.edges.first?.targetArrow, "arrow")
+    }
+
+    func testManifestScopePolicyDropsTodosForGlobalLibraryOnly() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Shared", targetType: "folder", displayPath: "/tmp/Shared", lastResolvedPath: "/tmp/Shared", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "workspace", title: "Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "group", title: "Task", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: "resource")
+            ]
+        )
+
+        let scoped = ExportManifestScopePolicy.manifest(from: manifest, scope: .globalLibraryOnly)
+
+        XCTAssertEqual(scoped.resources.map(\.id), ["resource"])
+        XCTAssertTrue(scoped.todoGroups.isEmpty)
+        XCTAssertTrue(scoped.todos.isEmpty)
     }
 
     func testManifestImportValidationReportsBrokenReferences() {
@@ -1470,6 +1543,70 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Canvas canvas references missing workspace missing-workspace."))
         XCTAssertTrue(issues.contains("Node node references missing canvas missing-canvas."))
         XCTAssertTrue(issues.contains("Edge edge references missing source node missing-source."))
+    }
+
+    func testManifestImportValidationReportsBrokenTodoReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "missing-workspace", title: "Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "missing-group", title: "Task", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: "missing-resource"),
+                TodoRecord(id: "orphan", workspaceId: "missing-workspace", groupId: nil, title: "Orphan", details: "", isCompleted: false, isPinned: false, sortIndex: 1, linkedResourceId: nil)
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Todo group group references missing workspace missing-workspace."))
+        XCTAssertTrue(issues.contains("Todo todo references missing group missing-group."))
+        XCTAssertTrue(issues.contains("Todo todo references missing linked resource missing-resource."))
+        XCTAssertTrue(issues.contains("Todo orphan references missing workspace missing-workspace."))
+    }
+
+    func testManifestImportValidationRejectsCrossWorkspaceTodoReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace-a", title: "A", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil),
+                WorkspaceRecord(id: "workspace-b", title: "B", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource-b", workspaceId: "workspace-b", title: "B File", targetType: "file", displayPath: "/tmp/b", lastResolvedPath: "/tmp/b", note: "", tags: [], scope: "workspace", status: "available"),
+                ResourceRecord(id: "global-resource", workspaceId: nil, title: "Global", targetType: "file", displayPath: "/tmp/global", lastResolvedPath: "/tmp/global", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group-b", workspaceId: "workspace-b", title: "B Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "cross-group", workspaceId: "workspace-a", groupId: "group-b", title: "Cross Group", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: nil),
+                TodoRecord(id: "cross-resource", workspaceId: "workspace-a", groupId: nil, title: "Cross Resource", details: "", isCompleted: false, isPinned: false, sortIndex: 1, linkedResourceId: "resource-b"),
+                TodoRecord(id: "global-link", workspaceId: "workspace-a", groupId: nil, title: "Global Link", details: "", isCompleted: false, isPinned: false, sortIndex: 2, linkedResourceId: "global-resource")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Todo cross-group references group group-b from another workspace."))
+        XCTAssertTrue(issues.contains("Todo cross-resource references linked resource resource-b from another workspace."))
+        XCTAssertFalse(issues.contains("Todo global-link references linked resource global-resource from another workspace."))
     }
 
     func testManifestImportValidationRejectsWorkspaceScopedResourcesAndSnippetsWithoutWorkspaceID() {
@@ -1688,6 +1825,30 @@ final class CoreBehaviorTests: XCTestCase {
         )
 
         XCTAssertTrue(ManifestImportValidation.issues(in: manifest).isEmpty)
+    }
+
+    func testManifestImportValidationAllowsDefaultResetAccentColor() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Node", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 0, y: 0, width: 180, height: 120, accentColor: "")
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        XCTAssertFalse(
+            ManifestImportValidation.issues(in: manifest).contains("Node node has unsupported accent color .")
+        )
     }
 
     func testManifestImportValidationRejectsInvalidEnumsAndUnsafeGeometry() {
@@ -2013,6 +2174,76 @@ final class CoreBehaviorTests: XCTestCase {
             ),
             "global"
         )
+    }
+
+    func testResourceIdentityNormalizesPathsAndClassifiesKinds() {
+        XCTAssertEqual(ResourceIdentity.normalizedPath("/tmp/Project/../Project/Plan.md"), "/tmp/Project/Plan.md")
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: true, isPackage: false, isSymbolicLink: false, isAliasFile: false), .folder)
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: true, isPackage: true, isSymbolicLink: false, isAliasFile: false), .package)
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: false, isPackage: false, isSymbolicLink: true, isAliasFile: false), .symlink)
+        XCTAssertEqual(ResourceKind.resolved(exists: false, isDirectory: false, isPackage: false, isSymbolicLink: false, isAliasFile: false), .unavailable)
+    }
+
+    func testReferenceIndexBuildsWhereUsedAndCleanupPlanForResource() {
+        let index = ReferenceIndex(
+            workspaceResources: [
+                WorkspaceResourceReference(resourceId: "resource", workspaceId: "workspace")
+            ],
+            canvasObjects: [
+                CanvasObjectReference(nodeId: "node", canvasId: "canvas", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource")
+            ],
+            todoLinks: [
+                TodoResourceReference(todoId: "todo", workspaceId: "workspace", linkedResourceId: "resource")
+            ],
+            snippetWorkingDirectories: [
+                SnippetWorkingDirectoryReference(snippetId: "snippet", resourceId: "resource")
+            ],
+            aliases: [
+                AliasObjectReference(aliasId: "alias", sourceObjectType: "resourcePin", sourceObjectId: "resource")
+            ]
+        )
+
+        let usages = index.resourceUsages(resourceId: "resource")
+        let plan = CleanupPlan.deletingResource(resourceId: "resource", index: index)
+
+        XCTAssertEqual(usages.map(\.kind), [.workspaceResource, .canvasNode, .todo, .snippetWorkingDirectory, .alias])
+        XCTAssertEqual(plan.canvasNodeIdsToDelete, ["node"])
+        XCTAssertEqual(plan.todoIdsClearingLinkedResource, ["todo"])
+        XCTAssertEqual(plan.snippetIdsClearingWorkingDirectory, ["snippet"])
+        XCTAssertEqual(plan.aliasIdsMarkingMissing, ["alias"])
+    }
+
+    func testCanvasDropPolicySkipsExistingResourceNodesOnSameCanvas() {
+        let plan = CanvasResourceDropPolicy.plan(
+            resourceIds: ["resource-a", "resource-b", "resource-a"],
+            canvasId: "canvas",
+            existingNodes: [
+                CanvasObjectReference(nodeId: "existing", canvasId: "canvas", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource-a"),
+                CanvasObjectReference(nodeId: "other-canvas", canvasId: "other", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource-b")
+            ]
+        )
+
+        XCTAssertEqual(plan.resourceIdsToCreateNodes, ["resource-b"])
+        XCTAssertEqual(plan.skippedExistingResourceIds, ["resource-a"])
+        XCTAssertEqual(plan.skippedDuplicateInputResourceIds, ["resource-a"])
+    }
+
+    func testResourceImportBatchSummaryReportsPerItemOutcomesAndLimit() {
+        let summary = ResourceImportBatchSummary(
+            insertedCount: 1,
+            reusedCount: 2,
+            skipped: [
+                ResourceImportItemIssue(path: "/tmp/skipped", reason: "Already on this canvas")
+            ],
+            failed: [
+                ResourceImportItemIssue(path: "/tmp/failed", reason: "Bookmark failed")
+            ],
+            truncatedCount: 3,
+            maximumInputCount: 200
+        )
+
+        XCTAssertEqual(summary.importedCount, 3)
+        XCTAssertEqual(summary.statusText, "Imported 1, reused 2, skipped 1, failed 1. 3 items were not processed because the limit is 200.")
     }
 
     func testSnippetLibraryFilteringShowsGlobalAndCurrentWorkspaceOnly() {
