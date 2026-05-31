@@ -226,7 +226,11 @@ struct ContentView: View {
             }
             .navigationTitle(detailNavigationTitle)
             .onAppear {
-                SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                do {
+                    try SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                } catch {
+                    setStatus(error.localizedDescription)
+                }
                 applyStartupDestinationIfNeeded()
             }
             .onChange(of: workspaces.map(\.id)) { _, _ in
@@ -739,6 +743,8 @@ struct ContentView: View {
 
     private func saveWorkspaceRename(_ workspace: WorkspaceModel) {
         do {
+            let trimmedTitle = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            workspace.title = trimmedTitle.isEmpty ? "Untitled Workspace" : trimmedTitle
             workspace.updatedAt = .now
             try modelContext.save()
             setStatus("Renamed workspace: \(workspace.title)")

@@ -461,7 +461,7 @@ enum SeedData {
         snippets: [SnippetModel],
         canvases: [CanvasModel],
         nodes: [CanvasNodeModel]
-    ) {
+    ) throws {
         guard workspaces.isEmpty, snippets.isEmpty, resources.isEmpty, canvases.isEmpty, nodes.isEmpty else { return }
 
         let workspace = WorkspaceModel(title: "Qiushan Studio", details: "Personal desktop, files, commands, and prompt workbench.", sortIndex: 0)
@@ -475,6 +475,6 @@ enum SeedData {
         context.insert(prompt)
         context.insert(command)
         context.insert(node)
-        try? context.save()
+        try context.save()
     }
 }

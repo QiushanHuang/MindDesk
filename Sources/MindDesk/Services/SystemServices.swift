@@ -14,6 +14,7 @@ enum WorkbenchError: LocalizedError {
     case resourceTypeMismatch(expected: String, selected: String)
     case invalidManifestReferences(String)
     case invalidWorkingDirectory(String)
+    case missingWorkspaceIdForWorkspaceScope
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +38,8 @@ enum WorkbenchError: LocalizedError {
             return message
         case .invalidWorkingDirectory(let message):
             return message
+        case .missingWorkspaceIdForWorkspaceScope:
+            return "Workspace-scoped resource import requires a workspace ID."
         }
     }
 }
@@ -210,6 +213,17 @@ struct ResourceImportService {
         pinImported: Bool,
         saveChanges: Bool = true
     ) throws -> ResourceImportSummary {
+        let effectiveWorkspaceId: String?
+        if scope == .workspace {
+            let trimmedWorkspaceId = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let trimmedWorkspaceId, !trimmedWorkspaceId.isEmpty else {
+                throw WorkbenchError.missingWorkspaceIdForWorkspaceScope
+            }
+            effectiveWorkspaceId = trimmedWorkspaceId
+        } else {
+            effectiveWorkspaceId = nil
+        }
+
         let maximumInputCount = 200
         let cleanURLs = Array(urls.prefix(maximumInputCount))
         let truncatedCount = max(0, urls.count - maximumInputCount)
@@ -237,7 +251,7 @@ struct ResourceImportService {
             let importKey = ResourceImportDeduplication.importKey(
                 path: path,
                 scope: scope.rawValue,
-                workspaceId: scope == .workspace ? workspaceId : nil
+                workspaceId: effectiveWorkspaceId
             )
             guard seenImportKeys.insert(importKey).inserted else {
                 skipped.append(ResourceImportItemIssue(path: path, reason: "Duplicate input"))
@@ -265,7 +279,7 @@ struct ResourceImportService {
             }
             let originalName = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
             let resource = ResourcePinModel(
-                workspaceId: scope == .workspace ? workspaceId : nil,
+                workspaceId: effectiveWorkspaceId,
                 title: originalName,
                 targetType: type,
                 displayPath: url.path,
