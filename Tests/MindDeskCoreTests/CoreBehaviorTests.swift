@@ -459,7 +459,7 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(CanvasScrollZoomDirection.scrollDownZoomsIn.rawValue, forKey: AppPreferenceKeys.canvasScrollZoomDirection)
         defaults.set(250.0, forKey: AppPreferenceKeys.canvasDefaultZoomPercent)
         defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
-        defaults.set(false, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
+        defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen)
         defaults.set(0.7, forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen)
@@ -475,10 +475,30 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasScrollZoomDirection), CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue)
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.canvasDefaultZoomPercent), CanvasZoomBaseline.defaultPercent, accuracy: 0.0001)
         XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.canvasConnectSingleShot))
-        XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
+        XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen))
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio), TodoBoardColumnSplit.defaultRatio, accuracy: 0.0001)
         XCTAssertNil(defaults.object(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen))
+    }
+
+    func testWorkspaceRecencyOrderingUsesLastOpenedBeforeSidebarOrder() {
+        let old = Date(timeIntervalSince1970: 100)
+        let recent = Date(timeIntervalSince1970: 300)
+        let fallbackUpdated = Date(timeIntervalSince1970: 200)
+        let records = [
+            WorkspaceRecencyRecord(id: "pinned-old", lastOpenedAt: old, updatedAt: Date(timeIntervalSince1970: 900)),
+            WorkspaceRecencyRecord(id: "recent", lastOpenedAt: recent, updatedAt: old),
+            WorkspaceRecencyRecord(id: "fallback", lastOpenedAt: nil, updatedAt: fallbackUpdated)
+        ]
+
+        XCTAssertEqual(
+            WorkspaceRecencyOrdering.recent(records, limit: 3).map(\.id),
+            ["recent", "fallback", "pinned-old"]
+        )
+        XCTAssertEqual(
+            WorkspaceRecencyOrdering.recent(records, limit: 2).map(\.id),
+            ["recent", "fallback"]
+        )
     }
 
     func testExportManifestUsageDatePolicyRemovesBehaviorDatesOnly() {
@@ -881,6 +901,110 @@ final class CoreBehaviorTests: XCTestCase {
         ))
     }
 
+    func testCanvasCardDetailInteractionPolicyKeepsPeerDetailsDuringSpatialDragOnly() {
+        let sparseVisibleCount = 24
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: sparseVisibleCount
+        ))
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: true,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: sparseVisibleCount
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: sparseVisibleCount,
+            isInteracting: CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+                isNodeDragging: true,
+                isViewportMoving: false,
+                isZooming: false,
+                isResizing: false,
+                isEdgeControlDragging: false,
+                visibleCardCount: sparseVisibleCount
+            ),
+            isSelected: false,
+            isEditing: false
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: sparseVisibleCount,
+            isInteracting: CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+                isNodeDragging: false,
+                isViewportMoving: true,
+                isZooming: false,
+                isResizing: false,
+                isEdgeControlDragging: false,
+                visibleCardCount: sparseVisibleCount
+            ),
+            isSelected: false,
+            isEditing: false
+        ))
+    }
+
+    func testCanvasCardDetailInteractionPolicyReducesDenseSpatialInteractions() {
+        let boundary = CanvasPerformancePolicy.maximumRichSpatialInteractionCardCount
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary + 1
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: true,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary + 1
+        ))
+    }
+
+    func testCanvasCardDetailInteractionPolicyStillReducesDetailsForGeometryWork() {
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: true,
+            isEdgeControlDragging: false,
+            visibleCardCount: 1
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: false,
+            isZooming: true,
+            isResizing: false,
+            isEdgeControlDragging: true,
+            visibleCardCount: 1
+        ))
+    }
+
+    func testCanvasScrollWheelEventPolicyPassesThroughHorizontalAndTinyEvents() {
+        XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 12))
+        XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 3, deltaY: 12))
+        XCTAssertFalse(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 24, deltaY: 5))
+        XCTAssertFalse(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 0.005))
+    }
+
     func testCanvasResizeHandlePolicyAvoidsDensePassiveHandles() {
         XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
             isSelected: true,
@@ -999,6 +1123,34 @@ final class CoreBehaviorTests: XCTestCase {
             edgeCount: 24,
             zoom: 0.29
         ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: true,
+            isDragging: true,
+            edgeCount: CanvasPerformancePolicy.maximumPassiveEdgeControlHandleCount + 1,
+            zoom: 0.1
+        ))
+    }
+
+    func testCanvasNodeStateReconciliationDropsMissingNodes() {
+        let existing: Set<String> = ["a", "c"]
+
+        XCTAssertEqual(
+            CanvasNodeStateReconciliation.validIDs(["a", "b", "c"], existingNodeIDs: existing),
+            ["a", "c"]
+        )
+        XCTAssertNil(CanvasNodeStateReconciliation.validOptionalID("b", existingNodeIDs: existing))
+        XCTAssertEqual(CanvasNodeStateReconciliation.validOptionalID("c", existingNodeIDs: existing), "c")
+        XCTAssertEqual(
+            CanvasNodeStateReconciliation.filteredKeys(
+                ["a": 1, "b": 2],
+                existingNodeIDs: existing
+            ).keys.sorted(),
+            ["a"]
+        )
     }
 
     func testCanvasActiveEdgeRenderPolicyLimitsEdgesDuringNodeMotion() {
@@ -1607,6 +1759,47 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Todo cross-group references group group-b from another workspace."))
         XCTAssertTrue(issues.contains("Todo cross-resource references linked resource resource-b from another workspace."))
         XCTAssertFalse(issues.contains("Todo global-link references linked resource global-resource from another workspace."))
+    }
+
+    func testManifestImportValidationRejectsCrossWorkspaceSnippetAndCanvasResourceReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace-a", title: "A", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil),
+                WorkspaceRecord(id: "workspace-b", title: "B", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource-b", workspaceId: "workspace-b", title: "B Folder", targetType: "folder", displayPath: "/tmp/b", lastResolvedPath: "/tmp/b", note: "", tags: [], scope: "workspace", status: "available"),
+                ResourceRecord(id: "global-resource", workspaceId: nil, title: "Global Folder", targetType: "folder", displayPath: "/tmp/global", lastResolvedPath: "/tmp/global", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "cross-snippet", workspaceId: "workspace-a", title: "Cross", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: "resource-b", requiresConfirmation: true),
+                SnippetRecord(id: "global-snippet", workspaceId: "workspace-a", title: "Global OK", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: "global-resource", requiresConfirmation: true),
+                SnippetRecord(id: "snippet-b", workspaceId: "workspace-b", title: "B Snippet", kind: "note", body: "B", details: "", tags: [], scope: "workspace", workingDirectoryRef: nil, requiresConfirmation: true),
+                SnippetRecord(id: "shared-snippet", workspaceId: nil, title: "Shared Snippet", kind: "note", body: "Shared", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: true)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas-a", workspaceId: "workspace-a", title: "A")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "cross-resource-node", canvasId: "canvas-a", title: "Cross", body: "", nodeType: "resource", objectType: "resourcePin", objectId: "resource-b", x: 0, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "global-resource-node", canvasId: "canvas-a", title: "Global", body: "", nodeType: "resource", objectType: "resourcePin", objectId: "global-resource", x: 220, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "cross-snippet-node", canvasId: "canvas-a", title: "Cross Snippet", body: "", nodeType: "snippet", objectType: "snippet", objectId: "snippet-b", x: 440, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "global-snippet-node", canvasId: "canvas-a", title: "Shared Snippet", body: "", nodeType: "snippet", objectType: "snippet", objectId: "shared-snippet", x: 660, y: 0, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Snippet cross-snippet references working directory resource resource-b from another workspace."))
+        XCTAssertTrue(issues.contains("Node cross-resource-node references resource resource-b from another workspace."))
+        XCTAssertTrue(issues.contains("Node cross-snippet-node references snippet snippet-b from another workspace."))
+        XCTAssertFalse(issues.contains("Snippet global-snippet references working directory resource global-resource from another workspace."))
+        XCTAssertFalse(issues.contains("Node global-resource-node references resource global-resource from another workspace."))
+        XCTAssertFalse(issues.contains("Node global-snippet-node references snippet shared-snippet from another workspace."))
     }
 
     func testManifestImportValidationRejectsWorkspaceScopedResourcesAndSnippetsWithoutWorkspaceID() {
@@ -2842,6 +3035,13 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(CanvasResizeHandleGeometry.contains(center, in: hitRect))
     }
 
+    func testCanvasResizeHandleHitRectIsClampedForExtremeZoom() {
+        let center = CanvasEdgePoint(x: 200, y: 160)
+
+        XCTAssertEqual(CanvasResizeHandleGeometry.hitRect(center: center, zoom: 0.12).width, 30, accuracy: 0.0001)
+        XCTAssertEqual(CanvasResizeHandleGeometry.hitRect(center: center, zoom: 4.0).width, 56, accuracy: 0.0001)
+    }
+
     func testCanvasEdgeControlPointAndHandleScaleWithZoom() {
         let control = CanvasViewportProjection.screenPoint(
             x: 300,
@@ -2987,6 +3187,32 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(resource.height, 240)
         XCTAssertEqual(note.width, 180)
         XCTAssertEqual(note.height, 140)
+    }
+
+    func testCanvasNodeSizePolicyRejectsNonFiniteAndExtremeStoredSizes() {
+        let fallback = CanvasNodeSizePolicy.size(
+            kind: "resource",
+            storedWidth: .infinity,
+            storedHeight: .nan,
+            defaultWidth: 214,
+            defaultHeight: 132,
+            minimumWidth: 180,
+            minimumHeight: 112
+        )
+        let huge = CanvasNodeSizePolicy.size(
+            kind: "resource",
+            storedWidth: 99_999,
+            storedHeight: 80_000,
+            defaultWidth: 214,
+            defaultHeight: 132,
+            minimumWidth: 180,
+            minimumHeight: 112
+        )
+
+        XCTAssertEqual(fallback.width, 214)
+        XCTAssertEqual(fallback.height, 132)
+        XCTAssertEqual(huge.width, CanvasNodeSizePolicy.maximumDimension)
+        XCTAssertEqual(huge.height, CanvasNodeSizePolicy.maximumDimension)
     }
 
     func testCanvasCardTitleLayoutKeepsNoteTitleBoxHalfResourceHeight() {

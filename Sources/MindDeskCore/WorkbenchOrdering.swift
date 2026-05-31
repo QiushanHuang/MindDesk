@@ -90,6 +90,32 @@ public enum WorkspaceSidebarOrdering {
     }
 }
 
+public struct WorkspaceRecencyRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var lastOpenedAt: Date?
+    public var updatedAt: Date
+
+    public init(id: String, lastOpenedAt: Date?, updatedAt: Date) {
+        self.id = id
+        self.lastOpenedAt = lastOpenedAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public enum WorkspaceRecencyOrdering {
+    public static func recent(_ records: [WorkspaceRecencyRecord], limit: Int) -> [WorkspaceRecencyRecord] {
+        guard limit > 0 else { return [] }
+        return Array(records.sorted { lhs, rhs in
+            let lhsDate = lhs.lastOpenedAt ?? lhs.updatedAt
+            let rhsDate = rhs.lastOpenedAt ?? rhs.updatedAt
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
+            return lhs.id < rhs.id
+        }.prefix(limit))
+    }
+}
+
 public struct WorkspaceDeletionCanvasRecord: Equatable, Identifiable, Sendable {
     public var id: String
     public var workspaceId: String
@@ -491,6 +517,8 @@ public struct CanvasNodeSize: Equatable, Sendable {
 }
 
 public enum CanvasNodeSizePolicy {
+    public static let maximumDimension = 5_000.0
+
     public static func size(
         kind _: String,
         storedWidth: Double,
@@ -500,12 +528,21 @@ public enum CanvasNodeSizePolicy {
         minimumWidth: Double,
         minimumHeight: Double
     ) -> CanvasNodeSize {
-        let widthBase = storedWidth > 0 ? storedWidth : defaultWidth
-        let heightBase = storedHeight > 0 ? storedHeight : defaultHeight
+        let safeMinimumWidth = positiveFinite(minimumWidth, fallback: 0)
+        let safeMinimumHeight = positiveFinite(minimumHeight, fallback: 0)
+        let safeDefaultWidth = positiveFinite(defaultWidth, fallback: safeMinimumWidth)
+        let safeDefaultHeight = positiveFinite(defaultHeight, fallback: safeMinimumHeight)
+        let widthBase = positiveFinite(storedWidth, fallback: safeDefaultWidth)
+        let heightBase = positiveFinite(storedHeight, fallback: safeDefaultHeight)
         return CanvasNodeSize(
-            width: max(widthBase, minimumWidth),
-            height: max(heightBase, minimumHeight)
+            width: min(max(widthBase, safeMinimumWidth), max(maximumDimension, safeMinimumWidth)),
+            height: min(max(heightBase, safeMinimumHeight), max(maximumDimension, safeMinimumHeight))
         )
+    }
+
+    private static func positiveFinite(_ value: Double, fallback: Double) -> Double {
+        guard value.isFinite, value > 0 else { return fallback }
+        return value
     }
 }
 
@@ -1349,6 +1386,8 @@ public enum CanvasEdgeControlHandleMetrics {
 public enum CanvasResizeHandleGeometry {
     public static let baseVisualSize = 22.0
     public static let basePadding = 6.0
+    public static let minimumHitSize = 30.0
+    public static let maximumHitSize = 56.0
 
     public static var baseInset: Double {
         basePadding + baseVisualSize / 2
@@ -1358,8 +1397,13 @@ public enum CanvasResizeHandleGeometry {
         baseVisualSize + basePadding * 2
     }
 
+    public static func hitSize(zoom: Double) -> Double {
+        let scale = zoom.isFinite ? max(zoom, 0.01) : 1
+        return min(maximumHitSize, max(minimumHitSize, baseHitSize * scale))
+    }
+
     public static func center(in rect: CanvasFrameRect, zoom: Double) -> CanvasEdgePoint {
-        let scale = max(zoom, 0.01)
+        let scale = zoom.isFinite ? max(zoom, 0.01) : 1
         let inset = baseInset * scale
         return CanvasEdgePoint(
             x: rect.x + rect.width - inset,
@@ -1368,7 +1412,7 @@ public enum CanvasResizeHandleGeometry {
     }
 
     public static func hitRect(center: CanvasEdgePoint, zoom: Double) -> CanvasFrameRect {
-        let size = baseHitSize * max(zoom, 0.01)
+        let size = hitSize(zoom: zoom)
         return CanvasFrameRect(
             id: "resize-handle",
             x: center.x - size / 2,

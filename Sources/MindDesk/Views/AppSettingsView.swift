@@ -19,7 +19,7 @@ struct AppSettingsView: View {
                 }
             WorkspaceTaskSettingsPane()
                 .tabItem {
-                    Label("Canvas Tasks", systemImage: "checklist")
+                    Label("Tasks", systemImage: "checklist")
                 }
             DataSettingsPane()
                 .tabItem {
@@ -181,7 +181,7 @@ private struct CanvasSettingsPane: View {
 
                 Stepper(value: $canvasDefaultZoomPercent, in: 35...500, step: 25) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("100% Display Calibration")
+                        Text("Canvas 100% Baseline")
                         Text("\(Int(canvasDefaultZoomPercent.rounded()))% actual zoom is shown as 100% in Canvas")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -190,7 +190,7 @@ private struct CanvasSettingsPane: View {
 
                 Toggle("Single-use Connect", isOn: $canvasConnectSingleShot)
 
-                SettingsHelpText("Display calibration applies to every Canvas scale label, Reset to 100%, and density-aware rendering thresholds. Single-use Connect returns to Select after one link; turn it off to keep building links.")
+                SettingsHelpText("The Canvas baseline applies to every scale label, Reset to 100%, new Canvas initial zoom, and density-aware rendering thresholds. Single-use Connect returns to Select after one link; turn it off to keep building links.")
             } header: {
                 Text("Canvas Interaction")
             }
@@ -221,9 +221,9 @@ private struct WorkspaceTaskSettingsPane: View {
                 Toggle("Open Task Panel By Default", isOn: $workspaceCanvasTodoPanelDefaultOpen)
                 Toggle("Show Done Column By Default", isOn: $workspaceCanvasTodoDoneColumnDefaultOpen)
 
-                SettingsHelpText("These options control the initial state each time a Workspace Canvas opens. Canvas task controls can still open or close the panel and Done column temporarily for the current view.")
+                SettingsHelpText("These options control the initial state each time a Workspace Canvas opens. Task controls can still open or close the panel and Done column temporarily for the current view.")
             } header: {
-                Text("Canvas Task Defaults")
+                Text("Task Defaults")
             }
         }
     }
@@ -297,7 +297,7 @@ private struct SettingsManualPane: View {
             )
             ManualSection(
                 title: "Canvas Defaults",
-                text: "Scroll zoom direction changes the wheel or vertical trackpad zoom feel. 100% Display Calibration changes the scale label, Reset to 100%, and density-aware Canvas rendering thresholds for all canvases without rewriting canvas data. Single-use Connect decides whether linking stops after one edge or continues from the target card."
+                text: "Scroll zoom direction changes the wheel or vertical trackpad zoom feel. Canvas 100% Baseline changes the scale label, Reset to 100%, new Canvas initial zoom, and density-aware Canvas rendering thresholds without rewriting canvas data. Single-use Connect decides whether linking stops after one edge or continues from the target card."
             )
             ManualSection(
                 title: "Canvas Tasks",

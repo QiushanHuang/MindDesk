@@ -185,8 +185,8 @@ struct WorkspaceTodoBoardView: View {
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear {
-            if let group = ensureDefaultGroup(), selectedGroupId == nil {
-                selectedGroupId = group.id
+            if selectedGroupId == nil {
+                selectedGroupId = orderedGroups.first?.id
             }
         }
         .onChange(of: focusedGroupRenameId) { oldValue, newValue in
@@ -843,9 +843,9 @@ private struct WorkspaceTodoDetailView: View {
 
             DatePicker("Created", selection: $createdAt, displayedComponents: [.date])
 
-            Toggle("Use DDL Date", isOn: $hasDueDate)
+            Toggle("Use Due Date", isOn: $hasDueDate)
             if hasDueDate {
-                DatePicker("DDL", selection: $dueAt, displayedComponents: [.date])
+                DatePicker("Due Date", selection: $dueAt, displayedComponents: [.date])
             }
 
             Picker("Linked Resource", selection: $linkedResourceId) {

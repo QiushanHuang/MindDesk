@@ -746,11 +746,17 @@ public enum ManifestImportValidation {
         let todoGroupWorkspaceById = Dictionary(manifest.todoGroups.map { ($0.id, $0.workspaceId) }, uniquingKeysWith: { first, _ in first })
         let nodeCanvasById = Dictionary(manifest.nodes.map { ($0.id, $0.canvasId) }, uniquingKeysWith: { first, _ in first })
         let nodeTypeById = Dictionary(manifest.nodes.map { ($0.id, $0.nodeType) }, uniquingKeysWith: { first, _ in first })
+        let canvasWorkspaceById = Dictionary(manifest.canvases.map { ($0.id, $0.workspaceId) }, uniquingKeysWith: { first, _ in first })
         let resourceTypeById = Dictionary(manifest.resources.map { ($0.id, $0.targetType) }, uniquingKeysWith: { first, _ in first })
         let resourceScopeById = Dictionary(manifest.resources.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
         let resourceWorkspaceById = Dictionary(manifest.resources.compactMap { resource -> (String, String)? in
             guard let workspaceId = resource.workspaceId else { return nil }
             return (resource.id, workspaceId)
+        }, uniquingKeysWith: { first, _ in first })
+        let snippetScopeById = Dictionary(manifest.snippets.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
+        let snippetWorkspaceById = Dictionary(manifest.snippets.compactMap { snippet -> (String, String)? in
+            guard let workspaceId = snippet.workspaceId else { return nil }
+            return (snippet.id, workspaceId)
         }, uniquingKeysWith: { first, _ in first })
         var issues: [String] = []
 
@@ -823,6 +829,10 @@ public enum ManifestImportValidation {
             } else if let resourceId = snippet.workingDirectoryRef,
                       resourceTypeById[resourceId] != "folder" {
                 issues.append("Snippet \(snippet.id) working directory \(resourceId) is not a folder resource.")
+            } else if let resourceId = snippet.workingDirectoryRef,
+                      resourceScopeById[resourceId] == "workspace",
+                      snippet.workspaceId == nil || resourceWorkspaceById[resourceId] != snippet.workspaceId {
+                issues.append("Snippet \(snippet.id) references working directory resource \(resourceId) from another workspace.")
             }
         }
 
@@ -895,6 +905,17 @@ public enum ManifestImportValidation {
                         workspaceIds: workspaceIds,
                         issues: &issues
                     )
+                    if objectType == "resourcePin",
+                       resourceScopeById[objectId] == "workspace",
+                       let canvasWorkspaceId = canvasWorkspaceById[node.canvasId],
+                       resourceWorkspaceById[objectId] != canvasWorkspaceId {
+                        issues.append("Node \(node.id) references resource \(objectId) from another workspace.")
+                    } else if objectType == "snippet",
+                              snippetScopeById[objectId] == "workspace",
+                              let canvasWorkspaceId = canvasWorkspaceById[node.canvasId],
+                              snippetWorkspaceById[objectId] != canvasWorkspaceId {
+                        issues.append("Node \(node.id) references snippet \(objectId) from another workspace.")
+                    }
                 }
             }
         }

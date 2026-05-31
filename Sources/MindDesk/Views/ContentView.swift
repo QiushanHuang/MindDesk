@@ -437,14 +437,16 @@ struct ContentView: View {
     }
 
     private var mostRecentWorkspace: WorkspaceModel? {
-        orderedWorkspaces.sorted {
-            let lhsDate = $0.lastOpenedAt ?? $0.updatedAt
-            let rhsDate = $1.lastOpenedAt ?? $1.updatedAt
-            if lhsDate != rhsDate {
-                return lhsDate > rhsDate
-            }
-            return $0.id < $1.id
-        }.first
+        recentWorkspaces.first
+    }
+
+    private var recentWorkspaces: [WorkspaceModel] {
+        let records = workspaces.map {
+            WorkspaceRecencyRecord(id: $0.id, lastOpenedAt: $0.lastOpenedAt, updatedAt: $0.updatedAt)
+        }
+        let orderedIDs = WorkspaceRecencyOrdering.recent(records, limit: 6).map(\.id)
+        let byID = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        return orderedIDs.compactMap { byID[$0] }
     }
 
     @ViewBuilder
@@ -452,7 +454,7 @@ struct ContentView: View {
         switch selection ?? .home {
         case .home:
             HomeView(
-                workspaces: orderedWorkspaces,
+                workspaces: recentWorkspaces,
                 resources: orderedResources.filter(\.isPinned),
                 snippets: snippets,
                 onSelectWorkspace: { selection = .workspace($0.id) },
@@ -2196,7 +2198,11 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    private var workspaceResources: [ResourcePinModel] {
+    private var currentWorkspaceResources: [ResourcePinModel] {
+        resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+    }
+
+    private var workspaceAvailableResources: [ResourcePinModel] {
         resources.filter { $0.scope == .global || $0.workspaceId == workspace.id }
     }
 
@@ -2252,14 +2258,14 @@ struct WorkspaceDetailView: View {
 
             switch tab {
             case "Resources":
-                ResourceListView(title: "Workspace Resources", resources: workspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
+                ResourceListView(title: "Workspace Resources", resources: currentWorkspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
             case "Snippets":
-                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
+                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
             default:
                 if let canvas = workspaceCanvas {
                     WorkspaceCanvasView(
                         canvas: canvas,
-                        resources: workspaceResources,
+                        resources: workspaceAvailableResources,
                         allResources: resources,
                         workspaces: workspaces,
                         snippets: workspaceSnippets,
@@ -2287,17 +2293,25 @@ struct WorkspaceDetailView: View {
         .onAppear {
             onCanvasTabActiveChange(tab == "Canvas")
             ensureCanvas()
-            workspace.lastOpenedAt = .now
-            workspace.updatedAt = .now
-            do {
-                try modelContext.save()
-            } catch {
-                modelContext.rollback()
-                onStatus(error.localizedDescription)
-            }
+            markWorkspaceOpened()
+        }
+        .onChange(of: workspace.id) { _, _ in
+            onCanvasTabActiveChange(tab == "Canvas")
+            ensureCanvas()
+            markWorkspaceOpened()
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue == "Canvas")
+        }
+    }
+
+    private func markWorkspaceOpened() {
+        workspace.lastOpenedAt = .now
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            onStatus(error.localizedDescription)
         }
     }
 
