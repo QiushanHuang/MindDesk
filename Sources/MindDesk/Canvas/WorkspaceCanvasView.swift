@@ -2115,52 +2115,51 @@ struct WorkspaceCanvasView: View {
         _ dragStart: [String: CanvasNodeDragStart],
         edgeControlPointSnapshots: [CanvasEdgeControlPointSnapshot]
     ) {
-        for (id, start) in dragStart {
-            guard workflowNodeById[id] != nil else { continue }
-            let undoContext = MainActorUndoContext(context: modelContext)
-            undoManager?.registerUndo(withTarget: modelContext) { _ in
-                MainActor.assumeIsolated {
-                    let context = undoContext.context
+        let nodeStarts = dragStart.filter { id, _ in
+            workflowNodeById[id] != nil
+        }
+        let edgeSnapshots = edgeControlPointSnapshots.filter { snapshot in
+            visibleEdges.contains(where: { $0.id == snapshot.id })
+        }
+        guard !nodeStarts.isEmpty || !edgeSnapshots.isEmpty else { return }
+
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
+            MainActor.assumeIsolated {
+                let context = undoContext.context
+                var missingNodeCount = 0
+                var missingEdgeCount = 0
+                for (id, start) in nodeStarts {
                     guard let node = fetchCanvasNodeForUndo(id: id, in: context) else {
-                        onStatus("Could not undo card move: card no longer exists")
-                        return
+                        missingNodeCount += 1
+                        continue
                     }
                     node.x = start.x
                     node.y = start.y
                     node.parentNodeId = start.parentNodeId
                     node.updatedAt = .now
-                    do {
-                        try context.save()
-                    } catch {
-                        context.rollback()
-                        onStatus("Could not undo card move: \(error.localizedDescription)")
-                    }
                 }
-            }
-        }
-        for snapshot in edgeControlPointSnapshots {
-            guard visibleEdges.contains(where: { $0.id == snapshot.id }) else { continue }
-            let undoContext = MainActorUndoContext(context: modelContext)
-            undoManager?.registerUndo(withTarget: modelContext) { _ in
-                MainActor.assumeIsolated {
-                    let context = undoContext.context
+                for snapshot in edgeSnapshots {
                     guard let edge = fetchCanvasEdgeForUndo(id: snapshot.id, in: context) else {
-                        onStatus("Could not undo link bend move: link no longer exists")
-                        return
+                        missingEdgeCount += 1
+                        continue
                     }
                     edge.controlPointX = snapshot.x
                     edge.controlPointY = snapshot.y
                     edge.updatedAt = .now
-                    do {
-                        try context.save()
-                    } catch {
-                        context.rollback()
-                        onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                }
+                do {
+                    try context.save()
+                    if missingNodeCount > 0 || missingEdgeCount > 0 {
+                        onStatus("Undo restored available items; \(missingNodeCount) cards and \(missingEdgeCount) links no longer exist.")
                     }
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo canvas move: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName(dragStart.count == 1 ? "Move Card" : "Move Cards")
+        undoManager?.setActionName(nodeStarts.count == 1 ? "Move Card" : "Move Cards")
     }
 
     private func edgeControlPointSnapshots(in frames: [CanvasFrameRect]) -> [CanvasEdgeControlPointSnapshot] {
@@ -2672,7 +2671,7 @@ struct WorkspaceCanvasView: View {
             selectedNodeIDs = [node.id]
         } catch {
             let actionError = error
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             if saveModelChanges(failurePrefix: "Could not update resource status") {
                 onStatus(actionError.localizedDescription)
             }

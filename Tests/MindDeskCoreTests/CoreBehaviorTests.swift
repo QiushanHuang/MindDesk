@@ -2377,6 +2377,50 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(ResourceKind.resolved(exists: false, isDirectory: false, isPackage: false, isSymbolicLink: false, isAliasFile: false), .unavailable)
     }
 
+    func testResourceRenamePolicyPreservesClearedCustomName() {
+        let renamed = ResourceRenamePolicy.fields(
+            titleInput: "  Project Docs  ",
+            note: "Updated note",
+            originalName: "Docs"
+        )
+        let cleared = ResourceRenamePolicy.fields(
+            titleInput: "   ",
+            note: "Keep note",
+            originalName: "Docs"
+        )
+
+        XCTAssertEqual(renamed.title, "Project Docs")
+        XCTAssertEqual(renamed.customName, "Project Docs")
+        XCTAssertEqual(renamed.note, "Updated note")
+        XCTAssertEqual(cleared.title, "Docs")
+        XCTAssertEqual(cleared.customName, "")
+        XCTAssertEqual(cleared.note, "Keep note")
+    }
+
+    func testAliasImportSourceMapperUsesSourceTypeWhenIdsOverlap() {
+        let resourceMap = ["shared": "new-resource"]
+        let snippetMap = ["shared": "new-snippet"]
+
+        XCTAssertEqual(
+            AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: "resourcePin",
+                sourceObjectId: "shared",
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            ),
+            "new-resource"
+        )
+        XCTAssertEqual(
+            AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: "snippet",
+                sourceObjectId: "shared",
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            ),
+            "new-snippet"
+        )
+    }
+
     func testReferenceIndexBuildsWhereUsedAndCleanupPlanForResource() {
         let index = ReferenceIndex(
             workspaceResources: [

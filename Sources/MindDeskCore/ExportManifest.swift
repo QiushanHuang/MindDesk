@@ -1,6 +1,6 @@
 import Foundation
 
-public struct ExportManifest: Codable, Equatable {
+public struct ExportManifest: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case schemaVersion
         case exportedAt
@@ -143,7 +143,7 @@ public enum ManifestImportLimits {
     public static let maximumZIndex: Double = 1_000
 }
 
-public struct WorkspaceRecord: Codable, Equatable, Identifiable {
+public struct WorkspaceRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case title
@@ -198,7 +198,7 @@ public struct WorkspaceRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct ResourceRecord: Codable, Equatable, Identifiable {
+public struct ResourceRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -284,7 +284,7 @@ public struct ResourceRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct SnippetRecord: Codable, Equatable, Identifiable {
+public struct SnippetRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -354,7 +354,7 @@ public struct SnippetRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasRecord: Codable, Equatable, Identifiable {
+public struct CanvasRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -408,7 +408,7 @@ public struct CanvasRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasNodeRecord: Codable, Equatable, Identifiable {
+public struct CanvasNodeRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case canvasId
@@ -498,7 +498,7 @@ public struct CanvasNodeRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasEdgeRecord: Codable, Equatable, Identifiable {
+public struct CanvasEdgeRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case canvasId
@@ -568,7 +568,7 @@ public struct CanvasEdgeRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct AliasRecord: Codable, Equatable, Identifiable {
+public struct AliasRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case sourceObjectType
@@ -605,7 +605,7 @@ public struct AliasRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct TodoGroupRecord: Codable, Equatable, Identifiable {
+public struct TodoGroupRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -655,7 +655,7 @@ public struct TodoGroupRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct TodoRecord: Codable, Equatable, Identifiable {
+public struct TodoRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId

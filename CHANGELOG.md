@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-06-07 - Code review remediation
+
+### Fixed
+- Mapped imported Finder aliases by `sourceObjectType`, so snippet aliases no longer bind to resource IDs when exported IDs overlap.
+- Centralized resource rename field normalization and preserved an intentionally cleared custom name.
+- Updated resource preview renames to refresh `updatedAt`, keeping resource ordering and search metadata consistent.
+- Consolidated canvas move undo into one undo operation and one SwiftData save.
+- Moved manifest file reading and JSON decoding off the main actor before importing records.
+- Classified resource access failures as stale authorization, missing volume, or unavailable instead of always using unavailable.
+- Preserved file-provider order during multi-item drops.
+- Aligned fallback release-note headings with release metadata validation.
+
+### Verification
+- Added regression coverage for alias import source mapping and resource rename normalization.
+
 ## 2026-05-31 - PR review findings remediation
 
 ### Fixed

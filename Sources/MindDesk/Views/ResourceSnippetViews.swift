@@ -258,7 +258,7 @@ struct ResourceListView: View {
             resource.updatedAt = .now
             try modelContext.save()
         } catch {
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             do {
                 try modelContext.save()
             } catch {
@@ -408,6 +408,7 @@ struct ResourcePreviewView: View {
         .sheet(item: $renamingResource) { resource in
             ResourceRenameSheet(resource: resource) {
                 resource.refreshSearchText()
+                resource.updatedAt = .now
                 do {
                     try modelContext.save()
                     onStatus("Renamed MindDesk metadata: \(resource.displayName)")
@@ -609,7 +610,7 @@ struct ResourcePreviewView: View {
             resource.refreshSearchText()
             try modelContext.save()
         } catch {
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             do {
                 try modelContext.save()
             } catch {
@@ -1054,7 +1055,7 @@ enum FileDropLoader {
         let group = DispatchGroup()
         let store = DropURLStore()
 
-        for provider in fileProviders {
+        for (index, provider) in fileProviders.enumerated() {
             group.enter()
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
                 defer { group.leave() }
@@ -1070,7 +1071,7 @@ enum FileDropLoader {
                 }
 
                 if let url, url.isFileURL {
-                    store.append(url)
+                    store.append(url, at: index)
                 }
             }
         }
@@ -1084,17 +1085,17 @@ enum FileDropLoader {
 
 private final class DropURLStore: @unchecked Sendable {
     private let lock = NSLock()
-    private var storage: [URL] = []
+    private var storage: [Int: URL] = [:]
 
     var values: [URL] {
         lock.lock()
         defer { lock.unlock() }
-        return storage
+        return storage.keys.sorted().compactMap { storage[$0] }
     }
 
-    func append(_ url: URL) {
+    func append(_ url: URL, at index: Int) {
         lock.lock()
-        storage.append(url)
+        storage[index] = url
         lock.unlock()
     }
 }

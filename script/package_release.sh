@@ -452,7 +452,7 @@ if [[ -f "$RELEASE_NOTES_SOURCE" ]]; then
   cp "$RELEASE_NOTES_SOURCE" "$ARTIFACT_DIR/RELEASE-NOTES.md"
 else
   cat >"$ARTIFACT_DIR/RELEASE-NOTES.md" <<TXT
-# $APP_DISPLAY_NAME $VERSION
+# $APP_DISPLAY_NAME v$VERSION
 
 macOS release package for MindDesk.
 

@@ -180,6 +180,21 @@ struct BookmarkService {
     }
 }
 
+enum ResourceAccessStatusResolver {
+    static func failureStatus(for error: Error, fallbackPath: String, fileManager: FileManager = .default) -> ResourceStatus {
+        if case WorkbenchError.reauthorizationRequired = error {
+            return .staleAuthorization
+        }
+        if case WorkbenchError.missingPath = error {
+            return .missingVolume
+        }
+        guard !fallbackPath.isEmpty else {
+            return .unavailable
+        }
+        return fileManager.fileExists(atPath: fallbackPath) ? .unavailable : .missingVolume
+    }
+}
+
 struct ResourceImportSummary {
     var resources: [ResourcePinModel]
     var insertedCount: Int

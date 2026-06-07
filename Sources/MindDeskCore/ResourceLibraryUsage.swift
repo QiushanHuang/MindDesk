@@ -142,6 +142,29 @@ public enum ResourceIdentity {
     }
 }
 
+public struct ResourceRenameFields: Equatable, Sendable {
+    public var title: String
+    public var customName: String
+    public var note: String
+
+    public init(title: String, customName: String, note: String) {
+        self.title = title
+        self.customName = customName
+        self.note = note
+    }
+}
+
+public enum ResourceRenamePolicy {
+    public static func fields(titleInput: String, note: String, originalName: String) -> ResourceRenameFields {
+        let trimmedTitle = titleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ResourceRenameFields(
+            title: trimmedTitle.isEmpty ? originalName : trimmedTitle,
+            customName: trimmedTitle,
+            note: note
+        )
+    }
+}
+
 public enum ResourceImportDeduplication {
     public static func reusableRecordID(
         forPath path: String,
@@ -159,6 +182,24 @@ public enum ResourceImportDeduplication {
         let normalizedPath = ResourceIdentity.normalizedPath(path)
         let normalizedWorkspaceId = scope == "workspace" ? workspaceId ?? "" : ""
         return "\(normalizedPath)|\(scope)|\(normalizedWorkspaceId)"
+    }
+}
+
+public enum AliasImportSourceMapper {
+    public static func mappedSourceObjectId(
+        sourceObjectType: String,
+        sourceObjectId: String,
+        resourceMap: [String: String],
+        snippetMap: [String: String]
+    ) -> String {
+        switch sourceObjectType {
+        case "resourcePin":
+            resourceMap[sourceObjectId] ?? sourceObjectId
+        case "snippet":
+            snippetMap[sourceObjectId] ?? sourceObjectId
+        default:
+            sourceObjectId
+        }
     }
 }
 

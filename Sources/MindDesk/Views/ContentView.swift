@@ -756,8 +756,6 @@ struct ContentView: View {
 
     private func saveResourceRename(_ resource: ResourcePinModel) {
         do {
-            resource.customName = resource.title
-            resource.refreshSearchText()
             resource.updatedAt = .now
             try modelContext.save()
             setStatus("Renamed MindDesk metadata: \(resource.displayName)")
@@ -1045,7 +1043,7 @@ struct ContentView: View {
             try modelContext.save()
             setStatus("\(actionName) \(resource.displayName)")
         } catch {
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             do {
                 try modelContext.save()
             } catch {
@@ -1235,18 +1233,27 @@ struct ContentView: View {
 
     private func importManifest() {
         guard let url = FileDialogs.openJSON() else { return }
-        do {
-            let data = try readManifestData(from: url)
-            let manifest = try ImportExportService().decodeManifest(from: data)
-            try importRecords(from: manifest)
-            setStatus("Imported \(manifest.workspaces.count) workspaces, \(manifest.resources.count) resources, and \(manifest.snippets.count) snippets. Resources require reauthorization.")
-        } catch {
-            modelContext.rollback()
-            setStatus(error.localizedDescription)
+        setStatus("Importing MindDesk manifest...")
+        Task { @MainActor in
+            do {
+                let manifest = try await Self.loadManifest(from: url)
+                try importRecords(from: manifest)
+                setStatus("Imported \(manifest.workspaces.count) workspaces, \(manifest.resources.count) resources, and \(manifest.snippets.count) snippets. Resources require reauthorization.")
+            } catch {
+                modelContext.rollback()
+                setStatus(error.localizedDescription)
+            }
         }
     }
 
-    private func readManifestData(from url: URL) throws -> Data {
+    nonisolated private static func loadManifest(from url: URL) async throws -> ExportManifest {
+        try await Task.detached(priority: .userInitiated) {
+            let data = try readManifestData(from: url)
+            return try ImportExportService().decodeManifest(from: data)
+        }.value
+    }
+
+    nonisolated private static func readManifestData(from url: URL) throws -> Data {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true else {
             throw WorkbenchError.invalidManifestReferences("Manifest import blocked: choose a regular JSON file.")
@@ -1392,7 +1399,12 @@ struct ContentView: View {
         }
 
         for record in manifest.aliases {
-            let mappedSourceId = resourceMap[record.sourceObjectId] ?? snippetMap[record.sourceObjectId] ?? record.sourceObjectId
+            let mappedSourceId = AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: record.sourceObjectType,
+                sourceObjectId: record.sourceObjectId,
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            )
             modelContext.insert(FinderAliasRecordModel(sourceObjectType: record.sourceObjectType, sourceObjectId: mappedSourceId, aliasDisplayPath: record.aliasDisplayPath, status: AliasStatus(rawValue: record.status) ?? .missing, createdAt: record.createdAt))
         }
 
@@ -1773,10 +1785,14 @@ struct ResourceRenameSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    resource.title = trimmed.isEmpty ? resource.originalName : trimmed
-                    resource.customName = trimmed
-                    resource.note = note
+                    let fields = ResourceRenamePolicy.fields(
+                        titleInput: title,
+                        note: note,
+                        originalName: resource.originalName
+                    )
+                    resource.title = fields.title
+                    resource.customName = fields.customName
+                    resource.note = fields.note
                     resource.refreshSearchText()
                     onSave()
                     dismiss()
