@@ -97,8 +97,20 @@ cat >"$INFO_PLIST" <<PLIST
 </plist>
 PLIST
 
+codesign --force --deep --sign - "$APP_BUNDLE"
+
 open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
+}
+
+verify_bundle() {
+  codesign --verify --deep --strict "$APP_BUNDLE"
+  local actual_identifier
+  actual_identifier="$(codesign -dv "$APP_BUNDLE" 2>&1 | sed -n 's/^Identifier=//p')"
+  if [[ "$actual_identifier" != "$BUNDLE_ID" ]]; then
+    echo "Bundle identifier mismatch: expected $BUNDLE_ID, got ${actual_identifier:-<empty>}" >&2
+    exit 1
+  fi
 }
 
 case "$MODE" in
@@ -117,12 +129,16 @@ case "$MODE" in
     /usr/bin/log stream --info --style compact --predicate "subsystem == \"$BUNDLE_ID\""
     ;;
   --verify|verify)
+    verify_bundle
     open_app
     sleep 2
     pgrep -x "$APP_NAME" >/dev/null
     ;;
+  --verify-bundle|verify-bundle)
+    verify_bundle
+    ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-bundle]" >&2
     exit 2
     ;;
 esac

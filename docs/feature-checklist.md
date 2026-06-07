@@ -8,10 +8,12 @@
 - [ ] 已有数据可正常打开，工作区、资源、snippet、canvas 节点都保留。
 - [ ] SwiftData store 打不开时显示可读错误页，不直接崩溃。
 - [ ] 导入 manifest 后资源、snippet、canvas 节点和连接关系可恢复。
+- [ ] 导入完成状态会列出 workspace、resource、snippet、canvas、card、link、alias、task group 和 task 数量。
 - [ ] 导入 v2 manifest 后 Todo Group、任务详情、Due Date、完成状态和关联资源可恢复。
 - [ ] 导入 v1 manifest 时缺失 Todo 字段不会阻塞导入，Todo 默认为空集合。
 - [ ] 导出 manifest 后 JSON 可重新导入。
 - [ ] Global Library Only 导出不包含 Workspace、Canvas、Todo Group 或 Todo。
+- [ ] Manifest validation 会拒绝循环 frame parent 和 node/object type 不匹配的数据。
 
 ## 侧边栏与导航
 
@@ -21,6 +23,7 @@
 - [ ] 点击单个 pinned 文件夹/文件会在右侧显示内容或预览。
 - [ ] 右键菜单包含常用操作，并且不会误删 Finder 里的真实文件。
 - [ ] Workspaces 可创建、重命名、删除 MindDesk metadata。
+- [ ] File 菜单里的 New Workspace 可创建工作区，行为与侧边栏 `+` 一致。
 - [ ] Workspaces 排序、pin 置顶、选择状态稳定。
 - [ ] Home Recent Workspaces 按最近打开时间排序，而不是按侧边栏排序。
 
@@ -29,6 +32,8 @@
 - [ ] 可拖入文件夹或文件到 Global Library。
 - [ ] 文件夹和文件按来源分类显示。
 - [ ] 可 pin、unpin、重命名显示名、复制路径、查看详情。
+- [ ] 清空 MindDesk 自定义显示名后不会被保存路径重新写回旧标题。
+- [ ] 逗号在 resource/snippet tags 中可保留，不会被拆成多个 tag。
 - [ ] 双击文件夹在 Finder 打开；双击文件在 Finder 中定位。
 - [ ] 删除资源只删除 MindDesk metadata，不删除 Finder 原始文件。
 - [ ] 删除 MindDesk 资源后，同资源的 Canvas 卡片被清理，Todo linked resource 被置空，Snippet 工作目录被置空，相关 Finder alias 标记为 missing。
@@ -41,11 +46,13 @@
 - [ ] snippet 可编辑、删除、复制。
 - [ ] 双击或展开后能查看全文并编辑。
 - [ ] command 可复制、打开 Terminal 预填、确认后运行。
+- [ ] command 自动运行失败时会复制命令并打开 Terminal，而不是静默丢失命令。
 - [ ] Home 的 Recent Snippets 卡片标题和展开内容都可读。
 
 ## Quick Open 与 Command Palette
 
 - [ ] `Command + K` 可打开 Quick Open，输入时不会触发主界面大范围闪烁。
+- [ ] Workbench 菜单里的 Quick Open、Import、Export 可路由到当前 MindDesk 窗口。
 - [ ] Quick Open 可搜索 Workspace、Resource、Snippet 和 Web Page Card。
 - [ ] 空查询按稳定顺序显示当前常用对象；同分搜索结果顺序稳定。
 - [ ] 上下键可连续移动选中项，列表滚动跟随且不卡顿。
@@ -59,6 +66,7 @@
 - [ ] 卡片视觉边界内任意位置都可拖动，尤其是文件夹/文件卡片顶部空白边缘，不会误触发画布平移。
 - [ ] Organization Frame 可拖动，内部子卡片跟随移动。
 - [ ] 卡片和 Organization Frame 可自由调整大小。
+- [ ] Locked cards 可被选中和查看，但不能被拖动、resize、删除、align 或 auto-arrange 写入。
 - [ ] 缩放很小或很大时，卡片和 Organization Frame 的 resize 命中区仍可点击且不会过大遮挡周围内容。
 - [ ] 卡片上的复制、详情、删除按钮可点击，并有按下反馈。
 - [ ] 只有点击卡片内的 info 按钮才打开 Inspector。
@@ -80,6 +88,8 @@
 - [ ] 拖动连接中点可调整弯折，保存后仍保留。
 - [ ] 拖动连接中点的瞬间，控制柄不会因为交互态切换而消失。
 - [ ] 单击连线可单独选中；按 Delete 优先删除选中连线而不是误删卡片。
+- [ ] 缩放很大或很小时单击连线的命中范围仍稳定，不随 zoom 过度放大。
+- [ ] 带路由点的连线箭头沿首段/末段实际方向显示。
 - [ ] Reverse Selected Link 可反转选中连线，并阻止生成重复的反向连线。
 - [ ] Auto Arrange 后卡片不重叠。
 - [ ] 有连接的卡片按从左到右、从上到下的 workflow 排列。
@@ -116,6 +126,7 @@
 - [ ] Canvas 任务面板默认关闭；打开 Workspace 不会自动创建空 Task Group。
 - [ ] 修改设置后不需要重启 App，Canvas 滚动缩放立即按新方向生效。
 - [ ] Settings 关闭后选择仍被保存。
+- [ ] Settings 窗口可扩展，长文本和较大文字不会被固定高度裁切。
 
 ## 性能与稳定性
 
@@ -138,6 +149,7 @@
 - [ ] `swift build -c release`
 - [ ] `git diff --check`
 - [ ] `./script/build_and_run.sh --verify`
+- [ ] `./script/build_and_run.sh --verify-bundle`
 - [ ] `./script/verify_release_metadata.sh`
 - [ ] `./script/package_release.sh --mode adhoc --allow-adhoc`
 - [ ] `bash -n script/build_and_run.sh`
@@ -145,6 +157,7 @@
 - [ ] `bash -n script/verify_release_metadata.sh`
 - [ ] `plutil -lint script/release.entitlements`
 - [ ] GitHub Actions CI 通过。
+- [ ] CI smoke build 会验证 staged `.app` bundle 签名和 bundle identifier。
 - [ ] 正式发布必须用 `./script/package_release.sh --mode notarized ...` 生成已签名、notarized、stapled 的 DMG。
 - [ ] GitHub Actions Release workflow 已配置 Developer ID 和 App Store Connect API key Secrets 后，再从 `main` 或匹配版本 tag 手动触发。
 - [ ] GitHub Release workflow 产物名包含 runner 架构后缀，例如 `macOS-arm64`。

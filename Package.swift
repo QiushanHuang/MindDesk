@@ -26,6 +26,11 @@ let package = Package(
             name: "MindDeskCoreTests",
             dependencies: ["MindDeskCore"],
             path: "Tests/MindDeskCoreTests"
+        ),
+        .testTarget(
+            name: "MindDeskTests",
+            dependencies: ["MindDesk", "MindDeskCore"],
+            path: "Tests/MindDeskTests"
         )
     ]
 )

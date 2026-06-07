@@ -950,7 +950,7 @@ struct WorkspaceCanvasView: View {
                             Label("Delete Card", systemImage: "trash")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .disabled(selectedNodeIDs.isEmpty)
+                        .disabled(selectedNodeIDs.isEmpty || selectedNodeIDsContainLockedNode)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -1911,6 +1911,10 @@ struct WorkspaceCanvasView: View {
         return workflowNodeById[id]
     }
 
+    private var selectedNodeIDsContainLockedNode: Bool {
+        selectedNodeIDs.contains { workflowNodeById[$0]?.locked == true }
+    }
+
     private var connectionSourceNode: CanvasNodeModel? {
         guard let connectionSourceNodeId else { return nil }
         return workflowNodeById[connectionSourceNodeId]
@@ -1981,6 +1985,7 @@ struct WorkspaceCanvasView: View {
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                guard !node.locked, !editingNodeIDs.contains(node.id) else { return }
                 if resizingNodeId == node.id {
                     return
                 }
@@ -1995,6 +2000,10 @@ struct WorkspaceCanvasView: View {
                 updateFrameDragControlPointOffsets(delta: delta)
             }
             .onEnded { value in
+                guard !node.locked, !editingNodeIDs.contains(node.id) else {
+                    resetNodeDragState()
+                    return
+                }
                 if resizingNodeId == node.id {
                     resetNodeDragState()
                     return
@@ -2005,8 +2014,12 @@ struct WorkspaceCanvasView: View {
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
         clearFrameDragControlPointOffsets()
-        primaryDraggedNodeId = node.id
         let draggedNodes = draggedNodes(for: node)
+        guard !draggedNodes.contains(where: \.locked) else {
+            onStatus("Unlock selected cards before moving them.")
+            return
+        }
+        primaryDraggedNodeId = node.id
         let draggedIDs = Set(draggedNodes.map(\.id))
         let frameSnapshots = workflowNodes
             .filter { $0.nodeType == .groupFrame && !draggedIDs.contains($0.id) }
@@ -2271,6 +2284,15 @@ struct WorkspaceCanvasView: View {
     }
 
     private func resizeNode(_ node: CanvasNodeModel, screenTranslation: CGSize, commit: Bool) {
+        guard !node.locked else {
+            transientNodeSizes[node.id] = nil
+            resizeStartSizes[node.id] = nil
+            resizingNodeId = nil
+            if commit {
+                onStatus("Unlock card before resizing it.")
+            }
+            return
+        }
         resizingNodeId = node.id
         if resizeStartSizes[node.id] == nil {
             let size = nodeSize(for: node)
@@ -2927,7 +2949,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func importDroppedResources(_ urls: [URL], at dropLocation: CGPoint) {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty else {
+            onStatus("Drop did not include files or folders.")
+            return
+        }
         do {
             var summary = try ResourceImportService().importURLs(
                 urls,
@@ -3119,6 +3144,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func alignLeft() {
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before aligning them.")
+            return
+        }
         let selected = workflowNodes.filter { selectedNodeIDs.contains($0.id) }
         let layout = selected.map { node in
             let size = nodeSize(for: node)
@@ -3130,6 +3159,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func alignTop() {
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before aligning them.")
+            return
+        }
         let selected = workflowNodes.filter { selectedNodeIDs.contains($0.id) }
         let layout = selected.map { node in
             let size = nodeSize(for: node)
@@ -3141,7 +3174,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func autoArrange() {
-        let layout = workflowNodes.map { node in
+        let unlockedNodes = workflowNodes.filter { !$0.locked }
+        guard !unlockedNodes.isEmpty else {
+            onStatus("Unlock cards before auto arranging the canvas.")
+            return
+        }
+        let layout = unlockedNodes.map { node in
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
@@ -3162,6 +3200,7 @@ struct WorkspaceCanvasView: View {
     private func apply(_ layout: [CanvasLayoutNode]) -> Bool {
         for item in layout {
             guard let node = workflowNodeById[item.id] else { continue }
+            guard !node.locked else { continue }
             node.x = item.x
             node.y = item.y
             node.updatedAt = .now
@@ -3176,6 +3215,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func delete(_ node: CanvasNodeModel) {
+        guard !node.locked else {
+            onStatus("Unlock card before deleting it.")
+            return
+        }
         selectedNodeIDs = [node.id]
         selectedEdgeIDs = []
         deleteSelectedNodes()
@@ -3185,6 +3228,10 @@ struct WorkspaceCanvasView: View {
         flushPendingNodeTextCommits()
         let ids = selectedNodeIDs
         guard !ids.isEmpty else { return }
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before deleting them.")
+            return
+        }
         let edgeIds = Set(CanvasNodeDeletionPolicy.incidentEdgeIDs(
             selectedNodeIDs: ids,
             edges: visibleEdges.map {
@@ -3347,7 +3394,7 @@ struct WorkspaceCanvasView: View {
         guard let id = CanvasEdgeHitTesting.nearestEdgeID(
             at: point,
             edges: records,
-            threshold: max(10, 12 * Double(zoom))
+            threshold: 12
         ) else {
             return false
         }
@@ -4204,8 +4251,29 @@ private final class SharpSymbolImageView: NSImageView {
         symbolConfiguration = .init(pointSize: pointSize, weight: weight)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
-        setAccessibilityLabel(systemName)
+        setAccessibilityLabel(accessibilityLabel(for: systemName))
         needsDisplay = true
+    }
+
+    private func accessibilityLabel(for systemName: String) -> String {
+        switch systemName {
+        case "doc.on.doc":
+            return "Copy"
+        case "info.circle":
+            return "Details"
+        case "trash":
+            return "Delete"
+        case "chevron.right":
+            return "Collapsed"
+        case "chevron.down":
+            return "Expanded"
+        case "rectangle.dashed":
+            return "Frame"
+        default:
+            return systemName
+                .replacingOccurrences(of: ".", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+        }
     }
 }
 
@@ -5081,13 +5149,13 @@ private struct CanvasEdgeArrowHeadLayer: View {
                 if drawsArrow(segment.sourceArrowRaw) {
                     let arrow = EdgePathFactory.arrowHead(
                         end: segment.start,
-                        direction: CGPoint(x: -segment.startDirection.x, y: -segment.startDirection.y),
+                        direction: sourceArrowDirection(for: segment),
                         scale: arrowScale
                     )
                     context.fill(arrow, with: .color(color))
                 }
                 if drawsArrow(segment.targetArrowRaw) {
-                    let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: segment.endDirection, scale: arrowScale)
+                    let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: targetArrowDirection(for: segment), scale: arrowScale)
                     context.fill(arrow, with: .color(color))
                 }
             }
@@ -5108,6 +5176,25 @@ private struct CanvasEdgeArrowHeadLayer: View {
 
     private func drawsArrow(_ rawValue: String) -> Bool {
         rawValue != "none"
+    }
+
+    private func sourceArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
+        let fallback = CGPoint(x: -segment.startDirection.x, y: -segment.startDirection.y)
+        guard let firstRoutePoint = segment.routePoints.first else { return fallback }
+        return normalizedDirection(from: firstRoutePoint, to: segment.start, fallback: fallback)
+    }
+
+    private func targetArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
+        guard let lastRoutePoint = segment.routePoints.last else { return segment.endDirection }
+        return normalizedDirection(from: lastRoutePoint, to: segment.end, fallback: segment.endDirection)
+    }
+
+    private func normalizedDirection(from start: CGPoint, to end: CGPoint, fallback: CGPoint) -> CGPoint {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = sqrt(dx * dx + dy * dy)
+        guard length > 0.001 else { return fallback }
+        return CGPoint(x: dx / length, y: dy / length)
     }
 }
 

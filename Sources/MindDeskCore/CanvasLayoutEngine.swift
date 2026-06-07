@@ -114,18 +114,20 @@ public enum CanvasLayoutEngine {
     }
 
     public static func alignLeft(_ nodes: [CanvasLayoutNode]) -> [CanvasLayoutNode] {
-        guard let minX = nodes.map(\.x).min() else { return nodes }
+        guard let minX = nodes.map(\.x).filter(\.isFinite).min() else { return nodes }
         return nodes.map { node in
             var aligned = node
+            guard aligned.x.isFinite else { return aligned }
             aligned.x = minX
             return aligned
         }
     }
 
     public static func alignTop(_ nodes: [CanvasLayoutNode]) -> [CanvasLayoutNode] {
-        guard let minY = nodes.map(\.y).min() else { return nodes }
+        guard let minY = nodes.map(\.y).filter(\.isFinite).min() else { return nodes }
         return nodes.map { node in
             var aligned = node
+            guard aligned.y.isFinite else { return aligned }
             aligned.y = minY
             return aligned
         }

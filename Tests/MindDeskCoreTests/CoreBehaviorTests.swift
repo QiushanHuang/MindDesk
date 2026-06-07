@@ -335,6 +335,34 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(aligned.map(\.y), [10, 10])
     }
 
+    func testAlignLeftIgnoresNonFiniteCoordinates() {
+        let nodes = [
+            CanvasLayoutNode(id: "bad", x: .nan, y: 0, width: 120, height: 80),
+            CanvasLayoutNode(id: "a", x: 50, y: 0, width: 120, height: 80),
+            CanvasLayoutNode(id: "b", x: 10, y: 20, width: 120, height: 80)
+        ]
+
+        let aligned = CanvasLayoutEngine.alignLeft(nodes)
+
+        XCTAssertTrue(aligned[0].x.isNaN)
+        XCTAssertEqual(aligned[1].x, 10)
+        XCTAssertEqual(aligned[2].x, 10)
+    }
+
+    func testAlignTopIgnoresNonFiniteCoordinates() {
+        let nodes = [
+            CanvasLayoutNode(id: "bad", x: 0, y: .nan, width: 120, height: 80),
+            CanvasLayoutNode(id: "a", x: 0, y: 50, width: 120, height: 80),
+            CanvasLayoutNode(id: "b", x: 20, y: 10, width: 120, height: 80)
+        ]
+
+        let aligned = CanvasLayoutEngine.alignTop(nodes)
+
+        XCTAssertTrue(aligned[0].y.isNaN)
+        XCTAssertEqual(aligned[1].y, 10)
+        XCTAssertEqual(aligned[2].y, 10)
+    }
+
     private func layoutNodesOverlap(_ nodes: [CanvasLayoutNode]) -> Bool {
         for lhsIndex in nodes.indices {
             for rhsIndex in nodes.indices where rhsIndex > lhsIndex {
@@ -1901,6 +1929,31 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Edge edge references target node child from another canvas."))
     }
 
+    func testManifestImportValidationRejectsParentCycles() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "frame-a", canvasId: "canvas", title: "A", body: "", nodeType: "groupFrame", objectType: nil, objectId: nil, x: 0, y: 0, width: 300, height: 240, parentNodeId: "frame-b"),
+                CanvasNodeRecord(id: "frame-b", canvasId: "canvas", title: "B", body: "", nodeType: "groupFrame", objectType: nil, objectId: nil, x: 20, y: 20, width: 300, height: 240, parentNodeId: "frame-a")
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        XCTAssertTrue(
+            ManifestImportValidation.issues(in: manifest).contains("Canvas canvas has a cyclic frame parent relationship involving node frame-a.")
+        )
+    }
+
     func testManifestImportValidationRequiresObjectIDsAndAliasSources() {
         let manifest = ExportManifest(
             schemaVersion: 1,
@@ -1926,6 +1979,40 @@ final class CoreBehaviorTests: XCTestCase {
 
         XCTAssertTrue(issues.contains("Node resource-node has object type resourcePin without an object id."))
         XCTAssertTrue(issues.contains("Alias alias references missing resource object missing-resource."))
+    }
+
+    func testManifestImportValidationRejectsNodeObjectTypeMismatches() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Resource", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "Snippet", kind: "prompt", body: "Body", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "note-ref", canvasId: "canvas", title: "Note", body: "", nodeType: "note", objectType: "resourcePin", objectId: "resource", x: 0, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "frame-ref", canvasId: "canvas", title: "Frame", body: "", nodeType: "groupFrame", objectType: "snippet", objectId: "snippet", x: 220, y: 0, width: 260, height: 200),
+                CanvasNodeRecord(id: "resource-web", canvasId: "canvas", title: "Resource Web", body: "example.com", nodeType: "resource", objectType: "webURL", objectId: nil, x: 0, y: 160, width: 180, height: 120),
+                CanvasNodeRecord(id: "snippet-resource", canvasId: "canvas", title: "Snippet Resource", body: "", nodeType: "snippet", objectType: "resourcePin", objectId: "resource", x: 220, y: 160, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Node note-ref with node type note cannot reference object type resourcePin."))
+        XCTAssertTrue(issues.contains("Node frame-ref with node type groupFrame cannot reference object type snippet."))
+        XCTAssertTrue(issues.contains("Node resource-web with node type resource cannot reference object type webURL."))
+        XCTAssertTrue(issues.contains("Node snippet-resource with node type snippet cannot reference object type resourcePin."))
     }
 
     func testManifestImportValidationAllowsLegacyWebURLBodyFallback() {

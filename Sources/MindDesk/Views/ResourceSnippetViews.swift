@@ -126,8 +126,6 @@ struct ResourceListView: View {
         }
         .sheet(item: $renamingResource) { resource in
             ResourceRenameSheet(resource: resource) {
-                resource.customName = resource.title
-                resource.refreshSearchText()
                 do {
                     try modelContext.save()
                     onStatus("Renamed MindDesk metadata: \(resource.displayName)")
@@ -1278,11 +1276,21 @@ struct SnippetLibraryView: View {
             }
         } catch {
             let runError = error
+            ClipboardService().copy(snippet.body)
+            snippet.lastCopiedAt = .now
+            snippet.updatedAt = .now
             do {
                 try TerminalService().open(at: request.workingDirectory)
-                onStatus("Terminal run failed; opened Terminal at \(request.workingDirectory). \(runError.localizedDescription)")
+                do {
+                    try modelContext.save()
+                    onStatus("Terminal run failed; copied command and opened Terminal at \(request.workingDirectory). \(runError.localizedDescription)")
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Terminal run failed; copied command and opened Terminal, but could not update metadata. \(error.localizedDescription)")
+                }
             } catch {
-                onStatus("Terminal run failed. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
+                modelContext.rollback()
+                onStatus("Terminal run failed; copied command. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
             }
         }
     }

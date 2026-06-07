@@ -31,7 +31,7 @@ struct AppSettingsView: View {
                 }
         }
         .padding(20)
-        .frame(width: 620, height: 560)
+        .frame(minWidth: 620, idealWidth: 720, minHeight: 560, idealHeight: 640)
     }
 }
 
@@ -301,7 +301,7 @@ private struct SettingsManualPane: View {
             )
             ManualSection(
                 title: "Canvas Tasks",
-                text: "Canvas Task settings only define the initial panel and Done-column state when opening a Workspace Canvas. The task board's dragged column split is layout memory, not a Settings preference."
+                text: "Canvas Task settings define the initial panel, Done-column state, and the remembered task board split used across Workspace Canvas windows."
             )
             ManualSection(
                 title: "Import And Export",

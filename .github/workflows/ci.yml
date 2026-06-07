@@ -31,6 +31,9 @@ jobs:
           ./script/package_release.sh --help >/tmp/minddesk-package-help.txt
           ./script/verify_release_metadata.sh
 
+      - name: Smoke build signed app bundle
+        run: ./script/build_and_run.sh --verify-bundle
+
       - name: Verify release guardrails
         run: |
           set +e

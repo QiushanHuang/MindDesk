@@ -864,6 +864,10 @@ public enum ManifestImportValidation {
                !allowedLegacyAccentColors.contains(node.accentColor) {
                 issues.append("Node \(node.id) has unsupported accent color \(node.accentColor).")
             }
+            if let objectType = node.objectType,
+               !isNodeObjectTypeCompatible(nodeType: node.nodeType, objectType: objectType) {
+                issues.append("Node \(node.id) with node type \(node.nodeType) cannot reference object type \(objectType).")
+            }
             if !canvasIds.contains(node.canvasId) {
                 issues.append("Node \(node.id) references missing canvas \(node.canvasId).")
             }
@@ -919,6 +923,7 @@ public enum ManifestImportValidation {
                 }
             }
         }
+        issues.append(contentsOf: cyclicParentIssues(for: manifest.nodes, nodeCanvasById: nodeCanvasById))
 
         for edge in manifest.edges {
             appendIdentifierIssue(edge.id, ownerDescription: "Edge \(edge.id)", fieldDescription: "id", issues: &issues)
@@ -1042,6 +1047,60 @@ public enum ManifestImportValidation {
     private static let allowedAnimationThemes: Set<String> = ["blue", "minimal", "off"]
     private static let allowedAliasStatuses: Set<String> = ["created", "missing", "failed", "staleAuthorization"]
     private static let allowedLegacyAccentColors: Set<String> = ["blue"]
+
+    private static func isNodeObjectTypeCompatible(nodeType: String, objectType: String) -> Bool {
+        switch nodeType {
+        case "resource":
+            return objectType == "resourcePin"
+        case "snippet":
+            return objectType == "snippet" || objectType == "workspace" || objectType == "webURL"
+        case "note", "groupFrame":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func cyclicParentIssues(
+        for nodes: [CanvasNodeRecord],
+        nodeCanvasById: [String: String]
+    ) -> [String] {
+        let parentById = Dictionary(
+            nodes.compactMap { node -> (String, String)? in
+                guard let parentNodeId = node.parentNodeId else { return nil }
+                return (node.id, parentNodeId)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var reportedCycleKeys: Set<String> = []
+        var issues: [String] = []
+
+        for node in nodes {
+            var path: [String] = []
+            var visitedIndexByNodeId: [String: Int] = [:]
+            var currentNodeId = node.id
+
+            while let parentNodeId = parentById[currentNodeId],
+                  nodeCanvasById[parentNodeId] == nodeCanvasById[currentNodeId] {
+                visitedIndexByNodeId[currentNodeId] = path.count
+                path.append(currentNodeId)
+
+                if let cycleStartIndex = visitedIndexByNodeId[parentNodeId] {
+                    let cycleNodeIds = Array(path[cycleStartIndex...])
+                    let key = cycleNodeIds.sorted().joined(separator: "\u{1F}")
+                    guard reportedCycleKeys.insert(key).inserted else { break }
+                    let canvasId = nodeCanvasById[node.id] ?? node.canvasId
+                    let reportedNodeId = cycleNodeIds.sorted().first ?? parentNodeId
+                    issues.append("Canvas \(canvasId) has a cyclic frame parent relationship involving node \(reportedNodeId).")
+                    break
+                }
+
+                currentNodeId = parentNodeId
+            }
+        }
+
+        return issues
+    }
 
     private static func appendCountIssues(_ manifest: ExportManifest, issues: inout [String]) {
         appendCountIssue(manifest.workspaces.count, maximum: ManifestImportLimits.maximumWorkspaces, label: "workspaces", issues: &issues)

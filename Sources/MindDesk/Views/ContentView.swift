@@ -19,6 +19,51 @@ private struct ManifestExportOptions {
     let includesUsageDates: Bool
 }
 
+private struct ManifestImportSummary {
+    var workspaces: Int
+    var resources: Int
+    var snippets: Int
+    var canvases: Int
+    var nodes: Int
+    var edges: Int
+    var aliases: Int
+    var todoGroups: Int
+    var todos: Int
+
+    var statusText: String {
+        let parts = [
+            "\(workspaces) workspace\(workspaces == 1 ? "" : "s")",
+            "\(resources) resource\(resources == 1 ? "" : "s")",
+            "\(snippets) snippet\(snippets == 1 ? "" : "s")",
+            "\(canvases) canvas\(canvases == 1 ? "" : "es")",
+            "\(nodes) card\(nodes == 1 ? "" : "s")",
+            "\(edges) link\(edges == 1 ? "" : "s")",
+            "\(aliases) alias\(aliases == 1 ? "" : "es")",
+            "\(todoGroups) task group\(todoGroups == 1 ? "" : "s")",
+            "\(todos) task\(todos == 1 ? "" : "s")"
+        ]
+        return parts.joined(separator: ", ")
+    }
+}
+
+struct MindDeskFocusedCommands {
+    var newWorkspace: () -> Void
+    var quickOpen: () -> Void
+    var importManifest: () -> Void
+    var exportManifest: () -> Void
+}
+
+private struct MindDeskFocusedCommandsKey: FocusedValueKey {
+    typealias Value = MindDeskFocusedCommands
+}
+
+extension FocusedValues {
+    var mindDeskCommands: MindDeskFocusedCommands? {
+        get { self[MindDeskFocusedCommandsKey.self] }
+        set { self[MindDeskFocusedCommandsKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \WorkspaceModel.updatedAt, order: .reverse) private var workspaces: [WorkspaceModel]
@@ -320,6 +365,12 @@ struct ContentView: View {
                 Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MindDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
+        .focusedValue(\.mindDeskCommands, MindDeskFocusedCommands(
+            newWorkspace: addWorkspace,
+            quickOpen: openQuickOpen,
+            importManifest: importManifest,
+            exportManifest: exportManifest
+        ))
     }
 
     private var shouldShowInspector: Bool {
@@ -1237,8 +1288,9 @@ struct ContentView: View {
         Task { @MainActor in
             do {
                 let manifest = try await Self.loadManifest(from: url)
-                try importRecords(from: manifest)
-                setStatus("Imported \(manifest.workspaces.count) workspaces, \(manifest.resources.count) resources, and \(manifest.snippets.count) snippets. Resources require reauthorization.")
+                let summary = try importRecords(from: manifest)
+                let authorizationNote = summary.resources > 0 ? " Resources require reauthorization." : ""
+                setStatus("Imported \(summary.statusText).\(authorizationNote)")
             } catch {
                 modelContext.rollback()
                 setStatus(error.localizedDescription)
@@ -1272,7 +1324,7 @@ struct ContentView: View {
         return data
     }
 
-    private func importRecords(from manifest: ExportManifest) throws {
+    private func importRecords(from manifest: ExportManifest) throws -> ManifestImportSummary {
         let validationIssues = ManifestImportValidation.issues(in: manifest)
         guard validationIssues.isEmpty else {
             let details = validationIssues.prefix(5).joined(separator: " ")
@@ -1286,6 +1338,10 @@ struct ContentView: View {
         var canvasMap: [String: String] = [:]
         var nodeMap: [String: String] = [:]
         var importedNodeParents: [(node: CanvasNodeModel, parentNodeId: String?)] = []
+        var importedEdgeCount = 0
+        var importedAliasCount = 0
+        var importedTodoGroupCount = 0
+        var importedTodoCount = 0
 
         for record in manifest.workspaces {
             let workspace = WorkspaceModel(title: record.title, details: record.details, createdAt: record.createdAt, updatedAt: record.updatedAt, lastOpenedAt: record.lastOpenedAt, isPinned: record.isPinned, sortIndex: record.sortIndex, schemaVersion: manifest.schemaVersion)
@@ -1396,6 +1452,7 @@ struct ContentView: View {
                   let sourceId = nodeMap[record.sourceNodeId],
                   let targetId = nodeMap[record.targetNodeId] else { continue }
             modelContext.insert(CanvasEdgeModel(canvasId: canvasId, sourceNodeId: sourceId, targetNodeId: targetId, label: record.label, style: record.style, sourceArrowRaw: record.sourceArrow, targetArrowRaw: record.targetArrow, animated: record.animated, animationThemeRaw: record.animationTheme, controlPointX: record.controlPointX, controlPointY: record.controlPointY, createdAt: record.createdAt, updatedAt: record.updatedAt))
+            importedEdgeCount += 1
         }
 
         for record in manifest.aliases {
@@ -1406,6 +1463,7 @@ struct ContentView: View {
                 snippetMap: snippetMap
             )
             modelContext.insert(FinderAliasRecordModel(sourceObjectType: record.sourceObjectType, sourceObjectId: mappedSourceId, aliasDisplayPath: record.aliasDisplayPath, status: AliasStatus(rawValue: record.status) ?? .missing, createdAt: record.createdAt))
+            importedAliasCount += 1
         }
 
         var todoGroupMap: [String: String] = [:]
@@ -1421,6 +1479,7 @@ struct ContentView: View {
             )
             todoGroupMap[record.id] = group.id
             modelContext.insert(group)
+            importedTodoGroupCount += 1
         }
 
         for record in manifest.todos {
@@ -1440,9 +1499,21 @@ struct ContentView: View {
                 linkedResourceId: record.linkedResourceId.flatMap { resourceMap[$0] }
             )
             modelContext.insert(todo)
+            importedTodoCount += 1
         }
 
         try modelContext.save()
+        return ManifestImportSummary(
+            workspaces: workspaceMap.count,
+            resources: resourceMap.count,
+            snippets: snippetMap.count,
+            canvases: canvasMap.count,
+            nodes: nodeMap.count,
+            edges: importedEdgeCount,
+            aliases: importedAliasCount,
+            todoGroups: importedTodoGroupCount,
+            todos: importedTodoCount
+        )
     }
 }
 
@@ -1785,15 +1856,7 @@ struct ResourceRenameSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    let fields = ResourceRenamePolicy.fields(
-                        titleInput: title,
-                        note: note,
-                        originalName: resource.originalName
-                    )
-                    resource.title = fields.title
-                    resource.customName = fields.customName
-                    resource.note = fields.note
-                    resource.refreshSearchText()
+                    resource.applyRename(titleInput: title, note: note)
                     onSave()
                     dismiss()
                 }
@@ -1839,15 +1902,23 @@ struct HomeView: View {
                 }
 
                 DashboardSection(title: "Pinned Resources") {
-                    CardGrid {
-                        ForEach(resources.prefix(8)) { resource in
-                            HomeResourceCard(
-                                resource: resource,
-                                onSelect: { onSelectResource(resource) },
-                                onOpen: { onOpenResource(resource) },
-                                onCopy: { onCopyResourcePath(resource) },
-                                onInspect: { onInspectResource(resource) }
-                            )
+                    if resources.isEmpty {
+                        DashboardEmptyState(
+                            title: "No pinned resources",
+                            message: "Drop files or folders into the pinned lists to keep them close.",
+                            systemImage: "pin"
+                        )
+                    } else {
+                        CardGrid {
+                            ForEach(resources.prefix(8)) { resource in
+                                HomeResourceCard(
+                                    resource: resource,
+                                    onSelect: { onSelectResource(resource) },
+                                    onOpen: { onOpenResource(resource) },
+                                    onCopy: { onCopyResourcePath(resource) },
+                                    onInspect: { onInspectResource(resource) }
+                                )
+                            }
                         }
                     }
                 }
@@ -2001,6 +2072,35 @@ struct CardGrid<Content: View>: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
             content
         }
+    }
+}
+
+struct DashboardEmptyState: View {
+    let title: String
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .frame(width: 24)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }
 
