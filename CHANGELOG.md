@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-06-11 - Workspace Resume Brief minor release
+
+### Added
+- Added Workspace Resume Brief v0 for compact project re-entry below the workspace header.
+- Added Home Recent Workspace status badges for tasks and resource issues.
+- Added a pure core re-entry policy and app mapper for summarizing tasks, resource issues, canvas counts, dangling references, and recent snippets without SwiftData schema changes.
+- Added release notes for v2.3.0 and updated README release metadata.
+
+### Fixed
+- Stabilized resume next-task ordering so equal-priority tasks are not reshuffled by edit timestamps.
+- Counted dangling snippet canvas node references, including missing, private, and unknown-scope snippets.
+
+### Verification
+- Local rebuild and release validation completed with Swift tests, Swift build, bundle verification, release metadata checks, and an ad-hoc release package smoke build.
+
 ## 2026-06-07 - Code review remediation
 
 ### Fixed
