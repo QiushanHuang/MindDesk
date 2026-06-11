@@ -504,12 +504,26 @@ struct ContentView: View {
         return orderedIDs.compactMap { byID[$0] }
     }
 
+    private var homeWorkspaceBriefsByID: [String: WorkspaceReentryBrief] {
+        WorkspaceReentryBriefMapper.briefsByWorkspaceID(
+            workspaces: Array(recentWorkspaces.prefix(6)),
+            resources: resources,
+            snippets: snippets,
+            todos: todos,
+            canvases: canvases,
+            nodes: nodes,
+            edges: edges,
+            now: Date()
+        )
+    }
+
     @ViewBuilder
     private var detailView: some View {
         switch selection ?? .home {
         case .home:
             HomeView(
                 workspaces: recentWorkspaces,
+                workspaceBriefsByID: homeWorkspaceBriefsByID,
                 resources: orderedResources.filter(\.isPinned),
                 snippets: snippets,
                 onSelectWorkspace: { selection = .workspace($0.id) },
@@ -605,6 +619,16 @@ struct ContentView: View {
             if let workspace = workspaces.first(where: { $0.id == id }) {
                 WorkspaceDetailView(
                     workspace: workspace,
+                    reentryBrief: WorkspaceReentryBriefMapper.brief(
+                        for: workspace,
+                        resources: resources,
+                        snippets: snippets,
+                        todos: todos,
+                        canvases: canvases,
+                        nodes: nodes,
+                        edges: edges,
+                        now: Date()
+                    ),
                     workspaces: workspaces,
                     resources: resources,
                     snippets: snippets,
@@ -1870,6 +1894,7 @@ struct ResourceRenameSheet: View {
 
 struct HomeView: View {
     let workspaces: [WorkspaceModel]
+    let workspaceBriefsByID: [String: WorkspaceReentryBrief]
     let resources: [ResourcePinModel]
     let snippets: [SnippetModel]
     let onSelectWorkspace: (WorkspaceModel) -> Void
@@ -1894,9 +1919,11 @@ struct HomeView: View {
                 DashboardSection(title: "Recent Workspaces") {
                     CardGrid {
                         ForEach(workspaces.prefix(6)) { workspace in
-                            DashboardCard(title: workspace.title, subtitle: workspace.details, systemImage: "rectangle.3.group") {
-                                onSelectWorkspace(workspace)
-                            }
+                            HomeWorkspaceResumeCard(
+                                workspace: workspace,
+                                brief: workspaceBriefsByID[workspace.id],
+                                onSelect: { onSelectWorkspace(workspace) }
+                            )
                         }
                     }
                 }
@@ -1955,6 +1982,312 @@ struct HomeView: View {
                 expandedSnippetIDs.insert(snippet.id)
             }
         }
+    }
+}
+
+struct HomeWorkspaceResumeCard: View {
+    let workspace: WorkspaceModel
+    let brief: WorkspaceReentryBrief?
+    let onSelect: () -> Void
+
+    private var canvasText: String {
+        guard let brief else { return "Canvas" }
+        if brief.isLargeDataDegraded {
+            return "Large workspace"
+        }
+        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+    }
+
+    private var taskText: String? {
+        guard let brief, brief.openTaskCount > 0 else { return nil }
+        return "\(brief.openTaskCount) open"
+    }
+
+    private var issueText: String? {
+        guard let brief, brief.resourceIssueCount > 0 else { return nil }
+        return "\(brief.resourceIssueCount) issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: workspace.isPinned ? "pin.fill" : "rectangle.3.group")
+                        .font(.title3)
+                        .foregroundStyle(workspace.isPinned ? Color.accentColor : Color.secondary)
+                        .frame(width: 24, height: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(workspace.title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(workspace.details.isEmpty ? "No description" : workspace.details)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let brief, !brief.badges.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(brief.badges) { badge in
+                            WorkspaceResumeBadgeView(badge: badge)
+                        }
+                    }
+                    .frame(height: 22, alignment: .leading)
+                }
+
+                HStack(spacing: 10) {
+                    Label(canvasText, systemImage: "rectangle.connected.to.line.below")
+                        .lineLimit(1)
+                        .help(canvasText)
+                    if let taskText {
+                        Label(taskText, systemImage: "checklist")
+                            .lineLimit(1)
+                            .help(taskText)
+                    }
+                    if let issueText {
+                        Label(issueText, systemImage: "exclamationmark.triangle")
+                            .lineLimit(1)
+                            .help(issueText)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(height: 18, alignment: .leading)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(workspace.details.isEmpty ? workspace.title : workspace.details)
+        .accessibilityLabel("\(workspace.title), \(canvasText)")
+    }
+}
+
+struct WorkspaceResumeBriefView: View {
+    let brief: WorkspaceReentryBrief
+    let todosByID: [String: WorkspaceTodoModel]
+    let resourcesByID: [String: ResourcePinModel]
+    let snippetsByID: [String: SnippetModel]
+    let onShowCanvas: () -> Void
+    let onShowResources: () -> Void
+    let onShowSnippets: () -> Void
+
+    private var canvasText: String {
+        if brief.isLargeDataDegraded {
+            return "Large workspace"
+        }
+        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+    }
+
+    private var taskTitles: [String] {
+        brief.nextTaskIds.compactMap { todosByID[$0]?.title }
+    }
+
+    private var resourceIssueTitles: [String] {
+        brief.resourceIssueIds.compactMap { resourcesByID[$0]?.displayName }
+    }
+
+    private var snippetTitles: [String] {
+        brief.recentSnippetIds.compactMap { snippetsByID[$0]?.title }
+    }
+
+    private var taskSummary: String {
+        if brief.openTaskCount == 0 {
+            return "No open tasks"
+        }
+        return "\(brief.openTaskCount) open task\(brief.openTaskCount == 1 ? "" : "s")"
+    }
+
+    private var resourceSummary: String {
+        if brief.resourceIssueCount == 0 {
+            return "No resource issues"
+        }
+        return "\(brief.resourceIssueCount) resource issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    private var snippetSummary: String {
+        if snippetTitles.isEmpty {
+            return "No recent snippets"
+        }
+        return "\(snippetTitles.count) recent snippet\(snippetTitles.count == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(brief.badges) { badge in
+                    WorkspaceResumeBadgeView(badge: badge)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 22, alignment: .leading)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 158), spacing: 8)], spacing: 8) {
+                resumeButton(
+                    title: "Canvas",
+                    value: canvasText,
+                    detail: canvasDetailText,
+                    systemImage: "rectangle.connected.to.line.below",
+                    action: onShowCanvas
+                )
+                resumeItem(
+                    title: "Next",
+                    value: taskSummary,
+                    detail: joined(taskTitles),
+                    systemImage: "checklist"
+                )
+                resumeButton(
+                    title: "Resources",
+                    value: resourceSummary,
+                    detail: joined(resourceIssueTitles),
+                    systemImage: "externaldrive.badge.exclamationmark",
+                    action: onShowResources
+                )
+                resumeButton(
+                    title: "Snippets",
+                    value: snippetSummary,
+                    detail: joined(snippetTitles),
+                    systemImage: "text.quote",
+                    action: onShowSnippets
+                )
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var canvasDetailText: String {
+        if brief.unresolvedReferenceCount > 0 {
+            return "\(brief.unresolvedReferenceCount) unresolved reference\(brief.unresolvedReferenceCount == 1 ? "" : "s")"
+        }
+        return "Workspace map"
+    }
+
+    private func joined(_ titles: [String]) -> String {
+        titles.isEmpty ? "None" : titles.joined(separator: ", ")
+    }
+
+    private func resumeButton(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            resumeContent(title: title, value: value, detail: detail, systemImage: systemImage)
+        }
+        .buttonStyle(.borderless)
+        .help("\(title): \(value)")
+        .accessibilityLabel("\(title), \(value)")
+    }
+
+    private func resumeItem(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String
+    ) -> some View {
+        resumeContent(title: title, value: value, detail: detail, systemImage: systemImage)
+            .help("\(title): \(value)")
+            .accessibilityLabel("\(title), \(value)")
+    }
+
+    private func resumeContent(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(value)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } icon: {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .topLeading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct WorkspaceResumeBadgeView: View {
+    let badge: WorkspaceReentryBadge
+
+    private var label: String {
+        switch badge.kind {
+        case .overdueTasks:
+            return "\(badge.count) overdue"
+        case .dueSoonTasks:
+            return "\(badge.count) due"
+        case .openTasks:
+            return "\(badge.count) open"
+        case .resourceIssues:
+            return "\(badge.count) issue\(badge.count == 1 ? "" : "s")"
+        }
+    }
+
+    private var systemImage: String {
+        switch badge.kind {
+        case .overdueTasks:
+            return "exclamationmark.circle"
+        case .dueSoonTasks:
+            return "clock"
+        case .openTasks:
+            return "circle"
+        case .resourceIssues:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private var tint: Color {
+        switch badge.kind {
+        case .overdueTasks:
+            return .red
+        case .dueSoonTasks, .resourceIssues:
+            return .orange
+        case .openTasks:
+            return .secondary
+        }
+    }
+
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .frame(height: 22)
+            .foregroundStyle(tint)
+            .background(tint.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .help(label)
+            .accessibilityLabel(label)
     }
 }
 
@@ -2289,6 +2622,7 @@ struct GlobalLibraryView: View {
 struct WorkspaceDetailView: View {
     @Environment(\.modelContext) private var modelContext
     let workspace: WorkspaceModel
+    let reentryBrief: WorkspaceReentryBrief
     let workspaces: [WorkspaceModel]
     let resources: [ResourcePinModel]
     let snippets: [SnippetModel]
@@ -2336,6 +2670,18 @@ struct WorkspaceDetailView: View {
         todos.filter { $0.workspaceId == workspace.id }
     }
 
+    private var workspaceTodosByID: [String: WorkspaceTodoModel] {
+        Dictionary(workspaceTodos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private var resourcesByID: [String: ResourcePinModel] {
+        Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private var snippetsByID: [String: SnippetModel] {
+        Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     private var workspaceTodoGroups: [WorkspaceTodoGroupModel] {
         todoGroups.filter { $0.workspaceId == workspace.id }
     }
@@ -2377,6 +2723,16 @@ struct WorkspaceDetailView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 320)
             }
+
+            WorkspaceResumeBriefView(
+                brief: reentryBrief,
+                todosByID: workspaceTodosByID,
+                resourcesByID: resourcesByID,
+                snippetsByID: snippetsByID,
+                onShowCanvas: { tab = "Canvas" },
+                onShowResources: { tab = "Resources" },
+                onShowSnippets: { tab = "Snippets" }
+            )
 
             switch tab {
             case "Resources":
