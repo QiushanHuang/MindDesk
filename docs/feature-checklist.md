@@ -26,6 +26,12 @@
 - [ ] File 菜单里的 New Workspace 可创建工作区，行为与侧边栏 `+` 一致。
 - [ ] Workspaces 排序、pin 置顶、选择状态稳定。
 - [ ] Home Recent Workspaces 按最近打开时间排序，而不是按侧边栏排序。
+- [ ] Home Recent Workspaces can show at most two resume badges and does not become a cross-workspace task list.
+
+## Workspace
+
+- [ ] Workspace Resume Brief shows next tasks, known resource issues, canvas counts, and recent snippets without opening Finder, Terminal, or command execution paths.
+- [ ] Empty workspaces show a quiet resume state and do not create task groups.
 
 ## Global Library 与资源
 
@@ -141,6 +147,7 @@
 - [ ] 没有 `.complete` marker 但目录名合法且包含 `MindDesk.store` 的旧备份仍可作为恢复候选。
 - [ ] 主 store 打不开时，当前 SQLite 文件集被移动到 `Quarantine/`，再按时间顺序从最新可验证备份候选恢复。
 - [ ] 如果恢复备份发布失败，已移动到 `Quarantine/` 的原 SQLite 文件集会尽量回滚回原位置。
+- [ ] Large workspaces degrade the resume brief to count-only status without running Canvas routing or layout.
 
 ## 发布前命令
 

@@ -2696,32 +2696,22 @@ struct WorkspaceDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(workspace.title)
                         .font(.title.bold())
+                        .lineLimit(1)
                     Text(workspace.details)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Button {
-                    onToggleWorkspacePinned(workspace)
-                } label: {
-                    Label(workspace.isPinned ? "Pinned" : "Pin", systemImage: workspace.isPinned ? "pin.fill" : "pin")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        workspaceActionButtons
+                        workspaceViewPicker
+                    }
+                    VStack(alignment: .trailing) {
+                        workspaceActionButtons
+                        workspaceViewPicker
+                    }
                 }
-                Button {
-                    onRenameWorkspace(workspace)
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    onDeleteWorkspace(workspace)
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-                Picker("View", selection: $tab) {
-                    Text("Canvas").tag("Canvas")
-                    Text("Resources").tag("Resources")
-                    Text("Snippets").tag("Snippets")
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 320)
             }
 
             WorkspaceResumeBriefView(
@@ -2781,6 +2771,36 @@ struct WorkspaceDetailView: View {
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue == "Canvas")
         }
+    }
+
+    private var workspaceActionButtons: some View {
+        HStack {
+            Button {
+                onToggleWorkspacePinned(workspace)
+            } label: {
+                Label(workspace.isPinned ? "Pinned" : "Pin", systemImage: workspace.isPinned ? "pin.fill" : "pin")
+            }
+            Button {
+                onRenameWorkspace(workspace)
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDeleteWorkspace(workspace)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private var workspaceViewPicker: some View {
+        Picker("View", selection: $tab) {
+            Text("Canvas").tag("Canvas")
+            Text("Resources").tag("Resources")
+            Text("Snippets").tag("Snippets")
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 320)
     }
 
     private func markWorkspaceOpened() {
