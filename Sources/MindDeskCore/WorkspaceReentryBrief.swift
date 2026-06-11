@@ -255,9 +255,11 @@ public enum WorkspaceReentryBriefPolicy {
         let canvasIds = Set(workspaceCanvases.map(\.id))
         let workspaceNodes = nodes.filter { canvasIds.contains($0.canvasId) }
         let workspaceEdges = edges.filter { canvasIds.contains($0.canvasId) }
-        let nodeCanvasById = Dictionary(workspaceNodes.map { ($0.id, $0.canvasId) }, uniquingKeysWith: { first, _ in first })
+        let nodeIdsByCanvasId = Dictionary(grouping: workspaceNodes, by: \.canvasId)
+            .mapValues { Set($0.map(\.id)) }
 
-        let openTodos = todos.filter { $0.workspaceId == workspace.id && !$0.isCompleted }
+        let workspaceTodos = todos.filter { $0.workspaceId == workspace.id }
+        let openTodos = workspaceTodos.filter { !$0.isCompleted }
         let overdueTaskCount = openTodos.filter { isOverdue($0, now: now) }.count
         let dueSoonTaskCount = openTodos.filter { isDueSoon($0, now: now) }.count
 
@@ -268,17 +270,20 @@ public enum WorkspaceReentryBriefPolicy {
             todos: openTodos,
             nodes: workspaceNodes
         )
-        let resourceIssues = associatedResourceIds
-            .compactMap { resourcesById[$0] }
-            .filter { isVisible($0, in: workspace.id) && $0.status != "available" }
-            .sorted(by: compareResources)
+        let resourceIssueCount = associatedResourceIds.reduce(into: 0) { count, resourceId in
+            guard let resource = resourcesById[resourceId],
+                  isVisible(resource, in: workspace.id),
+                  resource.status != "available" else {
+                return
+            }
+            count += 1
+        }
 
         let canvasSummary = canvasSummary(
-            workspace: workspace,
             canvases: workspaceCanvases,
             nodes: workspaceNodes,
             edges: workspaceEdges,
-            nodeCanvasById: nodeCanvasById
+            nodeIdsByCanvasId: nodeIdsByCanvasId
         )
         let unresolvedReferenceCount = unresolvedReferenceCount(
             workspaceId: workspace.id,
@@ -286,18 +291,18 @@ public enum WorkspaceReentryBriefPolicy {
             openTodos: openTodos,
             nodes: workspaceNodes,
             edges: workspaceEdges,
-            nodeCanvasById: nodeCanvasById
+            nodeIdsByCanvasId: nodeIdsByCanvasId
         )
         let badges = badges(
             openTaskCount: openTodos.count,
             overdueTaskCount: overdueTaskCount,
             dueSoonTaskCount: dueSoonTaskCount,
-            resourceIssueCount: resourceIssues.count,
+            resourceIssueCount: resourceIssueCount,
             limit: badgeLimit
         )
-        let isLargeDataDegraded = nodes.count > maximumDetailedNodeCount ||
-            edges.count > maximumDetailedEdgeCount ||
-            todos.count > maximumDetailedTodoCount
+        let isLargeDataDegraded = workspaceNodes.count > maximumDetailedNodeCount ||
+            workspaceEdges.count > maximumDetailedEdgeCount ||
+            workspaceTodos.count > maximumDetailedTodoCount
 
         if isLargeDataDegraded {
             return WorkspaceReentryBrief(
@@ -310,11 +315,16 @@ public enum WorkspaceReentryBriefPolicy {
                 openTaskCount: openTodos.count,
                 overdueTaskCount: overdueTaskCount,
                 dueSoonTaskCount: dueSoonTaskCount,
-                resourceIssueCount: resourceIssues.count,
+                resourceIssueCount: resourceIssueCount,
                 unresolvedReferenceCount: unresolvedReferenceCount,
                 isLargeDataDegraded: true
             )
         }
+
+        let resourceIssues = associatedResourceIds
+            .compactMap { resourcesById[$0] }
+            .filter { isVisible($0, in: workspace.id) && $0.status != "available" }
+            .sorted(by: compareResources)
 
         return WorkspaceReentryBrief(
             workspaceId: workspace.id,
@@ -329,25 +339,23 @@ public enum WorkspaceReentryBriefPolicy {
             openTaskCount: openTodos.count,
             overdueTaskCount: overdueTaskCount,
             dueSoonTaskCount: dueSoonTaskCount,
-            resourceIssueCount: resourceIssues.count,
+            resourceIssueCount: resourceIssueCount,
             unresolvedReferenceCount: unresolvedReferenceCount,
             isLargeDataDegraded: false
         )
     }
 
     private static func canvasSummary(
-        workspace: WorkspaceReentryWorkspaceRecord,
         canvases: [WorkspaceReentryCanvasRecord],
         nodes: [WorkspaceReentryCanvasNodeRecord],
         edges: [WorkspaceReentryCanvasEdgeRecord],
-        nodeCanvasById: [String: String]
+        nodeIdsByCanvasId: [String: Set<String>]
     ) -> WorkspaceReentryCanvasSummary {
         let validLinkCount = edges.filter { edge in
-            nodeCanvasById[edge.sourceNodeId] == edge.canvasId &&
-                nodeCanvasById[edge.targetNodeId] == edge.canvasId
+            let nodeIds = nodeIdsByCanvasId[edge.canvasId, default: []]
+            return nodeIds.contains(edge.sourceNodeId) && nodeIds.contains(edge.targetNodeId)
         }.count
-        let lastUpdatedAt = ([workspace.updatedAt] +
-            canvases.map(\.updatedAt) +
+        let lastUpdatedAt = (canvases.map(\.updatedAt) +
             nodes.map(\.updatedAt) +
             edges.map(\.updatedAt)
         ).max()
@@ -403,7 +411,7 @@ public enum WorkspaceReentryBriefPolicy {
         openTodos: [WorkspaceReentryTodoRecord],
         nodes: [WorkspaceReentryCanvasNodeRecord],
         edges: [WorkspaceReentryCanvasEdgeRecord],
-        nodeCanvasById: [String: String]
+        nodeIdsByCanvasId: [String: Set<String>]
     ) -> Int {
         let missingTodoResources = openTodos.filter { todo in
             guard let linkedResourceId = todo.linkedResourceId else { return false }
@@ -417,8 +425,8 @@ public enum WorkspaceReentryBriefPolicy {
             return !isVisible(resource, in: workspaceId)
         }.count
         let missingEdgeEndpoints = edges.filter { edge in
-            nodeCanvasById[edge.sourceNodeId] != edge.canvasId ||
-                nodeCanvasById[edge.targetNodeId] != edge.canvasId
+            let nodeIds = nodeIdsByCanvasId[edge.canvasId, default: []]
+            return !nodeIds.contains(edge.sourceNodeId) || !nodeIds.contains(edge.targetNodeId)
         }.count
         return missingTodoResources + missingNodeResources + missingEdgeEndpoints
     }
@@ -505,11 +513,13 @@ public enum WorkspaceReentryBriefPolicy {
     }
 
     private static func isVisible(_ resource: WorkspaceReentryResourceRecord, in workspaceId: String) -> Bool {
-        resource.scope != "workspace" || resource.workspaceId == workspaceId
+        resource.scope == "global" ||
+            (resource.scope == "workspace" && resource.workspaceId == workspaceId)
     }
 
     private static func isVisible(_ snippet: WorkspaceReentrySnippetRecord, in workspaceId: String) -> Bool {
-        snippet.scope != "workspace" || snippet.workspaceId == workspaceId
+        snippet.scope == "global" ||
+            (snippet.scope == "workspace" && snippet.workspaceId == workspaceId)
     }
 
     private static func append(_ id: String?, to ids: inout [String], seen: inout Set<String>) {

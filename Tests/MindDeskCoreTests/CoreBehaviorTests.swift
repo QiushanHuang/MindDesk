@@ -3666,6 +3666,78 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(brief.isLargeDataDegraded)
     }
 
+    func testWorkspaceReentryBriefCanvasLastUpdateIgnoresWorkspaceUpdatedAt() {
+        let workspaceUpdatedAt = Date(timeIntervalSince1970: 60_000)
+        let canvasUpdatedAt = Date(timeIntervalSince1970: 10_000)
+        let nodeUpdatedAt = Date(timeIntervalSince1970: 20_000)
+        let edgeUpdatedAt = Date(timeIntervalSince1970: 30_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: workspaceUpdatedAt)
+
+        let emptyBrief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: workspaceUpdatedAt
+        )
+        XCTAssertNil(emptyBrief.canvasSummary.lastUpdatedAt)
+
+        let canvasBrief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: canvasUpdatedAt)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "source", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: nodeUpdatedAt),
+                WorkspaceReentryCanvasNodeRecord(id: "target", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: canvasUpdatedAt)
+            ],
+            edges: [
+                WorkspaceReentryCanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "source", targetNodeId: "target", updatedAt: edgeUpdatedAt)
+            ],
+            now: workspaceUpdatedAt
+        )
+
+        XCTAssertEqual(canvasBrief.canvasSummary.lastUpdatedAt, edgeUpdatedAt)
+    }
+
+    func testWorkspaceReentryBriefFailsClosedForUnknownResourceAndSnippetScopes() {
+        let now = Date(timeIntervalSince1970: 70_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [
+                WorkspaceReentryResourceRecord(id: "unknown-resource", workspaceId: nil, title: "Unknown", status: "unavailable", scope: "shared", updatedAt: now.addingTimeInterval(10), lastOpenedAt: nil),
+                WorkspaceReentryResourceRecord(id: "workspace-resource", workspaceId: "workspace", title: "Workspace", status: "unavailable", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "unknown-snippet", workspaceId: nil, title: "Unknown", scope: "shared", updatedAt: now.addingTimeInterval(10), lastCopiedAt: now.addingTimeInterval(10), lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "workspace-snippet", workspaceId: "workspace", title: "Workspace", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "todo", workspaceId: "workspace", title: "Todo", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: "unknown-resource")
+            ],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "resource-node", canvasId: "canvas", objectType: "resourcePin", objectId: "workspace-resource", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "unknown-snippet", updatedAt: now)
+            ],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.resourceIssueIds, ["workspace-resource"])
+        XCTAssertEqual(brief.recentSnippetIds, ["workspace-snippet"])
+        XCTAssertEqual(brief.resourceIssueCount, 1)
+    }
+
     func testWorkspaceReentryBriefDegradesLargeInputsToCountsOnly() {
         let now = Date(timeIntervalSince1970: 50_000)
         let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
@@ -3699,5 +3771,43 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(brief.resourceIssueCount, 1)
         XCTAssertFalse(brief.badges.isEmpty)
         XCTAssertEqual(brief.canvasSummary.cardCount, nodes.count)
+    }
+
+    func testWorkspaceReentryBriefDoesNotDegradeForUnrelatedLargeWorkspaceInputs() {
+        let now = Date(timeIntervalSince1970: 80_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let otherNodes = (0...WorkspaceReentryBriefPolicy.maximumDetailedNodeCount).map { index in
+            WorkspaceReentryCanvasNodeRecord(id: "other-node-\(index)", canvasId: "other-canvas", objectType: nil, objectId: nil, updatedAt: now)
+        }
+        let otherEdges = (0...WorkspaceReentryBriefPolicy.maximumDetailedEdgeCount).map { index in
+            WorkspaceReentryCanvasEdgeRecord(id: "other-edge-\(index)", canvasId: "other-canvas", sourceNodeId: "missing-a", targetNodeId: "missing-b", updatedAt: now)
+        }
+        let otherTodos = (0...WorkspaceReentryBriefPolicy.maximumDetailedTodoCount).map { index in
+            WorkspaceReentryTodoRecord(id: "other-todo-\(index)", workspaceId: "other-workspace", title: "Other", isCompleted: false, isPinned: false, sortIndex: index, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+        }
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "snippet", workspaceId: "workspace", title: "Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "todo", workspaceId: "workspace", title: "Todo", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ] + otherTodos,
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now),
+                WorkspaceReentryCanvasRecord(id: "other-canvas", workspaceId: "other-workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "node", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: now)
+            ] + otherNodes,
+            edges: otherEdges,
+            now: now
+        )
+
+        XCTAssertFalse(brief.isLargeDataDegraded)
+        XCTAssertEqual(brief.nextTaskIds, ["todo"])
+        XCTAssertEqual(brief.recentSnippetIds, ["snippet"])
+        XCTAssertEqual(brief.canvasSummary.cardCount, 1)
     }
 }
