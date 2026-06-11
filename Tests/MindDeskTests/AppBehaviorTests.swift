@@ -155,7 +155,7 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(brief.resourceIssueIds, [])
         XCTAssertEqual(brief.resourceIssueCount, 0)
         XCTAssertEqual(brief.recentSnippetIds, [])
-        XCTAssertEqual(brief.unresolvedReferenceCount, 1)
+        XCTAssertEqual(brief.unresolvedReferenceCount, 2)
     }
 
     func testWorkspaceReentryMapperBriefsByWorkspaceIDCapsToFirstSixWorkspaces() {

@@ -3613,6 +3613,26 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(brief.nextTaskIds, ["due", "a", "z"])
     }
 
+    func testWorkspaceReentryBriefTodoTieBreakIgnoresUpdatedAt() {
+        let now = Date(timeIntervalSince1970: 25_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "newer", workspaceId: "workspace", title: "Zeta", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now.addingTimeInterval(100), dueAt: nil, linkedResourceId: nil),
+                WorkspaceReentryTodoRecord(id: "older", workspaceId: "workspace", title: "Alpha", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.nextTaskIds, ["older", "newer"])
+    }
+
     func testWorkspaceReentryBriefIgnoresCompletedAndDanglingReferences() {
         let now = Date(timeIntervalSince1970: 30_000)
         let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
@@ -3640,6 +3660,36 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(brief.resourceIssueIds.isEmpty)
         XCTAssertEqual(brief.canvasSummary.cardCount, 1)
         XCTAssertEqual(brief.canvasSummary.validLinkCount, 0)
+        XCTAssertEqual(brief.unresolvedReferenceCount, 3)
+    }
+
+    func testWorkspaceReentryBriefCountsUnresolvedSnippetNodeReferences() {
+        let now = Date(timeIntervalSince1970: 35_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "workspace-snippet", workspaceId: "workspace", title: "Workspace", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "global-snippet", workspaceId: nil, title: "Global", scope: "global", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "private-snippet", workspaceId: "other-workspace", title: "Private", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "unknown-snippet", workspaceId: nil, title: "Unknown", scope: "shared", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "workspace-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "workspace-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "global-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "global-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "missing-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "missing-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "private-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "private-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "unknown-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "unknown-snippet", updatedAt: now)
+            ],
+            edges: [],
+            now: now
+        )
+
         XCTAssertEqual(brief.unresolvedReferenceCount, 3)
     }
 

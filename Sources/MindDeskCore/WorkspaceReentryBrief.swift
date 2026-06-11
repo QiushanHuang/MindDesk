@@ -264,6 +264,7 @@ public enum WorkspaceReentryBriefPolicy {
         let dueSoonTaskCount = openTodos.filter { isDueSoon($0, now: now) }.count
 
         let resourcesById = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let snippetsById = Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let associatedResourceIds = associatedResourceIDs(
             workspaceId: workspace.id,
             resources: resources,
@@ -288,6 +289,7 @@ public enum WorkspaceReentryBriefPolicy {
         let unresolvedReferenceCount = unresolvedReferenceCount(
             workspaceId: workspace.id,
             resourcesById: resourcesById,
+            snippetsById: snippetsById,
             openTodos: openTodos,
             nodes: workspaceNodes,
             edges: workspaceEdges,
@@ -408,6 +410,7 @@ public enum WorkspaceReentryBriefPolicy {
     private static func unresolvedReferenceCount(
         workspaceId: String,
         resourcesById: [String: WorkspaceReentryResourceRecord],
+        snippetsById: [String: WorkspaceReentrySnippetRecord],
         openTodos: [WorkspaceReentryTodoRecord],
         nodes: [WorkspaceReentryCanvasNodeRecord],
         edges: [WorkspaceReentryCanvasEdgeRecord],
@@ -424,11 +427,17 @@ public enum WorkspaceReentryBriefPolicy {
             guard let resource = resourcesById[objectId] else { return true }
             return !isVisible(resource, in: workspaceId)
         }.count
+        let missingNodeSnippets = nodes.filter { node in
+            guard node.objectType == "snippet" else { return false }
+            guard let objectId = node.objectId else { return true }
+            guard let snippet = snippetsById[objectId] else { return true }
+            return !isVisible(snippet, in: workspaceId)
+        }.count
         let missingEdgeEndpoints = edges.filter { edge in
             let nodeIds = nodeIdsByCanvasId[edge.canvasId, default: []]
             return !nodeIds.contains(edge.sourceNodeId) || !nodeIds.contains(edge.targetNodeId)
         }.count
-        return missingTodoResources + missingNodeResources + missingEdgeEndpoints
+        return missingTodoResources + missingNodeResources + missingNodeSnippets + missingEdgeEndpoints
     }
 
     private static func badges(
@@ -462,7 +471,6 @@ public enum WorkspaceReentryBriefPolicy {
         if lhsBucket != rhsBucket { return lhsBucket < rhsBucket }
         if lhs.isPinned != rhs.isPinned { return lhs.isPinned && !rhs.isPinned }
         if lhs.sortIndex != rhs.sortIndex { return lhs.sortIndex < rhs.sortIndex }
-        if lhs.updatedAt != rhs.updatedAt { return lhs.updatedAt > rhs.updatedAt }
         if lhs.title != rhs.title {
             return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
         }
