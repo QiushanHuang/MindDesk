@@ -397,12 +397,6 @@ private struct CanvasEdgeControlPointSnapshot {
     let y: Double
 }
 
-private struct WorkspaceResourceMenuGroup {
-    let workspaceId: String
-    let title: String
-    let resources: [ResourcePinModel]
-}
-
 struct WorkspaceCanvasView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -446,7 +440,7 @@ struct WorkspaceCanvasView: View {
     @State private var transientNodeSizes: [String: CGSize] = [:]
     @State private var resizingNodeId: String?
     @State private var isCanvasInspectorVisible = false
-    @State private var isTodoPanelOpen = true
+    @State private var isTodoPanelOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
     @State private var isTodoDoneColumnOpen = false
     @State private var isTodoPanelInitialized = false
     @State private var didAlignLeftRailScroll = false
@@ -537,6 +531,17 @@ struct WorkspaceCanvasView: View {
             !edgeControlDragStart.isEmpty
     }
 
+    private func shouldReducePeerCardDetails(visibleCardCount: Int) -> Bool {
+        CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: !nodeDragStart.isEmpty,
+            isViewportMoving: transientViewportOffset != .zero,
+            isZooming: transientZoomViewportOffset != .zero || transientZoom != nil,
+            isResizing: resizingNodeId != nil || !transientNodeSizes.isEmpty,
+            isEdgeControlDragging: !edgeControlDragStart.isEmpty,
+            visibleCardCount: visibleCardCount
+        )
+    }
+
     private var renderSnapshot: CanvasRenderSnapshot {
         CanvasRenderSnapshot(nodes: workflowNodes, resources: allResources, snippets: snippets, edges: edges)
     }
@@ -547,27 +552,6 @@ struct WorkspaceCanvasView: View {
 
     private var currentWorkspaceResources: [ResourcePinModel] {
         orderedResourceMenuItems(allResources.filter { $0.scope == .workspace && $0.workspaceId == canvas.workspaceId })
-    }
-
-    private var otherWorkspaceResourceGroups: [WorkspaceResourceMenuGroup] {
-        let titleByWorkspaceId = Dictionary(workspaces.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
-        let grouped = Dictionary(grouping: allResources.filter { $0.scope == .workspace && $0.workspaceId != canvas.workspaceId }) {
-            $0.workspaceId ?? ""
-        }
-        return grouped
-            .filter { !$0.key.isEmpty }
-            .map { workspaceId, resources in
-                WorkspaceResourceMenuGroup(
-                    workspaceId: workspaceId,
-                    title: titleByWorkspaceId[workspaceId] ?? workspaceId,
-                    resources: orderedResourceMenuItems(resources)
-                )
-            }
-            .sorted {
-                let comparison = $0.title.localizedStandardCompare($1.title)
-                if comparison != .orderedSame { return comparison == .orderedAscending }
-                return $0.workspaceId < $1.workspaceId
-            }
     }
 
     private func orderedResourceMenuItems(_ resources: [ResourcePinModel]) -> [ResourcePinModel] {
@@ -631,9 +615,7 @@ struct WorkspaceCanvasView: View {
         .animation(.easeInOut(duration: 0.16), value: isTodoDoneColumnOpen)
         .onAppear {
             if !isTodoPanelInitialized {
-                isTodoPanelOpen = todoPanelDefaultOpen
-                isTodoDoneColumnOpen = todoDoneColumnDefaultOpen
-                isTodoPanelInitialized = true
+                initializeTodoPanelDefaults()
             }
         }
             .onDisappear {
@@ -646,7 +628,51 @@ struct WorkspaceCanvasView: View {
             .onChange(of: edges.map(\.id)) { _, edgeIDs in
                 selectedEdgeIDs.formIntersection(Set(edgeIDs))
             }
+            .onChange(of: nodes.map(\.id)) { _, nodeIDs in
+                reconcileNodeState(existingNodeIDs: Set(nodeIDs))
+            }
+            .onChange(of: canvas.id) { _, _ in
+                initializeTodoPanelDefaults()
+                resetTransientCanvasInteractionState()
+            }
             .background(canvasCommandShortcuts.frame(width: 0, height: 0).opacity(0))
+    }
+
+    private func initializeTodoPanelDefaults() {
+        isTodoPanelOpen = todoPanelDefaultOpen
+        isTodoDoneColumnOpen = todoDoneColumnDefaultOpen
+        isTodoPanelInitialized = true
+    }
+
+    private func resetTransientCanvasInteractionState() {
+        cancelPendingScrollZoomCommit()
+        flushPendingNodeTextCommits()
+        selectedNodeIDs.removeAll()
+        selectedEdgeIDs.removeAll()
+        editingNodeIDs.removeAll()
+        mode = .select
+        connectionSourceNodeId = nil
+        selectionRect = nil
+        nodeDragStart.removeAll()
+        nodeDragSnapshots.removeAll()
+        backgroundDragStartedOnNode = nil
+        primaryDraggedNodeId = nil
+        transientNodeOffsets.removeAll()
+        transientViewportOffset = .zero
+        transientZoomViewportOffset = .zero
+        zoomStart = nil
+        magnifyAnchor = nil
+        transientZoom = nil
+        isDropTarget = false
+        suppressedTapNodeId = nil
+        resizeStartSizes.removeAll()
+        transientNodeSizes.removeAll()
+        resizingNodeId = nil
+        edgeControlDragStart.removeAll()
+        transientEdgeControlPoints.removeAll()
+        frameDragControlPointEdgeIDs.removeAll()
+        frameDragControlPointSnapshotsByID.removeAll()
+        didAlignLeftRailScroll = false
     }
 
     private var canvasCommandShortcuts: some View {
@@ -709,12 +735,12 @@ struct WorkspaceCanvasView: View {
                 Button {
                     isTodoPanelOpen.toggle()
                 } label: {
-                    Label(isTodoPanelOpen ? "Close Todo Page" : "Open Todo Page", systemImage: "checklist")
+                    Label(isTodoPanelOpen ? "Close Tasks" : "Open Tasks", systemImage: "checklist")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
                 .tint(isTodoPanelOpen ? .accentColor : nil)
-                .help(isTodoPanelOpen ? "Close workspace todo page" : "Open workspace todo page")
+                .help(isTodoPanelOpen ? "Close workspace tasks" : "Open workspace tasks")
 
                 GroupBox("Add") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -723,16 +749,6 @@ struct WorkspaceCanvasView: View {
                             if !currentWorkspaceResources.isEmpty {
                                 Divider()
                                 resourceMenuSection(title: "Current Workspace", resources: currentWorkspaceResources)
-                            }
-                            if !otherWorkspaceResourceGroups.isEmpty {
-                                Divider()
-                                ForEach(otherWorkspaceResourceGroups, id: \.workspaceId) { group in
-                                    Menu(group.title) {
-                                        ForEach(group.resources) { resource in
-                                            Button(resource.displayName) { addResourceNode(resource) }
-                                        }
-                                    }
-                                }
                             }
                         } label: {
                             Label("Resource", systemImage: "folder.badge.plus")
@@ -934,7 +950,7 @@ struct WorkspaceCanvasView: View {
                             Label("Delete Card", systemImage: "trash")
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .disabled(selectedNodeIDs.isEmpty)
+                        .disabled(selectedNodeIDs.isEmpty || selectedNodeIDsContainLockedNode)
                     }
                     .buttonStyle(.bordered)
                 }
@@ -1326,7 +1342,7 @@ struct WorkspaceCanvasView: View {
             zoom: effectiveZoom,
             baselineZoom: zoomBaseline,
             visibleCardCount: visibleNodeCount,
-            isInteracting: isCanvasInteracting,
+            isInteracting: shouldReducePeerCardDetails(visibleCardCount: visibleNodeCount),
             isSelected: preservesDetailedRendering(for: node, isActiveNode: isActiveNode),
             isEditing: isEditing
         )
@@ -1376,7 +1392,7 @@ struct WorkspaceCanvasView: View {
             zoom: effectiveZoom,
             baselineZoom: zoomBaseline,
             visibleCardCount: visibleNodeCount,
-            isInteracting: isCanvasInteracting,
+            isInteracting: shouldReducePeerCardDetails(visibleCardCount: visibleNodeCount),
             isSelected: preservesDetailedRendering(for: node, isActiveNode: isActiveNode),
             isEditing: isEditing
         )
@@ -1508,6 +1524,7 @@ struct WorkspaceCanvasView: View {
             hasStoredControlPoint: segment.control != nil,
             isLocked: segment.isControlPointLocked,
             isInteracting: isCanvasInteracting,
+            isDragging: edgeControlDragStart[segment.id] != nil,
             edgeCount: edgeCount,
             zoom: effectiveZoom
         )
@@ -1695,7 +1712,7 @@ struct WorkspaceCanvasView: View {
 
     private func resizeHandle(for node: CanvasNodeModel) -> some View {
         let center = resizeHandleCenter(for: node)
-        let hitSize = CanvasResizeHandleGeometry.baseHitSize * effectiveZoom
+        let hitSize = CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom)
         return FrameResizeHandle(helpText: node.nodeType == .groupFrame ? "Resize frame" : "Resize card")
             .scaleEffect(zoom)
             .frame(width: hitSize, height: hitSize)
@@ -1894,6 +1911,10 @@ struct WorkspaceCanvasView: View {
         return workflowNodeById[id]
     }
 
+    private var selectedNodeIDsContainLockedNode: Bool {
+        selectedNodeIDs.contains { workflowNodeById[$0]?.locked == true }
+    }
+
     private var connectionSourceNode: CanvasNodeModel? {
         guard let connectionSourceNodeId else { return nil }
         return workflowNodeById[connectionSourceNodeId]
@@ -1942,6 +1963,20 @@ struct WorkspaceCanvasView: View {
         }
     }
 
+    private func reconcileNodeState(existingNodeIDs: Set<String>) {
+        selectedNodeIDs = CanvasNodeStateReconciliation.validIDs(selectedNodeIDs, existingNodeIDs: existingNodeIDs)
+        editingNodeIDs = CanvasNodeStateReconciliation.validIDs(editingNodeIDs, existingNodeIDs: existingNodeIDs)
+        connectionSourceNodeId = CanvasNodeStateReconciliation.validOptionalID(connectionSourceNodeId, existingNodeIDs: existingNodeIDs)
+        primaryDraggedNodeId = CanvasNodeStateReconciliation.validOptionalID(primaryDraggedNodeId, existingNodeIDs: existingNodeIDs)
+        suppressedTapNodeId = CanvasNodeStateReconciliation.validOptionalID(suppressedTapNodeId, existingNodeIDs: existingNodeIDs)
+        resizingNodeId = CanvasNodeStateReconciliation.validOptionalID(resizingNodeId, existingNodeIDs: existingNodeIDs)
+        nodeDragStart = CanvasNodeStateReconciliation.filteredKeys(nodeDragStart, existingNodeIDs: existingNodeIDs)
+        nodeDragSnapshots = CanvasNodeStateReconciliation.filteredKeys(nodeDragSnapshots, existingNodeIDs: existingNodeIDs)
+        transientNodeOffsets = CanvasNodeStateReconciliation.filteredKeys(transientNodeOffsets, existingNodeIDs: existingNodeIDs)
+        resizeStartSizes = CanvasNodeStateReconciliation.filteredKeys(resizeStartSizes, existingNodeIDs: existingNodeIDs)
+        transientNodeSizes = CanvasNodeStateReconciliation.filteredKeys(transientNodeSizes, existingNodeIDs: existingNodeIDs)
+    }
+
     private func webURL(for node: CanvasNodeModel) -> URL? {
         guard node.objectType == "webURL" else { return nil }
         return WebCardURL.normalized(node.objectId ?? node.body)
@@ -1950,6 +1985,7 @@ struct WorkspaceCanvasView: View {
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
         DragGesture()
             .onChanged { value in
+                guard !node.locked, !editingNodeIDs.contains(node.id) else { return }
                 if resizingNodeId == node.id {
                     return
                 }
@@ -1964,6 +2000,10 @@ struct WorkspaceCanvasView: View {
                 updateFrameDragControlPointOffsets(delta: delta)
             }
             .onEnded { value in
+                guard !node.locked, !editingNodeIDs.contains(node.id) else {
+                    resetNodeDragState()
+                    return
+                }
                 if resizingNodeId == node.id {
                     resetNodeDragState()
                     return
@@ -1974,8 +2014,12 @@ struct WorkspaceCanvasView: View {
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
         clearFrameDragControlPointOffsets()
-        primaryDraggedNodeId = node.id
         let draggedNodes = draggedNodes(for: node)
+        guard !draggedNodes.contains(where: \.locked) else {
+            onStatus("Unlock selected cards before moving them.")
+            return
+        }
+        primaryDraggedNodeId = node.id
         let draggedIDs = Set(draggedNodes.map(\.id))
         let frameSnapshots = workflowNodes
             .filter { $0.nodeType == .groupFrame && !draggedIDs.contains($0.id) }
@@ -2084,52 +2128,51 @@ struct WorkspaceCanvasView: View {
         _ dragStart: [String: CanvasNodeDragStart],
         edgeControlPointSnapshots: [CanvasEdgeControlPointSnapshot]
     ) {
-        for (id, start) in dragStart {
-            guard workflowNodeById[id] != nil else { continue }
-            let undoContext = MainActorUndoContext(context: modelContext)
-            undoManager?.registerUndo(withTarget: modelContext) { _ in
-                MainActor.assumeIsolated {
-                    let context = undoContext.context
+        let nodeStarts = dragStart.filter { id, _ in
+            workflowNodeById[id] != nil
+        }
+        let edgeSnapshots = edgeControlPointSnapshots.filter { snapshot in
+            visibleEdges.contains(where: { $0.id == snapshot.id })
+        }
+        guard !nodeStarts.isEmpty || !edgeSnapshots.isEmpty else { return }
+
+        let undoContext = MainActorUndoContext(context: modelContext)
+        undoManager?.registerUndo(withTarget: modelContext) { _ in
+            MainActor.assumeIsolated {
+                let context = undoContext.context
+                var missingNodeCount = 0
+                var missingEdgeCount = 0
+                for (id, start) in nodeStarts {
                     guard let node = fetchCanvasNodeForUndo(id: id, in: context) else {
-                        onStatus("Could not undo card move: card no longer exists")
-                        return
+                        missingNodeCount += 1
+                        continue
                     }
                     node.x = start.x
                     node.y = start.y
                     node.parentNodeId = start.parentNodeId
                     node.updatedAt = .now
-                    do {
-                        try context.save()
-                    } catch {
-                        context.rollback()
-                        onStatus("Could not undo card move: \(error.localizedDescription)")
-                    }
                 }
-            }
-        }
-        for snapshot in edgeControlPointSnapshots {
-            guard visibleEdges.contains(where: { $0.id == snapshot.id }) else { continue }
-            let undoContext = MainActorUndoContext(context: modelContext)
-            undoManager?.registerUndo(withTarget: modelContext) { _ in
-                MainActor.assumeIsolated {
-                    let context = undoContext.context
+                for snapshot in edgeSnapshots {
                     guard let edge = fetchCanvasEdgeForUndo(id: snapshot.id, in: context) else {
-                        onStatus("Could not undo link bend move: link no longer exists")
-                        return
+                        missingEdgeCount += 1
+                        continue
                     }
                     edge.controlPointX = snapshot.x
                     edge.controlPointY = snapshot.y
                     edge.updatedAt = .now
-                    do {
-                        try context.save()
-                    } catch {
-                        context.rollback()
-                        onStatus("Could not undo link bend move: \(error.localizedDescription)")
+                }
+                do {
+                    try context.save()
+                    if missingNodeCount > 0 || missingEdgeCount > 0 {
+                        onStatus("Undo restored available items; \(missingNodeCount) cards and \(missingEdgeCount) links no longer exist.")
                     }
+                } catch {
+                    context.rollback()
+                    onStatus("Could not undo canvas move: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName(dragStart.count == 1 ? "Move Card" : "Move Cards")
+        undoManager?.setActionName(nodeStarts.count == 1 ? "Move Card" : "Move Cards")
     }
 
     private func edgeControlPointSnapshots(in frames: [CanvasFrameRect]) -> [CanvasEdgeControlPointSnapshot] {
@@ -2241,6 +2284,15 @@ struct WorkspaceCanvasView: View {
     }
 
     private func resizeNode(_ node: CanvasNodeModel, screenTranslation: CGSize, commit: Bool) {
+        guard !node.locked else {
+            transientNodeSizes[node.id] = nil
+            resizeStartSizes[node.id] = nil
+            resizingNodeId = nil
+            if commit {
+                onStatus("Unlock card before resizing it.")
+            }
+            return
+        }
         resizingNodeId = node.id
         if resizeStartSizes[node.id] == nil {
             let size = nodeSize(for: node)
@@ -2554,6 +2606,11 @@ struct WorkspaceCanvasView: View {
         commitScrollZoom()
     }
 
+    private func cancelPendingScrollZoomCommit() {
+        pendingScrollZoomCommit?.cancel()
+        pendingScrollZoomCommit = nil
+    }
+
     private func commitScrollZoom() {
         guard let transientZoom else { return }
         defer {
@@ -2636,7 +2693,7 @@ struct WorkspaceCanvasView: View {
             selectedNodeIDs = [node.id]
         } catch {
             let actionError = error
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             if saveModelChanges(failurePrefix: "Could not update resource status") {
                 onStatus(actionError.localizedDescription)
             }
@@ -2892,9 +2949,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func importDroppedResources(_ urls: [URL], at dropLocation: CGPoint) {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty else {
+            onStatus("Drop did not include files or folders.")
+            return
+        }
         do {
-            let summary = try ResourceImportService().importURLs(
+            var summary = try ResourceImportService().importURLs(
                 urls,
                 existingResources: resources,
                 into: modelContext,
@@ -2903,8 +2963,35 @@ struct WorkspaceCanvasView: View {
                 pinImported: false,
                 saveChanges: false
             )
+            let resourceById = Dictionary(summary.resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let dropPlan = CanvasResourceDropPolicy.plan(
+                resourceIds: summary.resources.map(\.id),
+                canvasId: canvas.id,
+                existingNodes: nodes.map {
+                    CanvasObjectReference(
+                        nodeId: $0.id,
+                        canvasId: $0.canvasId,
+                        workspaceId: canvas.workspaceId,
+                        objectType: $0.objectType,
+                        objectId: $0.objectId
+                    )
+                }
+            )
+            summary.skipped += dropPlan.skippedExistingResourceIds.map { resourceId in
+                ResourceImportItemIssue(
+                    path: resourceById[resourceId]?.displayPath ?? resourceId,
+                    reason: "Already on this canvas"
+                )
+            }
+            summary.skipped += dropPlan.skippedDuplicateInputResourceIds.map { resourceId in
+                ResourceImportItemIssue(
+                    path: resourceById[resourceId]?.displayPath ?? resourceId,
+                    reason: "Duplicate canvas drop"
+                )
+            }
             var addedIDs: [String] = []
-            for (index, resource) in summary.resources.enumerated() {
+            for (index, resourceId) in dropPlan.resourceIdsToCreateNodes.enumerated() {
+                guard let resource = resourceById[resourceId] else { continue }
                 let point = dropNodePosition(at: dropLocation, offset: index)
                 let node = CanvasNodeModel(canvasId: canvas.id, title: resource.effectiveName, body: resource.note, nodeType: .resource, objectType: "resourcePin", objectId: resource.id, x: point.x, y: point.y, width: CanvasNodeMetrics.cardWidth, height: CanvasNodeMetrics.cardHeight, collapsed: true)
                 modelContext.insert(node)
@@ -2954,6 +3041,13 @@ struct WorkspaceCanvasView: View {
 
     private func createEdge(from sourceId: String, to targetId: String) -> Bool {
         guard sourceId != targetId else { return false }
+        let nodeIDs = Set(workflowNodes.map(\.id))
+        guard nodeIDs.contains(sourceId), nodeIDs.contains(targetId) else {
+            onStatus("Cannot connect missing card")
+            connectionSourceNodeId = nil
+            selectedNodeIDs.formIntersection(nodeIDs)
+            return false
+        }
         let identities = visibleEdges.map { CanvasEdgeIdentity(sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId) }
         let exists = CanvasEdgeIdentity.exists(sourceNodeId: sourceId, targetNodeId: targetId, in: identities)
         guard !exists else {
@@ -3050,6 +3144,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func alignLeft() {
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before aligning them.")
+            return
+        }
         let selected = workflowNodes.filter { selectedNodeIDs.contains($0.id) }
         let layout = selected.map { node in
             let size = nodeSize(for: node)
@@ -3061,6 +3159,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func alignTop() {
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before aligning them.")
+            return
+        }
         let selected = workflowNodes.filter { selectedNodeIDs.contains($0.id) }
         let layout = selected.map { node in
             let size = nodeSize(for: node)
@@ -3072,7 +3174,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func autoArrange() {
-        let layout = workflowNodes.map { node in
+        let unlockedNodes = workflowNodes.filter { !$0.locked }
+        guard !unlockedNodes.isEmpty else {
+            onStatus("Unlock cards before auto arranging the canvas.")
+            return
+        }
+        let layout = unlockedNodes.map { node in
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
@@ -3093,6 +3200,7 @@ struct WorkspaceCanvasView: View {
     private func apply(_ layout: [CanvasLayoutNode]) -> Bool {
         for item in layout {
             guard let node = workflowNodeById[item.id] else { continue }
+            guard !node.locked else { continue }
             node.x = item.x
             node.y = item.y
             node.updatedAt = .now
@@ -3107,6 +3215,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func delete(_ node: CanvasNodeModel) {
+        guard !node.locked else {
+            onStatus("Unlock card before deleting it.")
+            return
+        }
         selectedNodeIDs = [node.id]
         selectedEdgeIDs = []
         deleteSelectedNodes()
@@ -3116,6 +3228,10 @@ struct WorkspaceCanvasView: View {
         flushPendingNodeTextCommits()
         let ids = selectedNodeIDs
         guard !ids.isEmpty else { return }
+        guard !selectedNodeIDsContainLockedNode else {
+            onStatus("Unlock selected cards before deleting them.")
+            return
+        }
         let edgeIds = Set(CanvasNodeDeletionPolicy.incidentEdgeIDs(
             selectedNodeIDs: ids,
             edges: visibleEdges.map {
@@ -3278,7 +3394,7 @@ struct WorkspaceCanvasView: View {
         guard let id = CanvasEdgeHitTesting.nearestEdgeID(
             at: point,
             edges: records,
-            threshold: max(10, 12 * Double(zoom))
+            threshold: 12
         ) else {
             return false
         }
@@ -4135,8 +4251,29 @@ private final class SharpSymbolImageView: NSImageView {
         symbolConfiguration = .init(pointSize: pointSize, weight: weight)
         setAccessibilityElement(true)
         setAccessibilityRole(.image)
-        setAccessibilityLabel(systemName)
+        setAccessibilityLabel(accessibilityLabel(for: systemName))
         needsDisplay = true
+    }
+
+    private func accessibilityLabel(for systemName: String) -> String {
+        switch systemName {
+        case "doc.on.doc":
+            return "Copy"
+        case "info.circle":
+            return "Details"
+        case "trash":
+            return "Delete"
+        case "chevron.right":
+            return "Collapsed"
+        case "chevron.down":
+            return "Expanded"
+        case "rectangle.dashed":
+            return "Frame"
+        default:
+            return systemName
+                .replacingOccurrences(of: ".", with: " ")
+                .replacingOccurrences(of: "_", with: " ")
+        }
     }
 }
 
@@ -4684,9 +4821,10 @@ private final class ScrollWheelMonitorView: NSView {
                 return event
             }
 
+            let deltaX = event.hasPreciseScrollingDeltas ? event.scrollingDeltaX : event.deltaX * 10
             let deltaY = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.deltaY * 10
-            guard abs(deltaY) > 0.01 else {
-                return nil
+            guard CanvasScrollWheelEventPolicy.shouldZoom(deltaX: deltaX, deltaY: deltaY) else {
+                return event
             }
 
             onScroll?(deltaY, location)
@@ -5011,13 +5149,13 @@ private struct CanvasEdgeArrowHeadLayer: View {
                 if drawsArrow(segment.sourceArrowRaw) {
                     let arrow = EdgePathFactory.arrowHead(
                         end: segment.start,
-                        direction: CGPoint(x: -segment.startDirection.x, y: -segment.startDirection.y),
+                        direction: sourceArrowDirection(for: segment),
                         scale: arrowScale
                     )
                     context.fill(arrow, with: .color(color))
                 }
                 if drawsArrow(segment.targetArrowRaw) {
-                    let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: segment.endDirection, scale: arrowScale)
+                    let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: targetArrowDirection(for: segment), scale: arrowScale)
                     context.fill(arrow, with: .color(color))
                 }
             }
@@ -5038,6 +5176,25 @@ private struct CanvasEdgeArrowHeadLayer: View {
 
     private func drawsArrow(_ rawValue: String) -> Bool {
         rawValue != "none"
+    }
+
+    private func sourceArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
+        let fallback = CGPoint(x: -segment.startDirection.x, y: -segment.startDirection.y)
+        guard let firstRoutePoint = segment.routePoints.first else { return fallback }
+        return normalizedDirection(from: firstRoutePoint, to: segment.start, fallback: fallback)
+    }
+
+    private func targetArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
+        guard let lastRoutePoint = segment.routePoints.last else { return segment.endDirection }
+        return normalizedDirection(from: lastRoutePoint, to: segment.end, fallback: segment.endDirection)
+    }
+
+    private func normalizedDirection(from start: CGPoint, to end: CGPoint, fallback: CGPoint) -> CGPoint {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let length = sqrt(dx * dx + dy * dy)
+        guard length > 0.001 else { return fallback }
+        return CGPoint(x: dx / length, y: dy / length)
     }
 }
 

@@ -1,6 +1,20 @@
 import Foundation
 
-public struct ExportManifest: Codable, Equatable {
+public struct ExportManifest: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case exportedAt
+        case workspaces
+        case resources
+        case snippets
+        case canvases
+        case nodes
+        case edges
+        case aliases
+        case todoGroups
+        case todos
+    }
+
     public var schemaVersion: Int
     public var exportedAt: Date
     public var workspaces: [WorkspaceRecord]
@@ -10,6 +24,8 @@ public struct ExportManifest: Codable, Equatable {
     public var nodes: [CanvasNodeRecord]
     public var edges: [CanvasEdgeRecord]
     public var aliases: [AliasRecord]
+    public var todoGroups: [TodoGroupRecord]
+    public var todos: [TodoRecord]
 
     public init(
         schemaVersion: Int,
@@ -20,7 +36,9 @@ public struct ExportManifest: Codable, Equatable {
         canvases: [CanvasRecord],
         nodes: [CanvasNodeRecord],
         edges: [CanvasEdgeRecord],
-        aliases: [AliasRecord]
+        aliases: [AliasRecord],
+        todoGroups: [TodoGroupRecord] = [],
+        todos: [TodoRecord] = []
     ) {
         self.schemaVersion = schemaVersion
         self.exportedAt = exportedAt
@@ -31,6 +49,23 @@ public struct ExportManifest: Codable, Equatable {
         self.nodes = nodes
         self.edges = edges
         self.aliases = aliases
+        self.todoGroups = todoGroups
+        self.todos = todos
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        exportedAt = try container.decode(Date.self, forKey: .exportedAt)
+        workspaces = try container.decode([WorkspaceRecord].self, forKey: .workspaces)
+        resources = try container.decode([ResourceRecord].self, forKey: .resources)
+        snippets = try container.decode([SnippetRecord].self, forKey: .snippets)
+        canvases = try container.decode([CanvasRecord].self, forKey: .canvases)
+        nodes = try container.decode([CanvasNodeRecord].self, forKey: .nodes)
+        edges = try container.decode([CanvasEdgeRecord].self, forKey: .edges)
+        aliases = try container.decode([AliasRecord].self, forKey: .aliases)
+        todoGroups = try container.decodeIfPresent([TodoGroupRecord].self, forKey: .todoGroups) ?? []
+        todos = try container.decodeIfPresent([TodoRecord].self, forKey: .todos) ?? []
     }
 }
 
@@ -79,6 +114,8 @@ public enum ExportManifestScopePolicy {
             copy.nodes = []
             copy.edges = []
             copy.aliases = []
+            copy.todoGroups = []
+            copy.todos = []
             return copy
         }
     }
@@ -93,6 +130,8 @@ public enum ManifestImportLimits {
     public static let maximumNodes = 10_000
     public static let maximumEdges = 20_000
     public static let maximumAliases = 5_000
+    public static let maximumTodoGroups = 1_000
+    public static let maximumTodos = 10_000
     public static let maximumIdentifierLength = 128
     public static let maximumPathLength = 4_096
     public static let maximumTextLength = 65_536
@@ -104,7 +143,7 @@ public enum ManifestImportLimits {
     public static let maximumZIndex: Double = 1_000
 }
 
-public struct WorkspaceRecord: Codable, Equatable, Identifiable {
+public struct WorkspaceRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case title
@@ -159,7 +198,7 @@ public struct WorkspaceRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct ResourceRecord: Codable, Equatable, Identifiable {
+public struct ResourceRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -245,7 +284,7 @@ public struct ResourceRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct SnippetRecord: Codable, Equatable, Identifiable {
+public struct SnippetRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -315,7 +354,7 @@ public struct SnippetRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasRecord: Codable, Equatable, Identifiable {
+public struct CanvasRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case workspaceId
@@ -369,7 +408,7 @@ public struct CanvasRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasNodeRecord: Codable, Equatable, Identifiable {
+public struct CanvasNodeRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case canvasId
@@ -459,7 +498,7 @@ public struct CanvasNodeRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct CanvasEdgeRecord: Codable, Equatable, Identifiable {
+public struct CanvasEdgeRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case canvasId
@@ -529,7 +568,7 @@ public struct CanvasEdgeRecord: Codable, Equatable, Identifiable {
     }
 }
 
-public struct AliasRecord: Codable, Equatable, Identifiable {
+public struct AliasRecord: Codable, Equatable, Identifiable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case sourceObjectType
@@ -566,6 +605,136 @@ public struct AliasRecord: Codable, Equatable, Identifiable {
     }
 }
 
+public struct TodoGroupRecord: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case workspaceId
+        case title
+        case isPinned
+        case sortIndex
+        case createdAt
+        case updatedAt
+    }
+
+    public var id: String
+    public var workspaceId: String
+    public var title: String
+    public var isPinned: Bool
+    public var sortIndex: Int
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        workspaceId: String,
+        title: String,
+        isPinned: Bool = false,
+        sortIndex: Int = 0,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        updatedAt: Date = Date(timeIntervalSince1970: 0)
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.title = title
+        self.isPinned = isPinned
+        self.sortIndex = sortIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallbackDate = Date(timeIntervalSince1970: 0)
+        id = try container.decode(String.self, forKey: .id)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        title = try container.decode(String.self, forKey: .title)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        sortIndex = try container.decodeIfPresent(Int.self, forKey: .sortIndex) ?? 0
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? fallbackDate
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? fallbackDate
+    }
+}
+
+public struct TodoRecord: Codable, Equatable, Identifiable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case workspaceId
+        case groupId
+        case title
+        case details
+        case isCompleted
+        case isPinned
+        case sortIndex
+        case createdAt
+        case updatedAt
+        case completedAt
+        case dueAt
+        case linkedResourceId
+    }
+
+    public var id: String
+    public var workspaceId: String
+    public var groupId: String?
+    public var title: String
+    public var details: String
+    public var isCompleted: Bool
+    public var isPinned: Bool
+    public var sortIndex: Int
+    public var createdAt: Date
+    public var updatedAt: Date
+    public var completedAt: Date?
+    public var dueAt: Date?
+    public var linkedResourceId: String?
+
+    public init(
+        id: String,
+        workspaceId: String,
+        groupId: String? = nil,
+        title: String,
+        details: String,
+        isCompleted: Bool,
+        isPinned: Bool = false,
+        sortIndex: Int = 0,
+        createdAt: Date = Date(timeIntervalSince1970: 0),
+        updatedAt: Date = Date(timeIntervalSince1970: 0),
+        completedAt: Date? = nil,
+        dueAt: Date? = nil,
+        linkedResourceId: String? = nil
+    ) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.groupId = groupId
+        self.title = title
+        self.details = details
+        self.isCompleted = isCompleted
+        self.isPinned = isPinned
+        self.sortIndex = sortIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.completedAt = completedAt
+        self.dueAt = dueAt
+        self.linkedResourceId = linkedResourceId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallbackDate = Date(timeIntervalSince1970: 0)
+        id = try container.decode(String.self, forKey: .id)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        groupId = try container.decodeIfPresent(String.self, forKey: .groupId)
+        title = try container.decode(String.self, forKey: .title)
+        details = try container.decodeIfPresent(String.self, forKey: .details) ?? ""
+        isCompleted = try container.decodeIfPresent(Bool.self, forKey: .isCompleted) ?? false
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        sortIndex = try container.decodeIfPresent(Int.self, forKey: .sortIndex) ?? 0
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? fallbackDate
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? fallbackDate
+        completedAt = try container.decodeIfPresent(Date.self, forKey: .completedAt)
+        dueAt = try container.decodeIfPresent(Date.self, forKey: .dueAt)
+        linkedResourceId = try container.decodeIfPresent(String.self, forKey: .linkedResourceId)
+    }
+}
+
 public enum ManifestImportValidation {
     public static func issues(in manifest: ExportManifest) -> [String] {
         let workspaceIds = Set(manifest.workspaces.map(\.id))
@@ -573,9 +742,22 @@ public enum ManifestImportValidation {
         let snippetIds = Set(manifest.snippets.map(\.id))
         let canvasIds = Set(manifest.canvases.map(\.id))
         let nodeIds = Set(manifest.nodes.map(\.id))
+        let todoGroupIds = Set(manifest.todoGroups.map(\.id))
+        let todoGroupWorkspaceById = Dictionary(manifest.todoGroups.map { ($0.id, $0.workspaceId) }, uniquingKeysWith: { first, _ in first })
         let nodeCanvasById = Dictionary(manifest.nodes.map { ($0.id, $0.canvasId) }, uniquingKeysWith: { first, _ in first })
         let nodeTypeById = Dictionary(manifest.nodes.map { ($0.id, $0.nodeType) }, uniquingKeysWith: { first, _ in first })
+        let canvasWorkspaceById = Dictionary(manifest.canvases.map { ($0.id, $0.workspaceId) }, uniquingKeysWith: { first, _ in first })
         let resourceTypeById = Dictionary(manifest.resources.map { ($0.id, $0.targetType) }, uniquingKeysWith: { first, _ in first })
+        let resourceScopeById = Dictionary(manifest.resources.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
+        let resourceWorkspaceById = Dictionary(manifest.resources.compactMap { resource -> (String, String)? in
+            guard let workspaceId = resource.workspaceId else { return nil }
+            return (resource.id, workspaceId)
+        }, uniquingKeysWith: { first, _ in first })
+        let snippetScopeById = Dictionary(manifest.snippets.map { ($0.id, $0.scope) }, uniquingKeysWith: { first, _ in first })
+        let snippetWorkspaceById = Dictionary(manifest.snippets.compactMap { snippet -> (String, String)? in
+            guard let workspaceId = snippet.workspaceId else { return nil }
+            return (snippet.id, workspaceId)
+        }, uniquingKeysWith: { first, _ in first })
         var issues: [String] = []
 
         appendCountIssues(manifest, issues: &issues)
@@ -586,6 +768,8 @@ public enum ManifestImportValidation {
         issues.append(contentsOf: emptyIDIssues(manifest.nodes.map(\.id), label: "Node"))
         issues.append(contentsOf: emptyIDIssues(manifest.edges.map(\.id), label: "Edge"))
         issues.append(contentsOf: emptyIDIssues(manifest.aliases.map(\.id), label: "Alias"))
+        issues.append(contentsOf: emptyIDIssues(manifest.todoGroups.map(\.id), label: "Todo group"))
+        issues.append(contentsOf: emptyIDIssues(manifest.todos.map(\.id), label: "Todo"))
         issues.append(contentsOf: duplicateIssues(manifest.workspaces.map(\.id), label: "workspace"))
         issues.append(contentsOf: duplicateIssues(manifest.resources.map(\.id), label: "resource"))
         issues.append(contentsOf: duplicateIssues(manifest.snippets.map(\.id), label: "snippet"))
@@ -593,6 +777,8 @@ public enum ManifestImportValidation {
         issues.append(contentsOf: duplicateIssues(manifest.nodes.map(\.id), label: "node"))
         issues.append(contentsOf: duplicateIssues(manifest.edges.map(\.id), label: "edge"))
         issues.append(contentsOf: duplicateIssues(manifest.aliases.map(\.id), label: "alias"))
+        issues.append(contentsOf: duplicateIssues(manifest.todoGroups.map(\.id), label: "todo group"))
+        issues.append(contentsOf: duplicateIssues(manifest.todos.map(\.id), label: "todo"))
 
         for workspace in manifest.workspaces {
             appendIdentifierIssue(workspace.id, ownerDescription: "Workspace \(workspace.id)", fieldDescription: "id", issues: &issues)
@@ -643,6 +829,10 @@ public enum ManifestImportValidation {
             } else if let resourceId = snippet.workingDirectoryRef,
                       resourceTypeById[resourceId] != "folder" {
                 issues.append("Snippet \(snippet.id) working directory \(resourceId) is not a folder resource.")
+            } else if let resourceId = snippet.workingDirectoryRef,
+                      resourceScopeById[resourceId] == "workspace",
+                      snippet.workspaceId == nil || resourceWorkspaceById[resourceId] != snippet.workspaceId {
+                issues.append("Snippet \(snippet.id) references working directory resource \(resourceId) from another workspace.")
             }
         }
 
@@ -669,9 +859,14 @@ public enum ManifestImportValidation {
             appendRangeIssue(node.height, minimum: ManifestImportLimits.minimumNodeSize, maximum: ManifestImportLimits.maximumNodeSize, ownerDescription: "Node \(node.id)", fieldDescription: "height", issues: &issues)
             appendRangeIssue(node.zIndex, minimum: -ManifestImportLimits.maximumZIndex, maximum: ManifestImportLimits.maximumZIndex, ownerDescription: "Node \(node.id)", fieldDescription: "zIndex", issues: &issues)
             appendAllowedIssue(node.style, allowed: allowedNodeStyles, ownerDescription: "Node \(node.id)", fieldDescription: "style", issues: &issues)
-            if CanvasNodeColorStyle(rawValue: node.accentColor) == nil,
+            if !node.accentColor.isEmpty,
+               CanvasNodeColorStyle(rawValue: node.accentColor) == nil,
                !allowedLegacyAccentColors.contains(node.accentColor) {
                 issues.append("Node \(node.id) has unsupported accent color \(node.accentColor).")
+            }
+            if let objectType = node.objectType,
+               !isNodeObjectTypeCompatible(nodeType: node.nodeType, objectType: objectType) {
+                issues.append("Node \(node.id) with node type \(node.nodeType) cannot reference object type \(objectType).")
             }
             if !canvasIds.contains(node.canvasId) {
                 issues.append("Node \(node.id) references missing canvas \(node.canvasId).")
@@ -714,9 +909,21 @@ public enum ManifestImportValidation {
                         workspaceIds: workspaceIds,
                         issues: &issues
                     )
+                    if objectType == "resourcePin",
+                       resourceScopeById[objectId] == "workspace",
+                       let canvasWorkspaceId = canvasWorkspaceById[node.canvasId],
+                       resourceWorkspaceById[objectId] != canvasWorkspaceId {
+                        issues.append("Node \(node.id) references resource \(objectId) from another workspace.")
+                    } else if objectType == "snippet",
+                              snippetScopeById[objectId] == "workspace",
+                              let canvasWorkspaceId = canvasWorkspaceById[node.canvasId],
+                              snippetWorkspaceById[objectId] != canvasWorkspaceId {
+                        issues.append("Node \(node.id) references snippet \(objectId) from another workspace.")
+                    }
                 }
             }
         }
+        issues.append(contentsOf: cyclicParentIssues(for: manifest.nodes, nodeCanvasById: nodeCanvasById))
 
         for edge in manifest.edges {
             appendIdentifierIssue(edge.id, ownerDescription: "Edge \(edge.id)", fieldDescription: "id", issues: &issues)
@@ -743,6 +950,38 @@ public enum ManifestImportValidation {
                 issues.append("Edge \(edge.id) references missing target node \(edge.targetNodeId).")
             } else if let targetCanvasId = nodeCanvasById[edge.targetNodeId], targetCanvasId != edge.canvasId {
                 issues.append("Edge \(edge.id) references target node \(edge.targetNodeId) from another canvas.")
+            }
+        }
+
+        for group in manifest.todoGroups {
+            appendIdentifierIssue(group.id, ownerDescription: "Todo group \(group.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(group.title, ownerDescription: "Todo group \(group.id)", fieldDescription: "title", issues: &issues)
+            if !workspaceIds.contains(group.workspaceId) {
+                issues.append("Todo group \(group.id) references missing workspace \(group.workspaceId).")
+            }
+        }
+
+        for todo in manifest.todos {
+            appendIdentifierIssue(todo.id, ownerDescription: "Todo \(todo.id)", fieldDescription: "id", issues: &issues)
+            appendTextIssue(todo.title, ownerDescription: "Todo \(todo.id)", fieldDescription: "title", issues: &issues)
+            appendTextIssue(todo.details, ownerDescription: "Todo \(todo.id)", fieldDescription: "details", issues: &issues)
+            if !workspaceIds.contains(todo.workspaceId) {
+                issues.append("Todo \(todo.id) references missing workspace \(todo.workspaceId).")
+            }
+            if let groupId = todo.groupId {
+                if !todoGroupIds.contains(groupId) {
+                    issues.append("Todo \(todo.id) references missing group \(groupId).")
+                } else if todoGroupWorkspaceById[groupId] != todo.workspaceId {
+                    issues.append("Todo \(todo.id) references group \(groupId) from another workspace.")
+                }
+            }
+            if let resourceId = todo.linkedResourceId {
+                if !resourceIds.contains(resourceId) {
+                    issues.append("Todo \(todo.id) references missing linked resource \(resourceId).")
+                } else if resourceScopeById[resourceId] == "workspace",
+                          resourceWorkspaceById[resourceId] != todo.workspaceId {
+                    issues.append("Todo \(todo.id) references linked resource \(resourceId) from another workspace.")
+                }
             }
         }
 
@@ -809,6 +1048,60 @@ public enum ManifestImportValidation {
     private static let allowedAliasStatuses: Set<String> = ["created", "missing", "failed", "staleAuthorization"]
     private static let allowedLegacyAccentColors: Set<String> = ["blue"]
 
+    private static func isNodeObjectTypeCompatible(nodeType: String, objectType: String) -> Bool {
+        switch nodeType {
+        case "resource":
+            return objectType == "resourcePin"
+        case "snippet":
+            return objectType == "snippet" || objectType == "workspace" || objectType == "webURL"
+        case "note", "groupFrame":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private static func cyclicParentIssues(
+        for nodes: [CanvasNodeRecord],
+        nodeCanvasById: [String: String]
+    ) -> [String] {
+        let parentById = Dictionary(
+            nodes.compactMap { node -> (String, String)? in
+                guard let parentNodeId = node.parentNodeId else { return nil }
+                return (node.id, parentNodeId)
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
+        var reportedCycleKeys: Set<String> = []
+        var issues: [String] = []
+
+        for node in nodes {
+            var path: [String] = []
+            var visitedIndexByNodeId: [String: Int] = [:]
+            var currentNodeId = node.id
+
+            while let parentNodeId = parentById[currentNodeId],
+                  nodeCanvasById[parentNodeId] == nodeCanvasById[currentNodeId] {
+                visitedIndexByNodeId[currentNodeId] = path.count
+                path.append(currentNodeId)
+
+                if let cycleStartIndex = visitedIndexByNodeId[parentNodeId] {
+                    let cycleNodeIds = Array(path[cycleStartIndex...])
+                    let key = cycleNodeIds.sorted().joined(separator: "\u{1F}")
+                    guard reportedCycleKeys.insert(key).inserted else { break }
+                    let canvasId = nodeCanvasById[node.id] ?? node.canvasId
+                    let reportedNodeId = cycleNodeIds.sorted().first ?? parentNodeId
+                    issues.append("Canvas \(canvasId) has a cyclic frame parent relationship involving node \(reportedNodeId).")
+                    break
+                }
+
+                currentNodeId = parentNodeId
+            }
+        }
+
+        return issues
+    }
+
     private static func appendCountIssues(_ manifest: ExportManifest, issues: inout [String]) {
         appendCountIssue(manifest.workspaces.count, maximum: ManifestImportLimits.maximumWorkspaces, label: "workspaces", issues: &issues)
         appendCountIssue(manifest.resources.count, maximum: ManifestImportLimits.maximumResources, label: "resources", issues: &issues)
@@ -817,6 +1110,8 @@ public enum ManifestImportValidation {
         appendCountIssue(manifest.nodes.count, maximum: ManifestImportLimits.maximumNodes, label: "nodes", issues: &issues)
         appendCountIssue(manifest.edges.count, maximum: ManifestImportLimits.maximumEdges, label: "edges", issues: &issues)
         appendCountIssue(manifest.aliases.count, maximum: ManifestImportLimits.maximumAliases, label: "aliases", issues: &issues)
+        appendCountIssue(manifest.todoGroups.count, maximum: ManifestImportLimits.maximumTodoGroups, label: "todo groups", issues: &issues)
+        appendCountIssue(manifest.todos.count, maximum: ManifestImportLimits.maximumTodos, label: "todos", issues: &issues)
     }
 
     private static func appendCountIssue(_ count: Int, maximum: Int, label: String, issues: inout [String]) {

@@ -128,6 +128,7 @@ struct WorkspaceTodoBoardView: View {
     var collapsedHeight: CGFloat = 42
 
     @State private var selectedGroupId: String?
+    @State private var defaultGroupId: String?
     @State private var editingGroupId: String?
     @State private var editingGroupTitle = ""
     @State private var editingTodo: WorkspaceTodoModel?
@@ -185,8 +186,20 @@ struct WorkspaceTodoBoardView: View {
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .onAppear {
-            if let group = ensureDefaultGroup(), selectedGroupId == nil {
-                selectedGroupId = group.id
+            if defaultGroupId == nil {
+                defaultGroupId = initialDefaultGroupId()
+            }
+            if selectedGroupId == nil {
+                selectedGroupId = orderedGroups.first?.id
+            }
+        }
+        .onChange(of: groups.map(\.id)) { _, _ in
+            let resolvedDefaultGroupId = defaultGroup?.id
+            if defaultGroupId != resolvedDefaultGroupId {
+                defaultGroupId = resolvedDefaultGroupId
+            }
+            if let selectedGroupId, !groups.contains(where: { $0.id == selectedGroupId }) {
+                self.selectedGroupId = orderedGroups.first?.id
             }
         }
         .onChange(of: focusedGroupRenameId) { oldValue, newValue in
@@ -329,6 +342,7 @@ struct WorkspaceTodoBoardView: View {
                 Text(group.title)
                     .lineLimit(1)
                     .onTapGesture(count: 2) {
+                        guard !isDefaultGroup(group) else { return }
                         startEditingGroup(group)
                     }
             }
@@ -361,12 +375,13 @@ struct WorkspaceTodoBoardView: View {
             Button("Rename Group") {
                 startEditingGroup(group)
             }
+            .disabled(isDefaultGroup(group))
             Button(role: .destructive) {
                 deleteGroup(group)
             } label: {
                 Text("Delete Group")
             }
-            .disabled(group.title == defaultTodoGroupTitle && groups.count <= 1)
+            .disabled(isDefaultGroup(group) && groups.count <= 1)
         }
     }
 
@@ -539,13 +554,15 @@ struct WorkspaceTodoBoardView: View {
 
     @discardableResult
     private func ensureDefaultGroup() -> WorkspaceTodoGroupModel? {
-        if let existing = groups.first(where: { $0.title == defaultTodoGroupTitle }) {
+        if let existing = defaultGroup {
+            defaultGroupId = existing.id
             return existing
         }
         let group = WorkspaceTodoGroupModel(workspaceId: workspaceId, title: defaultTodoGroupTitle, sortIndex: nextGroupSortIndex())
         modelContext.insert(group)
         do {
             try modelContext.save()
+            defaultGroupId = group.id
             return group
         } catch {
             modelContext.rollback()
@@ -557,9 +574,10 @@ struct WorkspaceTodoBoardView: View {
     private func addGroup() {
         let group = WorkspaceTodoGroupModel(workspaceId: workspaceId, title: "New Group", sortIndex: nextGroupSortIndex())
         modelContext.insert(group)
-        selectedGroupId = group.id
-        startEditingGroup(group)
-        save(status: "Added group")
+        if save(status: "Added group") {
+            selectedGroupId = group.id
+            startEditingGroup(group)
+        }
     }
 
     private func addTodo() {
@@ -571,8 +589,9 @@ struct WorkspaceTodoBoardView: View {
             sortIndex: nextTodoSortIndex(groupId: group.id, isCompleted: false)
         )
         modelContext.insert(todo)
-        save(status: "Added task")
-        editingTodo = todo
+        if save(status: "Added task") {
+            editingTodo = todo
+        }
     }
 
     private func toggle(_ todo: WorkspaceTodoModel) {
@@ -616,6 +635,9 @@ struct WorkspaceTodoBoardView: View {
         }
         modelContext.delete(group)
         if save(status: "Deleted group") {
+            if group.id == defaultGroupId {
+                defaultGroupId = plan.todoTargetGroupId ?? plan.nextSelectedGroupId
+            }
             registerTodoGroupDeletionUndo(group: groupSnapshot, memberships: membershipSnapshots)
         }
     }
@@ -742,10 +764,18 @@ struct WorkspaceTodoBoardView: View {
 
     private func commitGroupRename(_ group: WorkspaceTodoGroupModel) {
         guard editingGroupId == group.id else { return }
-        let title = editingGroupTitle
+        let title = editingGroupTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         editingGroupId = nil
         editingGroupTitle = ""
         focusedGroupRenameId = nil
+        guard !title.isEmpty else {
+            onStatus("Group name cannot be empty")
+            return
+        }
+        guard !(isDefaultGroup(group) && group.title != title) else {
+            onStatus("Default group cannot be renamed")
+            return
+        }
         guard group.title != title else { return }
         group.title = title
         group.updatedAt = .now
@@ -782,7 +812,27 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func groupId(for todo: WorkspaceTodoModel) -> String? {
-        todo.groupId ?? groups.first(where: { $0.title == defaultTodoGroupTitle })?.id
+        todo.groupId ?? defaultGroup?.id
+    }
+
+    private var defaultGroup: WorkspaceTodoGroupModel? {
+        if let defaultGroupId,
+           let group = groups.first(where: { $0.id == defaultGroupId }) {
+            return group
+        }
+        return orderedGroups.first
+    }
+
+    private func initialDefaultGroupId() -> String? {
+        if let titledDefault = groups.first(where: { $0.title == defaultTodoGroupTitle }) {
+            return titledDefault.id
+        }
+        return orderedGroups.first?.id
+    }
+
+    private func isDefaultGroup(_ group: WorkspaceTodoGroupModel) -> Bool {
+        guard let resolvedDefaultGroupId = defaultGroup?.id else { return false }
+        return group.id == resolvedDefaultGroupId
     }
 
     @discardableResult
@@ -843,9 +893,9 @@ private struct WorkspaceTodoDetailView: View {
 
             DatePicker("Created", selection: $createdAt, displayedComponents: [.date])
 
-            Toggle("Use DDL Date", isOn: $hasDueDate)
+            Toggle("Use Due Date", isOn: $hasDueDate)
             if hasDueDate {
-                DatePicker("DDL", selection: $dueAt, displayedComponents: [.date])
+                DatePicker("Due Date", selection: $dueAt, displayedComponents: [.date])
             }
 
             Picker("Linked Resource", selection: $linkedResourceId) {

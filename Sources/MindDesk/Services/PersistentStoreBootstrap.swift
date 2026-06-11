@@ -267,15 +267,45 @@ enum PersistentStoreBootstrap {
         )
         let existingStoreFiles = MindDeskStoreLayout.sqliteFileSet(for: destinationStoreURL)
             .filter { fileManager.fileExists(atPath: $0.path) }
+        var movedStoreFiles: [(quarantined: URL, original: URL)] = []
         if !existingStoreFiles.isEmpty {
             try fileManager.createDirectory(at: quarantineFolder, withIntermediateDirectories: true)
         }
-        for source in existingStoreFiles {
-            let destination = quarantineFolder.appendingPathComponent(source.lastPathComponent, isDirectory: false)
-            try fileManager.moveItem(at: source, to: destination)
+        do {
+            for source in existingStoreFiles {
+                let destination = quarantineFolder.appendingPathComponent(source.lastPathComponent, isDirectory: false)
+                try fileManager.moveItem(at: source, to: destination)
+                movedStoreFiles.append((quarantined: destination, original: source))
+            }
+            try copySQLiteFileSet(from: restoredStoreURL, to: destinationStoreURL, fileManager: fileManager)
+            try? fileManager.removeItem(at: restoredStoreURL.deletingLastPathComponent())
+        } catch {
+            var rollbackFailures: [String] = []
+            for partialFile in MindDeskStoreLayout.sqliteFileSet(for: destinationStoreURL) where fileManager.fileExists(atPath: partialFile.path) {
+                do {
+                    try fileManager.removeItem(at: partialFile)
+                } catch {
+                    rollbackFailures.append("Could not remove partial store file \(partialFile.path): \(error.localizedDescription)")
+                }
+            }
+            for movedStoreFile in movedStoreFiles where fileManager.fileExists(atPath: movedStoreFile.quarantined.path) && !fileManager.fileExists(atPath: movedStoreFile.original.path) {
+                do {
+                    try fileManager.moveItem(at: movedStoreFile.quarantined, to: movedStoreFile.original)
+                } catch {
+                    rollbackFailures.append("Could not restore quarantined store file \(movedStoreFile.original.path): \(error.localizedDescription)")
+                }
+            }
+            if !rollbackFailures.isEmpty {
+                throw NSError(
+                    domain: "MindDeskStoreRecovery",
+                    code: 1,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "Recovered store publish failed and rollback was incomplete. Original error: \(error.localizedDescription). \(rollbackFailures.joined(separator: " "))"
+                    ]
+                )
+            }
+            throw error
         }
-        try copySQLiteFileSet(from: restoredStoreURL, to: destinationStoreURL, fileManager: fileManager)
-        try? fileManager.removeItem(at: restoredStoreURL.deletingLastPathComponent())
     }
 
     private static func validateStore(at storeURL: URL, schema: Schema) throws {

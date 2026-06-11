@@ -26,7 +26,7 @@ public enum AppPreferenceDefaults {
     public static let canvasScrollZoomDirection = CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue
     public static let canvasDefaultZoomPercent = CanvasZoomBaseline.defaultPercent
     public static let canvasConnectSingleShot = true
-    public static let workspaceCanvasTodoPanelDefaultOpen = true
+    public static let workspaceCanvasTodoPanelDefaultOpen = false
     public static let workspaceCanvasTodoDoneColumnDefaultOpen = false
     public static let workspaceCanvasTodoColumnRatio = TodoBoardColumnSplit.defaultRatio
 

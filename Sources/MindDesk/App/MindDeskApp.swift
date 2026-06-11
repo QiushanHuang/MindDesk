@@ -10,6 +10,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+struct MindDeskMenuCommands: Commands {
+    @FocusedValue(\.mindDeskCommands) private var commands
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("New Workspace") {
+                commands?.newWorkspace()
+            }
+            .keyboardShortcut("n", modifiers: .command)
+            .disabled(commands == nil)
+        }
+
+        CommandMenu("Workbench") {
+            Button("Quick Open") {
+                commands?.quickOpen()
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .disabled(commands == nil)
+
+            Divider()
+
+            Button("Import MindDesk Manifest...") {
+                commands?.importManifest()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+
+            Button("Export MindDesk Manifest...") {
+                commands?.exportManifest()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(commands == nil)
+        }
+    }
+}
+
 @main
 struct MindDeskApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
@@ -37,7 +73,7 @@ struct MindDeskApp: App {
             }
         }
         .commands {
-            CommandGroup(replacing: .newItem) { }
+            MindDeskMenuCommands()
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") {
                     NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)

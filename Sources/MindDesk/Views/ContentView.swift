@@ -19,6 +19,51 @@ private struct ManifestExportOptions {
     let includesUsageDates: Bool
 }
 
+private struct ManifestImportSummary {
+    var workspaces: Int
+    var resources: Int
+    var snippets: Int
+    var canvases: Int
+    var nodes: Int
+    var edges: Int
+    var aliases: Int
+    var todoGroups: Int
+    var todos: Int
+
+    var statusText: String {
+        let parts = [
+            "\(workspaces) workspace\(workspaces == 1 ? "" : "s")",
+            "\(resources) resource\(resources == 1 ? "" : "s")",
+            "\(snippets) snippet\(snippets == 1 ? "" : "s")",
+            "\(canvases) canvas\(canvases == 1 ? "" : "es")",
+            "\(nodes) card\(nodes == 1 ? "" : "s")",
+            "\(edges) link\(edges == 1 ? "" : "s")",
+            "\(aliases) alias\(aliases == 1 ? "" : "es")",
+            "\(todoGroups) task group\(todoGroups == 1 ? "" : "s")",
+            "\(todos) task\(todos == 1 ? "" : "s")"
+        ]
+        return parts.joined(separator: ", ")
+    }
+}
+
+struct MindDeskFocusedCommands {
+    var newWorkspace: () -> Void
+    var quickOpen: () -> Void
+    var importManifest: () -> Void
+    var exportManifest: () -> Void
+}
+
+private struct MindDeskFocusedCommandsKey: FocusedValueKey {
+    typealias Value = MindDeskFocusedCommands
+}
+
+extension FocusedValues {
+    var mindDeskCommands: MindDeskFocusedCommands? {
+        get { self[MindDeskFocusedCommandsKey.self] }
+        set { self[MindDeskFocusedCommandsKey.self] = newValue }
+    }
+}
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \WorkspaceModel.updatedAt, order: .reverse) private var workspaces: [WorkspaceModel]
@@ -226,7 +271,11 @@ struct ContentView: View {
             }
             .navigationTitle(detailNavigationTitle)
             .onAppear {
-                SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                do {
+                    try SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                } catch {
+                    setStatus(error.localizedDescription)
+                }
                 applyStartupDestinationIfNeeded()
             }
             .onChange(of: workspaces.map(\.id)) { _, _ in
@@ -316,6 +365,12 @@ struct ContentView: View {
                 Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MindDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
+        .focusedValue(\.mindDeskCommands, MindDeskFocusedCommands(
+            newWorkspace: addWorkspace,
+            quickOpen: openQuickOpen,
+            importManifest: importManifest,
+            exportManifest: exportManifest
+        ))
     }
 
     private var shouldShowInspector: Bool {
@@ -437,14 +492,29 @@ struct ContentView: View {
     }
 
     private var mostRecentWorkspace: WorkspaceModel? {
-        orderedWorkspaces.sorted {
-            let lhsDate = $0.lastOpenedAt ?? $0.updatedAt
-            let rhsDate = $1.lastOpenedAt ?? $1.updatedAt
-            if lhsDate != rhsDate {
-                return lhsDate > rhsDate
-            }
-            return $0.id < $1.id
-        }.first
+        recentWorkspaces.first
+    }
+
+    private var recentWorkspaces: [WorkspaceModel] {
+        let records = workspaces.map {
+            WorkspaceRecencyRecord(id: $0.id, lastOpenedAt: $0.lastOpenedAt, updatedAt: $0.updatedAt)
+        }
+        let orderedIDs = WorkspaceRecencyOrdering.recent(records, limit: 6).map(\.id)
+        let byID = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        return orderedIDs.compactMap { byID[$0] }
+    }
+
+    private var homeWorkspaceBriefsByID: [String: WorkspaceReentryBrief] {
+        WorkspaceReentryBriefMapper.briefsByWorkspaceID(
+            workspaces: Array(recentWorkspaces.prefix(6)),
+            resources: resources,
+            snippets: snippets,
+            todos: todos,
+            canvases: canvases,
+            nodes: nodes,
+            edges: edges,
+            now: Date()
+        )
     }
 
     @ViewBuilder
@@ -452,7 +522,8 @@ struct ContentView: View {
         switch selection ?? .home {
         case .home:
             HomeView(
-                workspaces: orderedWorkspaces,
+                workspaces: recentWorkspaces,
+                workspaceBriefsByID: homeWorkspaceBriefsByID,
                 resources: orderedResources.filter(\.isPinned),
                 snippets: snippets,
                 onSelectWorkspace: { selection = .workspace($0.id) },
@@ -548,6 +619,16 @@ struct ContentView: View {
             if let workspace = workspaces.first(where: { $0.id == id }) {
                 WorkspaceDetailView(
                     workspace: workspace,
+                    reentryBrief: WorkspaceReentryBriefMapper.brief(
+                        for: workspace,
+                        resources: resources,
+                        snippets: snippets,
+                        todos: todos,
+                        canvases: canvases,
+                        nodes: nodes,
+                        edges: edges,
+                        now: Date()
+                    ),
                     workspaces: workspaces,
                     resources: resources,
                     snippets: snippets,
@@ -737,6 +818,8 @@ struct ContentView: View {
 
     private func saveWorkspaceRename(_ workspace: WorkspaceModel) {
         do {
+            let trimmedTitle = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            workspace.title = trimmedTitle.isEmpty ? "Untitled Workspace" : trimmedTitle
             workspace.updatedAt = .now
             try modelContext.save()
             setStatus("Renamed workspace: \(workspace.title)")
@@ -748,8 +831,6 @@ struct ContentView: View {
 
     private func saveResourceRename(_ resource: ResourcePinModel) {
         do {
-            resource.customName = resource.title
-            resource.refreshSearchText()
             resource.updatedAt = .now
             try modelContext.save()
             setStatus("Renamed MindDesk metadata: \(resource.displayName)")
@@ -1037,7 +1118,7 @@ struct ContentView: View {
             try modelContext.save()
             setStatus("\(actionName) \(resource.displayName)")
         } catch {
-            resource.status = .unavailable
+            resource.status = ResourceAccessStatusResolver.failureStatus(for: error, fallbackPath: resource.lastResolvedPath)
             do {
                 try modelContext.save()
             } catch {
@@ -1049,18 +1130,38 @@ struct ContentView: View {
 
     private func removeResourceFromLibrary(_ resource: ResourcePinModel) {
         do {
-            let resourceNodeIds = Set(nodes.filter { $0.objectType == "resourcePin" && $0.objectId == resource.id }.map(\.id))
+            let index = ReferenceIndex(
+                canvasObjects: canvasObjectReferences(),
+                todoLinks: todos.map {
+                    TodoResourceReference(todoId: $0.id, workspaceId: $0.workspaceId, linkedResourceId: $0.linkedResourceId)
+                },
+                snippetWorkingDirectories: snippets.map {
+                    SnippetWorkingDirectoryReference(snippetId: $0.id, resourceId: $0.workingDirectoryRef)
+                },
+                aliases: aliases.map {
+                    AliasObjectReference(aliasId: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId)
+                }
+            )
+            let cleanup = CleanupPlan.deletingResource(resourceId: resource.id, index: index)
+            let resourceNodeIds = Set(cleanup.canvasNodeIdsToDelete)
+            let todoIdsClearingLinkedResource = Set(cleanup.todoIdsClearingLinkedResource)
+            let snippetIdsClearingWorkingDirectory = Set(cleanup.snippetIdsClearingWorkingDirectory)
+            let aliasIdsMarkingMissing = Set(cleanup.aliasIdsMarkingMissing)
             for edge in edges where resourceNodeIds.contains(edge.sourceNodeId) || resourceNodeIds.contains(edge.targetNodeId) {
                 modelContext.delete(edge)
             }
             for node in nodes where resourceNodeIds.contains(node.id) {
                 modelContext.delete(node)
             }
-            for snippet in snippets where snippet.workingDirectoryRef == resource.id {
+            for todo in todos where todoIdsClearingLinkedResource.contains(todo.id) {
+                todo.linkedResourceId = nil
+                todo.updatedAt = .now
+            }
+            for snippet in snippets where snippetIdsClearingWorkingDirectory.contains(snippet.id) {
                 snippet.workingDirectoryRef = nil
                 snippet.updatedAt = .now
             }
-            for alias in aliases where alias.sourceObjectType == "resourcePin" && alias.sourceObjectId == resource.id {
+            for alias in aliases where aliasIdsMarkingMissing.contains(alias.id) {
                 alias.status = .missing
             }
             modelContext.delete(resource)
@@ -1073,6 +1174,19 @@ struct ContentView: View {
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
+        }
+    }
+
+    private func canvasObjectReferences() -> [CanvasObjectReference] {
+        let workspaceIdByCanvasId = Dictionary(uniqueKeysWithValues: canvases.map { ($0.id, $0.workspaceId) })
+        return nodes.map {
+            CanvasObjectReference(
+                nodeId: $0.id,
+                canvasId: $0.canvasId,
+                workspaceId: workspaceIdByCanvasId[$0.canvasId] ?? "",
+                objectType: $0.objectType,
+                objectId: $0.objectId
+            )
         }
     }
 
@@ -1111,7 +1225,9 @@ struct ContentView: View {
                 canvases: canvases,
                 nodes: nodes,
                 edges: edges,
-                aliases: aliases
+                aliases: aliases,
+                todoGroups: todoGroups,
+                todos: todos
             )
             let scopedManifest = ExportManifestScopePolicy.manifest(
                 from: baseManifest,
@@ -1192,18 +1308,28 @@ struct ContentView: View {
 
     private func importManifest() {
         guard let url = FileDialogs.openJSON() else { return }
-        do {
-            let data = try readManifestData(from: url)
-            let manifest = try ImportExportService().decodeManifest(from: data)
-            try importRecords(from: manifest)
-            setStatus("Imported \(manifest.workspaces.count) workspaces, \(manifest.resources.count) resources, and \(manifest.snippets.count) snippets. Resources require reauthorization.")
-        } catch {
-            modelContext.rollback()
-            setStatus(error.localizedDescription)
+        setStatus("Importing MindDesk manifest...")
+        Task { @MainActor in
+            do {
+                let manifest = try await Self.loadManifest(from: url)
+                let summary = try importRecords(from: manifest)
+                let authorizationNote = summary.resources > 0 ? " Resources require reauthorization." : ""
+                setStatus("Imported \(summary.statusText).\(authorizationNote)")
+            } catch {
+                modelContext.rollback()
+                setStatus(error.localizedDescription)
+            }
         }
     }
 
-    private func readManifestData(from url: URL) throws -> Data {
+    nonisolated private static func loadManifest(from url: URL) async throws -> ExportManifest {
+        try await Task.detached(priority: .userInitiated) {
+            let data = try readManifestData(from: url)
+            return try ImportExportService().decodeManifest(from: data)
+        }.value
+    }
+
+    nonisolated private static func readManifestData(from url: URL) throws -> Data {
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true else {
             throw WorkbenchError.invalidManifestReferences("Manifest import blocked: choose a regular JSON file.")
@@ -1222,7 +1348,7 @@ struct ContentView: View {
         return data
     }
 
-    private func importRecords(from manifest: ExportManifest) throws {
+    private func importRecords(from manifest: ExportManifest) throws -> ManifestImportSummary {
         let validationIssues = ManifestImportValidation.issues(in: manifest)
         guard validationIssues.isEmpty else {
             let details = validationIssues.prefix(5).joined(separator: " ")
@@ -1236,6 +1362,10 @@ struct ContentView: View {
         var canvasMap: [String: String] = [:]
         var nodeMap: [String: String] = [:]
         var importedNodeParents: [(node: CanvasNodeModel, parentNodeId: String?)] = []
+        var importedEdgeCount = 0
+        var importedAliasCount = 0
+        var importedTodoGroupCount = 0
+        var importedTodoCount = 0
 
         for record in manifest.workspaces {
             let workspace = WorkspaceModel(title: record.title, details: record.details, createdAt: record.createdAt, updatedAt: record.updatedAt, lastOpenedAt: record.lastOpenedAt, isPinned: record.isPinned, sortIndex: record.sortIndex, schemaVersion: manifest.schemaVersion)
@@ -1346,14 +1476,68 @@ struct ContentView: View {
                   let sourceId = nodeMap[record.sourceNodeId],
                   let targetId = nodeMap[record.targetNodeId] else { continue }
             modelContext.insert(CanvasEdgeModel(canvasId: canvasId, sourceNodeId: sourceId, targetNodeId: targetId, label: record.label, style: record.style, sourceArrowRaw: record.sourceArrow, targetArrowRaw: record.targetArrow, animated: record.animated, animationThemeRaw: record.animationTheme, controlPointX: record.controlPointX, controlPointY: record.controlPointY, createdAt: record.createdAt, updatedAt: record.updatedAt))
+            importedEdgeCount += 1
         }
 
         for record in manifest.aliases {
-            let mappedSourceId = resourceMap[record.sourceObjectId] ?? snippetMap[record.sourceObjectId] ?? record.sourceObjectId
+            let mappedSourceId = AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: record.sourceObjectType,
+                sourceObjectId: record.sourceObjectId,
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            )
             modelContext.insert(FinderAliasRecordModel(sourceObjectType: record.sourceObjectType, sourceObjectId: mappedSourceId, aliasDisplayPath: record.aliasDisplayPath, status: AliasStatus(rawValue: record.status) ?? .missing, createdAt: record.createdAt))
+            importedAliasCount += 1
+        }
+
+        var todoGroupMap: [String: String] = [:]
+        for record in manifest.todoGroups {
+            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
+            let group = WorkspaceTodoGroupModel(
+                workspaceId: workspaceId,
+                title: record.title,
+                isPinned: record.isPinned,
+                sortIndex: record.sortIndex,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt
+            )
+            todoGroupMap[record.id] = group.id
+            modelContext.insert(group)
+            importedTodoGroupCount += 1
+        }
+
+        for record in manifest.todos {
+            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
+            let todo = WorkspaceTodoModel(
+                workspaceId: workspaceId,
+                groupId: record.groupId.flatMap { todoGroupMap[$0] },
+                title: record.title,
+                details: record.details,
+                isCompleted: record.isCompleted,
+                isPinned: record.isPinned,
+                sortIndex: record.sortIndex,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
+                completedAt: record.completedAt,
+                dueAt: record.dueAt,
+                linkedResourceId: record.linkedResourceId.flatMap { resourceMap[$0] }
+            )
+            modelContext.insert(todo)
+            importedTodoCount += 1
         }
 
         try modelContext.save()
+        return ManifestImportSummary(
+            workspaces: workspaceMap.count,
+            resources: resourceMap.count,
+            snippets: snippetMap.count,
+            canvases: canvasMap.count,
+            nodes: nodeMap.count,
+            edges: importedEdgeCount,
+            aliases: importedAliasCount,
+            todoGroups: importedTodoGroupCount,
+            todos: importedTodoCount
+        )
     }
 }
 
@@ -1696,11 +1880,7 @@ struct ResourceRenameSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-                    resource.title = trimmed.isEmpty ? resource.originalName : trimmed
-                    resource.customName = trimmed
-                    resource.note = note
-                    resource.refreshSearchText()
+                    resource.applyRename(titleInput: title, note: note)
                     onSave()
                     dismiss()
                 }
@@ -1714,6 +1894,7 @@ struct ResourceRenameSheet: View {
 
 struct HomeView: View {
     let workspaces: [WorkspaceModel]
+    let workspaceBriefsByID: [String: WorkspaceReentryBrief]
     let resources: [ResourcePinModel]
     let snippets: [SnippetModel]
     let onSelectWorkspace: (WorkspaceModel) -> Void
@@ -1738,23 +1919,33 @@ struct HomeView: View {
                 DashboardSection(title: "Recent Workspaces") {
                     CardGrid {
                         ForEach(workspaces.prefix(6)) { workspace in
-                            DashboardCard(title: workspace.title, subtitle: workspace.details, systemImage: "rectangle.3.group") {
-                                onSelectWorkspace(workspace)
-                            }
+                            HomeWorkspaceResumeCard(
+                                workspace: workspace,
+                                brief: workspaceBriefsByID[workspace.id],
+                                onSelect: { onSelectWorkspace(workspace) }
+                            )
                         }
                     }
                 }
 
                 DashboardSection(title: "Pinned Resources") {
-                    CardGrid {
-                        ForEach(resources.prefix(8)) { resource in
-                            HomeResourceCard(
-                                resource: resource,
-                                onSelect: { onSelectResource(resource) },
-                                onOpen: { onOpenResource(resource) },
-                                onCopy: { onCopyResourcePath(resource) },
-                                onInspect: { onInspectResource(resource) }
-                            )
+                    if resources.isEmpty {
+                        DashboardEmptyState(
+                            title: "No pinned resources",
+                            message: "Drop files or folders into the pinned lists to keep them close.",
+                            systemImage: "pin"
+                        )
+                    } else {
+                        CardGrid {
+                            ForEach(resources.prefix(8)) { resource in
+                                HomeResourceCard(
+                                    resource: resource,
+                                    onSelect: { onSelectResource(resource) },
+                                    onOpen: { onOpenResource(resource) },
+                                    onCopy: { onCopyResourcePath(resource) },
+                                    onInspect: { onInspectResource(resource) }
+                                )
+                            }
                         }
                     }
                 }
@@ -1791,6 +1982,312 @@ struct HomeView: View {
                 expandedSnippetIDs.insert(snippet.id)
             }
         }
+    }
+}
+
+struct HomeWorkspaceResumeCard: View {
+    let workspace: WorkspaceModel
+    let brief: WorkspaceReentryBrief?
+    let onSelect: () -> Void
+
+    private var canvasText: String {
+        guard let brief else { return "Canvas" }
+        if brief.isLargeDataDegraded {
+            return "Large workspace"
+        }
+        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+    }
+
+    private var taskText: String? {
+        guard let brief, brief.openTaskCount > 0 else { return nil }
+        return "\(brief.openTaskCount) open"
+    }
+
+    private var issueText: String? {
+        guard let brief, brief.resourceIssueCount > 0 else { return nil }
+        return "\(brief.resourceIssueCount) issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: workspace.isPinned ? "pin.fill" : "rectangle.3.group")
+                        .font(.title3)
+                        .foregroundStyle(workspace.isPinned ? Color.accentColor : Color.secondary)
+                        .frame(width: 24, height: 24)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(workspace.title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Text(workspace.details.isEmpty ? "No description" : workspace.details)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                if let brief, !brief.badges.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(brief.badges) { badge in
+                            WorkspaceResumeBadgeView(badge: badge)
+                        }
+                    }
+                    .frame(height: 22, alignment: .leading)
+                }
+
+                HStack(spacing: 10) {
+                    Label(canvasText, systemImage: "rectangle.connected.to.line.below")
+                        .lineLimit(1)
+                        .help(canvasText)
+                    if let taskText {
+                        Label(taskText, systemImage: "checklist")
+                            .lineLimit(1)
+                            .help(taskText)
+                    }
+                    if let issueText {
+                        Label(issueText, systemImage: "exclamationmark.triangle")
+                            .lineLimit(1)
+                            .help(issueText)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(height: 18, alignment: .leading)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 118, alignment: .topLeading)
+            .background(.thinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(workspace.details.isEmpty ? workspace.title : workspace.details)
+        .accessibilityLabel("\(workspace.title), \(canvasText)")
+    }
+}
+
+struct WorkspaceResumeBriefView: View {
+    let brief: WorkspaceReentryBrief
+    let todosByID: [String: WorkspaceTodoModel]
+    let resourcesByID: [String: ResourcePinModel]
+    let snippetsByID: [String: SnippetModel]
+    let onShowCanvas: () -> Void
+    let onShowResources: () -> Void
+    let onShowSnippets: () -> Void
+
+    private var canvasText: String {
+        if brief.isLargeDataDegraded {
+            return "Large workspace"
+        }
+        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+    }
+
+    private var taskTitles: [String] {
+        brief.nextTaskIds.compactMap { todosByID[$0]?.title }
+    }
+
+    private var resourceIssueTitles: [String] {
+        brief.resourceIssueIds.compactMap { resourcesByID[$0]?.displayName }
+    }
+
+    private var snippetTitles: [String] {
+        brief.recentSnippetIds.compactMap { snippetsByID[$0]?.title }
+    }
+
+    private var taskSummary: String {
+        if brief.openTaskCount == 0 {
+            return "No open tasks"
+        }
+        return "\(brief.openTaskCount) open task\(brief.openTaskCount == 1 ? "" : "s")"
+    }
+
+    private var resourceSummary: String {
+        if brief.resourceIssueCount == 0 {
+            return "No resource issues"
+        }
+        return "\(brief.resourceIssueCount) resource issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    private var snippetSummary: String {
+        if snippetTitles.isEmpty {
+            return "No recent snippets"
+        }
+        return "\(snippetTitles.count) recent snippet\(snippetTitles.count == 1 ? "" : "s")"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                ForEach(brief.badges) { badge in
+                    WorkspaceResumeBadgeView(badge: badge)
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(height: 22, alignment: .leading)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 158), spacing: 8)], spacing: 8) {
+                resumeButton(
+                    title: "Canvas",
+                    value: canvasText,
+                    detail: canvasDetailText,
+                    systemImage: "rectangle.connected.to.line.below",
+                    action: onShowCanvas
+                )
+                resumeItem(
+                    title: "Next",
+                    value: taskSummary,
+                    detail: joined(taskTitles),
+                    systemImage: "checklist"
+                )
+                resumeButton(
+                    title: "Resources",
+                    value: resourceSummary,
+                    detail: joined(resourceIssueTitles),
+                    systemImage: "externaldrive.badge.exclamationmark",
+                    action: onShowResources
+                )
+                resumeButton(
+                    title: "Snippets",
+                    value: snippetSummary,
+                    detail: joined(snippetTitles),
+                    systemImage: "text.quote",
+                    action: onShowSnippets
+                )
+            }
+        }
+        .padding(10)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+    }
+
+    private var canvasDetailText: String {
+        if brief.unresolvedReferenceCount > 0 {
+            return "\(brief.unresolvedReferenceCount) unresolved reference\(brief.unresolvedReferenceCount == 1 ? "" : "s")"
+        }
+        return "Workspace map"
+    }
+
+    private func joined(_ titles: [String]) -> String {
+        titles.isEmpty ? "None" : titles.joined(separator: ", ")
+    }
+
+    private func resumeButton(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            resumeContent(title: title, value: value, detail: detail, systemImage: systemImage)
+        }
+        .buttonStyle(.borderless)
+        .help("\(title): \(value)")
+        .accessibilityLabel("\(title), \(value)")
+    }
+
+    private func resumeItem(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String
+    ) -> some View {
+        resumeContent(title: title, value: value, detail: detail, systemImage: systemImage)
+            .help("\(title): \(value)")
+            .accessibilityLabel("\(title), \(value)")
+    }
+
+    private func resumeContent(
+        title: String,
+        value: String,
+        detail: String,
+        systemImage: String
+    ) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text(value)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } icon: {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .topLeading)
+        .background(Color.secondary.opacity(0.06))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct WorkspaceResumeBadgeView: View {
+    let badge: WorkspaceReentryBadge
+
+    private var label: String {
+        switch badge.kind {
+        case .overdueTasks:
+            return "\(badge.count) overdue"
+        case .dueSoonTasks:
+            return "\(badge.count) due"
+        case .openTasks:
+            return "\(badge.count) open"
+        case .resourceIssues:
+            return "\(badge.count) issue\(badge.count == 1 ? "" : "s")"
+        }
+    }
+
+    private var systemImage: String {
+        switch badge.kind {
+        case .overdueTasks:
+            return "exclamationmark.circle"
+        case .dueSoonTasks:
+            return "clock"
+        case .openTasks:
+            return "circle"
+        case .resourceIssues:
+            return "exclamationmark.triangle"
+        }
+    }
+
+    private var tint: Color {
+        switch badge.kind {
+        case .overdueTasks:
+            return .red
+        case .dueSoonTasks, .resourceIssues:
+            return .orange
+        case .openTasks:
+            return .secondary
+        }
+    }
+
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .frame(height: 22)
+            .foregroundStyle(tint)
+            .background(tint.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .help(label)
+            .accessibilityLabel(label)
     }
 }
 
@@ -1908,6 +2405,35 @@ struct CardGrid<Content: View>: View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
             content
         }
+    }
+}
+
+struct DashboardEmptyState: View {
+    let title: String
+    let message: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .frame(width: 24)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 82, alignment: .topLeading)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -2096,6 +2622,7 @@ struct GlobalLibraryView: View {
 struct WorkspaceDetailView: View {
     @Environment(\.modelContext) private var modelContext
     let workspace: WorkspaceModel
+    let reentryBrief: WorkspaceReentryBrief
     let workspaces: [WorkspaceModel]
     let resources: [ResourcePinModel]
     let snippets: [SnippetModel]
@@ -2127,7 +2654,11 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    private var workspaceResources: [ResourcePinModel] {
+    private var currentWorkspaceResources: [ResourcePinModel] {
+        resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+    }
+
+    private var workspaceAvailableResources: [ResourcePinModel] {
         resources.filter { $0.scope == .global || $0.workspaceId == workspace.id }
     }
 
@@ -2137,6 +2668,18 @@ struct WorkspaceDetailView: View {
 
     private var workspaceTodos: [WorkspaceTodoModel] {
         todos.filter { $0.workspaceId == workspace.id }
+    }
+
+    private var workspaceTodosByID: [String: WorkspaceTodoModel] {
+        Dictionary(workspaceTodos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private var resourcesByID: [String: ResourcePinModel] {
+        Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    private var snippetsByID: [String: SnippetModel] {
+        Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
     private var workspaceTodoGroups: [WorkspaceTodoGroupModel] {
@@ -2153,44 +2696,44 @@ struct WorkspaceDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(workspace.title)
                         .font(.title.bold())
+                        .lineLimit(1)
                     Text(workspace.details)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Spacer()
-                Button {
-                    onToggleWorkspacePinned(workspace)
-                } label: {
-                    Label(workspace.isPinned ? "Pinned" : "Pin", systemImage: workspace.isPinned ? "pin.fill" : "pin")
+                ViewThatFits(in: .horizontal) {
+                    HStack {
+                        workspaceActionButtons
+                        workspaceViewPicker
+                    }
+                    VStack(alignment: .trailing) {
+                        workspaceActionButtons
+                        workspaceViewPicker
+                    }
                 }
-                Button {
-                    onRenameWorkspace(workspace)
-                } label: {
-                    Label("Rename", systemImage: "pencil")
-                }
-                Button(role: .destructive) {
-                    onDeleteWorkspace(workspace)
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-                Picker("View", selection: $tab) {
-                    Text("Canvas").tag("Canvas")
-                    Text("Resources").tag("Resources")
-                    Text("Snippets").tag("Snippets")
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 320)
             }
+
+            WorkspaceResumeBriefView(
+                brief: reentryBrief,
+                todosByID: workspaceTodosByID,
+                resourcesByID: resourcesByID,
+                snippetsByID: snippetsByID,
+                onShowCanvas: { tab = "Canvas" },
+                onShowResources: { tab = "Resources" },
+                onShowSnippets: { tab = "Snippets" }
+            )
 
             switch tab {
             case "Resources":
-                ResourceListView(title: "Workspace Resources", resources: workspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
+                ResourceListView(title: "Workspace Resources", resources: currentWorkspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
             case "Snippets":
-                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
+                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
             default:
                 if let canvas = workspaceCanvas {
                     WorkspaceCanvasView(
                         canvas: canvas,
-                        resources: workspaceResources,
+                        resources: workspaceAvailableResources,
                         allResources: resources,
                         workspaces: workspaces,
                         snippets: workspaceSnippets,
@@ -2218,17 +2761,55 @@ struct WorkspaceDetailView: View {
         .onAppear {
             onCanvasTabActiveChange(tab == "Canvas")
             ensureCanvas()
-            workspace.lastOpenedAt = .now
-            workspace.updatedAt = .now
-            do {
-                try modelContext.save()
-            } catch {
-                modelContext.rollback()
-                onStatus(error.localizedDescription)
-            }
+            markWorkspaceOpened()
+        }
+        .onChange(of: workspace.id) { _, _ in
+            onCanvasTabActiveChange(tab == "Canvas")
+            ensureCanvas()
+            markWorkspaceOpened()
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue == "Canvas")
+        }
+    }
+
+    private var workspaceActionButtons: some View {
+        HStack {
+            Button {
+                onToggleWorkspacePinned(workspace)
+            } label: {
+                Label(workspace.isPinned ? "Pinned" : "Pin", systemImage: workspace.isPinned ? "pin.fill" : "pin")
+            }
+            Button {
+                onRenameWorkspace(workspace)
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                onDeleteWorkspace(workspace)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private var workspaceViewPicker: some View {
+        Picker("View", selection: $tab) {
+            Text("Canvas").tag("Canvas")
+            Text("Resources").tag("Resources")
+            Text("Snippets").tag("Snippets")
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 320)
+    }
+
+    private func markWorkspaceOpened() {
+        workspace.lastOpenedAt = .now
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            onStatus(error.localizedDescription)
         }
     }
 

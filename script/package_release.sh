@@ -260,7 +260,8 @@ RELEASE_NAME="$APP_DISPLAY_NAME-v$VERSION-$RELEASE_PLATFORM_SUFFIX"
 if [[ "$MODE" == "adhoc" ]]; then
   RELEASE_NAME="$RELEASE_NAME-adhoc"
 fi
-RELEASE_DIR="$ROOT_DIR/dist/release/$RELEASE_NAME"
+FINAL_RELEASE_DIR="$ROOT_DIR/dist/release/$RELEASE_NAME"
+RELEASE_DIR="$ROOT_DIR/dist/release/.staging-$RELEASE_NAME-$$"
 PAYLOAD_DIR="$RELEASE_DIR/payload"
 DMG_ROOT="$RELEASE_DIR/dmg-root"
 ARTIFACT_DIR="$RELEASE_DIR/artifacts"
@@ -274,11 +275,16 @@ SOURCE_RESOURCES="$ROOT_DIR/Sources/MindDesk/Resources"
 ZIP_PATH="$ARTIFACT_DIR/$RELEASE_NAME.zip"
 DMG_PATH="$ARTIFACT_DIR/$RELEASE_NAME.dmg"
 
-if [[ -e "$RELEASE_DIR" ]]; then
-  echo "Release directory already exists: $RELEASE_DIR" >&2
+if [[ -e "$FINAL_RELEASE_DIR" ]]; then
+  echo "Release directory already exists: $FINAL_RELEASE_DIR" >&2
   echo "Move it aside or choose a new VERSION before packaging." >&2
   exit 1
 fi
+rm -rf "$RELEASE_DIR"
+cleanup_staging() {
+  rm -rf "$RELEASE_DIR"
+}
+trap cleanup_staging EXIT
 
 extract_json_field() {
   local file="$1"
@@ -452,7 +458,7 @@ if [[ -f "$RELEASE_NOTES_SOURCE" ]]; then
   cp "$RELEASE_NOTES_SOURCE" "$ARTIFACT_DIR/RELEASE-NOTES.md"
 else
   cat >"$ARTIFACT_DIR/RELEASE-NOTES.md" <<TXT
-# $APP_DISPLAY_NAME $VERSION
+# $APP_DISPLAY_NAME v$VERSION
 
 macOS release package for MindDesk.
 
@@ -479,11 +485,18 @@ fi
 
 /usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$INFO_PLIST" >/dev/null
 
+rm -rf "$PAYLOAD_DIR" "$DMG_ROOT"
+mkdir -p "$(dirname "$FINAL_RELEASE_DIR")"
+mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"
+trap - EXIT
+
+FINAL_ARTIFACT_DIR="$FINAL_RELEASE_DIR/artifacts"
+
 echo "Release artifacts:"
-echo "$ZIP_PATH"
-echo "$DMG_PATH"
-echo "$ARTIFACT_DIR/SHA256SUMS.txt"
+echo "$FINAL_ARTIFACT_DIR/$RELEASE_NAME.zip"
+echo "$FINAL_ARTIFACT_DIR/$RELEASE_NAME.dmg"
+echo "$FINAL_ARTIFACT_DIR/SHA256SUMS.txt"
 if [[ "$MODE" == "notarized" ]]; then
-  echo "$ARTIFACT_DIR/notary-submit-app.json"
-  echo "$ARTIFACT_DIR/notary-submit-dmg.json"
+  echo "$FINAL_ARTIFACT_DIR/notary-submit-app.json"
+  echo "$FINAL_ARTIFACT_DIR/notary-submit-dmg.json"
 fi

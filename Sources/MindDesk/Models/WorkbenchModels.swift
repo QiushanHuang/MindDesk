@@ -1,5 +1,35 @@
 import Foundation
+import MindDeskCore
 import SwiftData
+
+private enum WorkbenchTagCodec {
+    static func encode(_ tags: [String]) -> String {
+        let normalized = normalize(tags)
+        guard !normalized.isEmpty else { return "" }
+        guard let data = try? JSONEncoder().encode(normalized),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return normalized.joined(separator: ",")
+        }
+        return encoded
+    }
+
+    static func decode(_ text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        if trimmed.first == "[",
+           let data = trimmed.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            return normalize(decoded)
+        }
+        return normalize(text.split(separator: ",").map(String.init))
+    }
+
+    private static func normalize(_ tags: [String]) -> [String] {
+        tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+}
 
 enum WorkbenchScope: String, Codable, CaseIterable, Identifiable {
     case global
@@ -129,7 +159,7 @@ final class ResourcePinModel {
         self.lastResolvedPath = lastResolvedPath
         self.securityScopedBookmarkData = securityScopedBookmarkData
         self.note = note
-        self.tagsText = tags.joined(separator: ",")
+        self.tagsText = WorkbenchTagCodec.encode(tags)
         self.scopeRaw = scope.rawValue
         self.sortIndex = sortIndex
         self.isPinned = isPinned
@@ -150,8 +180,8 @@ final class ResourcePinModel {
         set { statusRaw = newValue.rawValue }
     }
     var tags: [String] {
-        get { tagsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-        set { tagsText = newValue.joined(separator: ",") }
+        get { WorkbenchTagCodec.decode(tagsText) }
+        set { tagsText = WorkbenchTagCodec.encode(newValue) }
     }
     var displayName: String {
         let fallback = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -176,10 +206,23 @@ final class ResourcePinModel {
             displayPath,
             lastResolvedPath,
             note,
-            tagsText
+            tags.joined(separator: " ")
         ]
             .joined(separator: " ")
             .lowercased()
+    }
+
+    func applyRename(titleInput: String, note: String) {
+        let fields = ResourceRenamePolicy.fields(
+            titleInput: titleInput,
+            note: note,
+            originalName: originalName
+        )
+        title = fields.title
+        customName = fields.customName
+        self.note = fields.note
+        updatedAt = .now
+        refreshSearchText()
     }
 }
 
@@ -222,7 +265,7 @@ final class SnippetModel {
         self.kindRaw = kind.rawValue
         self.body = body
         self.details = details
-        self.tagsText = tags.joined(separator: ",")
+        self.tagsText = WorkbenchTagCodec.encode(tags)
         self.scopeRaw = scope.rawValue
         self.workingDirectoryRef = workingDirectoryRef
         self.requiresConfirmation = requiresConfirmation
@@ -235,8 +278,8 @@ final class SnippetModel {
     var kind: SnippetKind { SnippetKind(rawValue: kindRaw) ?? .prompt }
     var scope: WorkbenchScope { WorkbenchScope(rawValue: scopeRaw) ?? .global }
     var tags: [String] {
-        get { tagsText.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty } }
-        set { tagsText = newValue.joined(separator: ",") }
+        get { WorkbenchTagCodec.decode(tagsText) }
+        set { tagsText = WorkbenchTagCodec.encode(newValue) }
     }
 }
 
@@ -461,7 +504,7 @@ enum SeedData {
         snippets: [SnippetModel],
         canvases: [CanvasModel],
         nodes: [CanvasNodeModel]
-    ) {
+    ) throws {
         guard workspaces.isEmpty, snippets.isEmpty, resources.isEmpty, canvases.isEmpty, nodes.isEmpty else { return }
 
         let workspace = WorkspaceModel(title: "Qiushan Studio", details: "Personal desktop, files, commands, and prompt workbench.", sortIndex: 0)
@@ -475,6 +518,6 @@ enum SeedData {
         context.insert(prompt)
         context.insert(command)
         context.insert(node)
-        try? context.save()
+        try context.save()
     }
 }

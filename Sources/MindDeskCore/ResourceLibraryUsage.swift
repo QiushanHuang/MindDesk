@@ -113,6 +113,58 @@ public struct ResourceImportExistingRecord: Equatable, Identifiable, Sendable {
     }
 }
 
+public enum ResourceKind: String, Equatable, Codable, Sendable {
+    case file
+    case folder
+    case package
+    case symlink
+    case aliasFile
+    case unavailable
+
+    public static func resolved(
+        exists: Bool,
+        isDirectory: Bool,
+        isPackage: Bool,
+        isSymbolicLink: Bool,
+        isAliasFile: Bool
+    ) -> ResourceKind {
+        guard exists else { return .unavailable }
+        if isAliasFile { return .aliasFile }
+        if isSymbolicLink { return .symlink }
+        if isPackage { return .package }
+        return isDirectory ? .folder : .file
+    }
+}
+
+public enum ResourceIdentity {
+    public static func normalizedPath(_ path: String) -> String {
+        (path as NSString).standardizingPath
+    }
+}
+
+public struct ResourceRenameFields: Equatable, Sendable {
+    public var title: String
+    public var customName: String
+    public var note: String
+
+    public init(title: String, customName: String, note: String) {
+        self.title = title
+        self.customName = customName
+        self.note = note
+    }
+}
+
+public enum ResourceRenamePolicy {
+    public static func fields(titleInput: String, note: String, originalName: String) -> ResourceRenameFields {
+        let trimmedTitle = titleInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        return ResourceRenameFields(
+            title: trimmedTitle.isEmpty ? originalName : trimmedTitle,
+            customName: trimmedTitle,
+            note: note
+        )
+    }
+}
+
 public enum ResourceImportDeduplication {
     public static func reusableRecordID(
         forPath path: String,
@@ -127,8 +179,87 @@ public enum ResourceImportDeduplication {
     }
 
     public static func importKey(path: String, scope: String, workspaceId: String?) -> String {
-        let normalizedPath = (path as NSString).standardizingPath
+        let normalizedPath = ResourceIdentity.normalizedPath(path)
         let normalizedWorkspaceId = scope == "workspace" ? workspaceId ?? "" : ""
         return "\(normalizedPath)|\(scope)|\(normalizedWorkspaceId)"
+    }
+}
+
+public enum AliasImportSourceMapper {
+    public static func mappedSourceObjectId(
+        sourceObjectType: String,
+        sourceObjectId: String,
+        resourceMap: [String: String],
+        snippetMap: [String: String]
+    ) -> String {
+        switch sourceObjectType {
+        case "resourcePin":
+            resourceMap[sourceObjectId] ?? sourceObjectId
+        case "snippet":
+            snippetMap[sourceObjectId] ?? sourceObjectId
+        default:
+            sourceObjectId
+        }
+    }
+}
+
+public struct ResourceImportItemIssue: Equatable, Sendable {
+    public var path: String
+    public var reason: String
+
+    public init(path: String, reason: String) {
+        self.path = path
+        self.reason = reason
+    }
+}
+
+public struct ResourceImportBatchSummary: Equatable, Sendable {
+    public var insertedCount: Int
+    public var reusedCount: Int
+    public var skipped: [ResourceImportItemIssue]
+    public var failed: [ResourceImportItemIssue]
+    public var truncatedCount: Int
+    public var maximumInputCount: Int
+
+    public init(
+        insertedCount: Int,
+        reusedCount: Int,
+        skipped: [ResourceImportItemIssue] = [],
+        failed: [ResourceImportItemIssue] = [],
+        truncatedCount: Int = 0,
+        maximumInputCount: Int = 0
+    ) {
+        self.insertedCount = insertedCount
+        self.reusedCount = reusedCount
+        self.skipped = skipped
+        self.failed = failed
+        self.truncatedCount = truncatedCount
+        self.maximumInputCount = maximumInputCount
+    }
+
+    public var importedCount: Int {
+        insertedCount + reusedCount
+    }
+
+    public var statusText: String {
+        var parts: [String] = []
+        if insertedCount > 0 {
+            parts.append("Imported \(insertedCount)")
+        }
+        if reusedCount > 0 {
+            parts.append("reused \(reusedCount)")
+        }
+        if skipped.count > 0 {
+            parts.append("skipped \(skipped.count)")
+        }
+        if failed.count > 0 {
+            parts.append("failed \(failed.count)")
+        }
+        if parts.isEmpty {
+            parts.append("No files or folders imported")
+        }
+        let base = parts.joined(separator: ", ") + "."
+        guard truncatedCount > 0 else { return base }
+        return "\(base) \(truncatedCount) items were not processed because the limit is \(maximumInputCount)."
     }
 }

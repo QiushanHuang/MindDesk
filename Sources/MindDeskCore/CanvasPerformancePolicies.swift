@@ -6,6 +6,7 @@ public extension CanvasPerformancePolicy {
     static var maximumAnimatedRoutePointCount: Int { 96 }
     static var maximumDetailedVisibleCardCount: Int { 48 }
     static var maximumDetailedInteractingVisibleCardCount: Int { 8 }
+    static var maximumRichSpatialInteractionCardCount: Int { 48 }
     static var maximumContextEdgesDuringInteraction: Int { 48 }
     static var maximumPassiveResizeHandleNodeCount: Int { 12 }
     static var maximumPassiveEdgeControlHandleCount: Int { 24 }
@@ -77,6 +78,37 @@ public enum CanvasCardRenderDetailPolicy {
     }
 }
 
+public enum CanvasCardDetailInteractionPolicy {
+    public static func shouldReducePeerDetails(
+        isNodeDragging: Bool,
+        isViewportMoving: Bool,
+        isZooming: Bool,
+        isResizing: Bool,
+        isEdgeControlDragging: Bool,
+        visibleCardCount: Int = 0
+    ) -> Bool {
+        if isZooming || isResizing || isEdgeControlDragging {
+            return true
+        }
+        if isNodeDragging || isViewportMoving {
+            return max(0, visibleCardCount) > CanvasPerformancePolicy.maximumRichSpatialInteractionCardCount
+        }
+        return false
+    }
+}
+
+public enum CanvasScrollWheelEventPolicy {
+    public static let minimumVerticalDelta = 0.01
+
+    public static func shouldZoom(deltaX: Double, deltaY: Double) -> Bool {
+        guard deltaX.isFinite, deltaY.isFinite else { return false }
+        let absX = abs(deltaX)
+        let absY = abs(deltaY)
+        guard absY > minimumVerticalDelta else { return false }
+        return absY >= absX
+    }
+}
+
 public enum CanvasResizeHandleVisibilityPolicy {
     public static func shouldShow(
         isSelected: Bool,
@@ -102,10 +134,11 @@ public enum CanvasEdgeControlHandlePolicy {
         hasStoredControlPoint: Bool,
         isLocked: Bool,
         isInteracting: Bool,
+        isDragging: Bool = false,
         edgeCount: Int,
         zoom: Double
     ) -> Bool {
-        if isSelected || hasTransientControlPoint {
+        if isSelected || hasTransientControlPoint || isDragging {
             return true
         }
         guard !isInteracting else {
@@ -117,6 +150,21 @@ public enum CanvasEdgeControlHandlePolicy {
         return edgeCount <= CanvasPerformancePolicy.maximumPassiveEdgeControlHandleCount &&
             zoom.isFinite &&
             zoom >= CanvasPerformancePolicy.minimumPassiveEdgeControlZoom
+    }
+}
+
+public enum CanvasNodeStateReconciliation {
+    public static func validIDs(_ ids: Set<String>, existingNodeIDs: Set<String>) -> Set<String> {
+        ids.intersection(existingNodeIDs)
+    }
+
+    public static func validOptionalID(_ id: String?, existingNodeIDs: Set<String>) -> String? {
+        guard let id, existingNodeIDs.contains(id) else { return nil }
+        return id
+    }
+
+    public static func filteredKeys<Value>(_ values: [String: Value], existingNodeIDs: Set<String>) -> [String: Value] {
+        values.filter { existingNodeIDs.contains($0.key) }
     }
 }
 

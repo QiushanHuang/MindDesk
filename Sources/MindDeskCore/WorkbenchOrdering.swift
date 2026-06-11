@@ -90,6 +90,32 @@ public enum WorkspaceSidebarOrdering {
     }
 }
 
+public struct WorkspaceRecencyRecord: Equatable, Identifiable, Sendable {
+    public var id: String
+    public var lastOpenedAt: Date?
+    public var updatedAt: Date
+
+    public init(id: String, lastOpenedAt: Date?, updatedAt: Date) {
+        self.id = id
+        self.lastOpenedAt = lastOpenedAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public enum WorkspaceRecencyOrdering {
+    public static func recent(_ records: [WorkspaceRecencyRecord], limit: Int) -> [WorkspaceRecencyRecord] {
+        guard limit > 0 else { return [] }
+        return Array(records.sorted { lhs, rhs in
+            let lhsDate = lhs.lastOpenedAt ?? lhs.updatedAt
+            let rhsDate = rhs.lastOpenedAt ?? rhs.updatedAt
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
+            }
+            return lhs.id < rhs.id
+        }.prefix(limit))
+    }
+}
+
 public struct WorkspaceDeletionCanvasRecord: Equatable, Identifiable, Sendable {
     public var id: String
     public var workspaceId: String
@@ -491,6 +517,8 @@ public struct CanvasNodeSize: Equatable, Sendable {
 }
 
 public enum CanvasNodeSizePolicy {
+    public static let maximumDimension = 5_000.0
+
     public static func size(
         kind _: String,
         storedWidth: Double,
@@ -500,12 +528,21 @@ public enum CanvasNodeSizePolicy {
         minimumWidth: Double,
         minimumHeight: Double
     ) -> CanvasNodeSize {
-        let widthBase = storedWidth > 0 ? storedWidth : defaultWidth
-        let heightBase = storedHeight > 0 ? storedHeight : defaultHeight
+        let safeMinimumWidth = positiveFinite(minimumWidth, fallback: 0)
+        let safeMinimumHeight = positiveFinite(minimumHeight, fallback: 0)
+        let safeDefaultWidth = positiveFinite(defaultWidth, fallback: safeMinimumWidth)
+        let safeDefaultHeight = positiveFinite(defaultHeight, fallback: safeMinimumHeight)
+        let widthBase = positiveFinite(storedWidth, fallback: safeDefaultWidth)
+        let heightBase = positiveFinite(storedHeight, fallback: safeDefaultHeight)
         return CanvasNodeSize(
-            width: max(widthBase, minimumWidth),
-            height: max(heightBase, minimumHeight)
+            width: min(max(widthBase, safeMinimumWidth), max(maximumDimension, safeMinimumWidth)),
+            height: min(max(heightBase, safeMinimumHeight), max(maximumDimension, safeMinimumHeight))
         )
+    }
+
+    private static func positiveFinite(_ value: Double, fallback: Double) -> Double {
+        guard value.isFinite, value > 0 else { return fallback }
+        return value
     }
 }
 
@@ -1349,6 +1386,8 @@ public enum CanvasEdgeControlHandleMetrics {
 public enum CanvasResizeHandleGeometry {
     public static let baseVisualSize = 22.0
     public static let basePadding = 6.0
+    public static let minimumHitSize = 30.0
+    public static let maximumHitSize = 56.0
 
     public static var baseInset: Double {
         basePadding + baseVisualSize / 2
@@ -1358,8 +1397,13 @@ public enum CanvasResizeHandleGeometry {
         baseVisualSize + basePadding * 2
     }
 
+    public static func hitSize(zoom: Double) -> Double {
+        let scale = zoom.isFinite ? max(zoom, 0.01) : 1
+        return min(maximumHitSize, max(minimumHitSize, baseHitSize * scale))
+    }
+
     public static func center(in rect: CanvasFrameRect, zoom: Double) -> CanvasEdgePoint {
-        let scale = max(zoom, 0.01)
+        let scale = zoom.isFinite ? max(zoom, 0.01) : 1
         let inset = baseInset * scale
         return CanvasEdgePoint(
             x: rect.x + rect.width - inset,
@@ -1368,7 +1412,7 @@ public enum CanvasResizeHandleGeometry {
     }
 
     public static func hitRect(center: CanvasEdgePoint, zoom: Double) -> CanvasFrameRect {
-        let size = baseHitSize * max(zoom, 0.01)
+        let size = hitSize(zoom: zoom)
         return CanvasFrameRect(
             id: "resize-handle",
             x: center.x - size / 2,
@@ -1595,6 +1639,219 @@ public enum CanvasDropPlacement {
         return (
             x: (dropX - viewportX) / safeZoom - cardWidth / 2,
             y: (dropY - viewportY) / safeZoom - cardHeight / 2
+        )
+    }
+}
+
+public struct CanvasObjectReference: Equatable, Identifiable, Sendable {
+    public var id: String { nodeId }
+    public var nodeId: String
+    public var canvasId: String
+    public var workspaceId: String
+    public var objectType: String?
+    public var objectId: String?
+
+    public init(nodeId: String, canvasId: String, workspaceId: String, objectType: String?, objectId: String?) {
+        self.nodeId = nodeId
+        self.canvasId = canvasId
+        self.workspaceId = workspaceId
+        self.objectType = objectType
+        self.objectId = objectId
+    }
+}
+
+public struct WorkspaceResourceReference: Equatable, Sendable {
+    public var resourceId: String
+    public var workspaceId: String
+
+    public init(resourceId: String, workspaceId: String) {
+        self.resourceId = resourceId
+        self.workspaceId = workspaceId
+    }
+}
+
+public struct TodoResourceReference: Equatable, Sendable {
+    public var todoId: String
+    public var workspaceId: String
+    public var linkedResourceId: String?
+
+    public init(todoId: String, workspaceId: String, linkedResourceId: String?) {
+        self.todoId = todoId
+        self.workspaceId = workspaceId
+        self.linkedResourceId = linkedResourceId
+    }
+}
+
+public struct SnippetWorkingDirectoryReference: Equatable, Sendable {
+    public var snippetId: String
+    public var resourceId: String?
+
+    public init(snippetId: String, resourceId: String?) {
+        self.snippetId = snippetId
+        self.resourceId = resourceId
+    }
+}
+
+public struct AliasObjectReference: Equatable, Sendable {
+    public var aliasId: String
+    public var sourceObjectType: String
+    public var sourceObjectId: String
+
+    public init(aliasId: String, sourceObjectType: String, sourceObjectId: String) {
+        self.aliasId = aliasId
+        self.sourceObjectType = sourceObjectType
+        self.sourceObjectId = sourceObjectId
+    }
+}
+
+public enum ResourceUsageKind: Equatable, Sendable {
+    case workspaceResource
+    case canvasNode
+    case todo
+    case snippetWorkingDirectory
+    case alias
+}
+
+public struct ResourceUsageRecord: Equatable, Sendable {
+    public var kind: ResourceUsageKind
+    public var id: String
+    public var workspaceId: String?
+
+    public init(kind: ResourceUsageKind, id: String, workspaceId: String? = nil) {
+        self.kind = kind
+        self.id = id
+        self.workspaceId = workspaceId
+    }
+}
+
+public struct ReferenceIndex: Equatable, Sendable {
+    public var workspaceResources: [WorkspaceResourceReference]
+    public var canvasObjects: [CanvasObjectReference]
+    public var todoLinks: [TodoResourceReference]
+    public var snippetWorkingDirectories: [SnippetWorkingDirectoryReference]
+    public var aliases: [AliasObjectReference]
+
+    public init(
+        workspaceResources: [WorkspaceResourceReference] = [],
+        canvasObjects: [CanvasObjectReference] = [],
+        todoLinks: [TodoResourceReference] = [],
+        snippetWorkingDirectories: [SnippetWorkingDirectoryReference] = [],
+        aliases: [AliasObjectReference] = []
+    ) {
+        self.workspaceResources = workspaceResources
+        self.canvasObjects = canvasObjects
+        self.todoLinks = todoLinks
+        self.snippetWorkingDirectories = snippetWorkingDirectories
+        self.aliases = aliases
+    }
+
+    public func resourceUsages(resourceId: String) -> [ResourceUsageRecord] {
+        var usages: [ResourceUsageRecord] = []
+        usages += workspaceResources
+            .filter { $0.resourceId == resourceId }
+            .map { ResourceUsageRecord(kind: .workspaceResource, id: $0.resourceId, workspaceId: $0.workspaceId) }
+        usages += canvasObjects
+            .filter { $0.objectType == "resourcePin" && $0.objectId == resourceId }
+            .map { ResourceUsageRecord(kind: .canvasNode, id: $0.nodeId, workspaceId: $0.workspaceId) }
+        usages += todoLinks
+            .filter { $0.linkedResourceId == resourceId }
+            .map { ResourceUsageRecord(kind: .todo, id: $0.todoId, workspaceId: $0.workspaceId) }
+        usages += snippetWorkingDirectories
+            .filter { $0.resourceId == resourceId }
+            .map { ResourceUsageRecord(kind: .snippetWorkingDirectory, id: $0.snippetId) }
+        usages += aliases
+            .filter { $0.sourceObjectType == "resourcePin" && $0.sourceObjectId == resourceId }
+            .map { ResourceUsageRecord(kind: .alias, id: $0.aliasId) }
+        return usages
+    }
+}
+
+public struct CleanupPlan: Equatable, Sendable {
+    public var canvasNodeIdsToDelete: [String]
+    public var todoIdsClearingLinkedResource: [String]
+    public var snippetIdsClearingWorkingDirectory: [String]
+    public var aliasIdsMarkingMissing: [String]
+
+    public init(
+        canvasNodeIdsToDelete: [String] = [],
+        todoIdsClearingLinkedResource: [String] = [],
+        snippetIdsClearingWorkingDirectory: [String] = [],
+        aliasIdsMarkingMissing: [String] = []
+    ) {
+        self.canvasNodeIdsToDelete = canvasNodeIdsToDelete
+        self.todoIdsClearingLinkedResource = todoIdsClearingLinkedResource
+        self.snippetIdsClearingWorkingDirectory = snippetIdsClearingWorkingDirectory
+        self.aliasIdsMarkingMissing = aliasIdsMarkingMissing
+    }
+
+    public static func deletingResource(resourceId: String, index: ReferenceIndex) -> CleanupPlan {
+        CleanupPlan(
+            canvasNodeIdsToDelete: index.canvasObjects
+                .filter { $0.objectType == "resourcePin" && $0.objectId == resourceId }
+                .map(\.nodeId)
+                .sorted(),
+            todoIdsClearingLinkedResource: index.todoLinks
+                .filter { $0.linkedResourceId == resourceId }
+                .map(\.todoId)
+                .sorted(),
+            snippetIdsClearingWorkingDirectory: index.snippetWorkingDirectories
+                .filter { $0.resourceId == resourceId }
+                .map(\.snippetId)
+                .sorted(),
+            aliasIdsMarkingMissing: index.aliases
+                .filter { $0.sourceObjectType == "resourcePin" && $0.sourceObjectId == resourceId }
+                .map(\.aliasId)
+                .sorted()
+        )
+    }
+}
+
+public struct CanvasResourceDropPlan: Equatable, Sendable {
+    public var resourceIdsToCreateNodes: [String]
+    public var skippedExistingResourceIds: [String]
+    public var skippedDuplicateInputResourceIds: [String]
+
+    public init(resourceIdsToCreateNodes: [String], skippedExistingResourceIds: [String], skippedDuplicateInputResourceIds: [String]) {
+        self.resourceIdsToCreateNodes = resourceIdsToCreateNodes
+        self.skippedExistingResourceIds = skippedExistingResourceIds
+        self.skippedDuplicateInputResourceIds = skippedDuplicateInputResourceIds
+    }
+}
+
+public enum CanvasResourceDropPolicy {
+    public static func plan(
+        resourceIds: [String],
+        canvasId: String,
+        existingNodes: [CanvasObjectReference]
+    ) -> CanvasResourceDropPlan {
+        let existingResourceIds = Set(existingNodes.compactMap { node -> String? in
+            guard node.canvasId == canvasId,
+                  node.objectType == "resourcePin",
+                  let objectId = node.objectId else {
+                return nil
+            }
+            return objectId
+        })
+
+        var seen: Set<String> = []
+        var create: [String] = []
+        var skippedExisting: [String] = []
+        var skippedDuplicate: [String] = []
+        for resourceId in resourceIds {
+            guard seen.insert(resourceId).inserted else {
+                skippedDuplicate.append(resourceId)
+                continue
+            }
+            if existingResourceIds.contains(resourceId) {
+                skippedExisting.append(resourceId)
+            } else {
+                create.append(resourceId)
+            }
+        }
+        return CanvasResourceDropPlan(
+            resourceIdsToCreateNodes: create,
+            skippedExistingResourceIds: skippedExisting,
+            skippedDuplicateInputResourceIds: skippedDuplicate
         )
     }
 }

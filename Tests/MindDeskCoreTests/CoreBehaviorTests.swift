@@ -335,6 +335,34 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(aligned.map(\.y), [10, 10])
     }
 
+    func testAlignLeftIgnoresNonFiniteCoordinates() {
+        let nodes = [
+            CanvasLayoutNode(id: "bad", x: .nan, y: 0, width: 120, height: 80),
+            CanvasLayoutNode(id: "a", x: 50, y: 0, width: 120, height: 80),
+            CanvasLayoutNode(id: "b", x: 10, y: 20, width: 120, height: 80)
+        ]
+
+        let aligned = CanvasLayoutEngine.alignLeft(nodes)
+
+        XCTAssertTrue(aligned[0].x.isNaN)
+        XCTAssertEqual(aligned[1].x, 10)
+        XCTAssertEqual(aligned[2].x, 10)
+    }
+
+    func testAlignTopIgnoresNonFiniteCoordinates() {
+        let nodes = [
+            CanvasLayoutNode(id: "bad", x: 0, y: .nan, width: 120, height: 80),
+            CanvasLayoutNode(id: "a", x: 0, y: 50, width: 120, height: 80),
+            CanvasLayoutNode(id: "b", x: 20, y: 10, width: 120, height: 80)
+        ]
+
+        let aligned = CanvasLayoutEngine.alignTop(nodes)
+
+        XCTAssertTrue(aligned[0].y.isNaN)
+        XCTAssertEqual(aligned[1].y, 10)
+        XCTAssertEqual(aligned[2].y, 10)
+    }
+
     private func layoutNodesOverlap(_ nodes: [CanvasLayoutNode]) -> Bool {
         for lhsIndex in nodes.indices {
             for rhsIndex in nodes.indices where rhsIndex > lhsIndex {
@@ -459,7 +487,7 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(CanvasScrollZoomDirection.scrollDownZoomsIn.rawValue, forKey: AppPreferenceKeys.canvasScrollZoomDirection)
         defaults.set(250.0, forKey: AppPreferenceKeys.canvasDefaultZoomPercent)
         defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
-        defaults.set(false, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
+        defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen)
         defaults.set(0.7, forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen)
@@ -475,10 +503,30 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasScrollZoomDirection), CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue)
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.canvasDefaultZoomPercent), CanvasZoomBaseline.defaultPercent, accuracy: 0.0001)
         XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.canvasConnectSingleShot))
-        XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
+        XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen))
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio), TodoBoardColumnSplit.defaultRatio, accuracy: 0.0001)
         XCTAssertNil(defaults.object(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen))
+    }
+
+    func testWorkspaceRecencyOrderingUsesLastOpenedBeforeSidebarOrder() {
+        let old = Date(timeIntervalSince1970: 100)
+        let recent = Date(timeIntervalSince1970: 300)
+        let fallbackUpdated = Date(timeIntervalSince1970: 200)
+        let records = [
+            WorkspaceRecencyRecord(id: "pinned-old", lastOpenedAt: old, updatedAt: Date(timeIntervalSince1970: 900)),
+            WorkspaceRecencyRecord(id: "recent", lastOpenedAt: recent, updatedAt: old),
+            WorkspaceRecencyRecord(id: "fallback", lastOpenedAt: nil, updatedAt: fallbackUpdated)
+        ]
+
+        XCTAssertEqual(
+            WorkspaceRecencyOrdering.recent(records, limit: 3).map(\.id),
+            ["recent", "fallback", "pinned-old"]
+        )
+        XCTAssertEqual(
+            WorkspaceRecencyOrdering.recent(records, limit: 2).map(\.id),
+            ["recent", "fallback"]
+        )
     }
 
     func testExportManifestUsageDatePolicyRemovesBehaviorDatesOnly() {
@@ -881,6 +929,110 @@ final class CoreBehaviorTests: XCTestCase {
         ))
     }
 
+    func testCanvasCardDetailInteractionPolicyKeepsPeerDetailsDuringSpatialDragOnly() {
+        let sparseVisibleCount = 24
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: sparseVisibleCount
+        ))
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: true,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: sparseVisibleCount
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: sparseVisibleCount,
+            isInteracting: CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+                isNodeDragging: true,
+                isViewportMoving: false,
+                isZooming: false,
+                isResizing: false,
+                isEdgeControlDragging: false,
+                visibleCardCount: sparseVisibleCount
+            ),
+            isSelected: false,
+            isEditing: false
+        ))
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: sparseVisibleCount,
+            isInteracting: CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+                isNodeDragging: false,
+                isViewportMoving: true,
+                isZooming: false,
+                isResizing: false,
+                isEdgeControlDragging: false,
+                visibleCardCount: sparseVisibleCount
+            ),
+            isSelected: false,
+            isEditing: false
+        ))
+    }
+
+    func testCanvasCardDetailInteractionPolicyReducesDenseSpatialInteractions() {
+        let boundary = CanvasPerformancePolicy.maximumRichSpatialInteractionCardCount
+        XCTAssertFalse(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary + 1
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: true,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: boundary + 1
+        ))
+    }
+
+    func testCanvasCardDetailInteractionPolicyStillReducesDetailsForGeometryWork() {
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: true,
+            isEdgeControlDragging: false,
+            visibleCardCount: 1
+        ))
+        XCTAssertTrue(CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: false,
+            isZooming: true,
+            isResizing: false,
+            isEdgeControlDragging: true,
+            visibleCardCount: 1
+        ))
+    }
+
+    func testCanvasScrollWheelEventPolicyPassesThroughHorizontalAndTinyEvents() {
+        XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 12))
+        XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 3, deltaY: 12))
+        XCTAssertFalse(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 24, deltaY: 5))
+        XCTAssertFalse(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 0.005))
+    }
+
     func testCanvasResizeHandlePolicyAvoidsDensePassiveHandles() {
         XCTAssertTrue(CanvasResizeHandleVisibilityPolicy.shouldShow(
             isSelected: true,
@@ -999,6 +1151,34 @@ final class CoreBehaviorTests: XCTestCase {
             edgeCount: 24,
             zoom: 0.29
         ))
+        XCTAssertTrue(CanvasEdgeControlHandlePolicy.shouldShow(
+            isSelected: false,
+            hasTransientControlPoint: false,
+            hasStoredControlPoint: false,
+            isLocked: false,
+            isInteracting: true,
+            isDragging: true,
+            edgeCount: CanvasPerformancePolicy.maximumPassiveEdgeControlHandleCount + 1,
+            zoom: 0.1
+        ))
+    }
+
+    func testCanvasNodeStateReconciliationDropsMissingNodes() {
+        let existing: Set<String> = ["a", "c"]
+
+        XCTAssertEqual(
+            CanvasNodeStateReconciliation.validIDs(["a", "b", "c"], existingNodeIDs: existing),
+            ["a", "c"]
+        )
+        XCTAssertNil(CanvasNodeStateReconciliation.validOptionalID("b", existingNodeIDs: existing))
+        XCTAssertEqual(CanvasNodeStateReconciliation.validOptionalID("c", existingNodeIDs: existing), "c")
+        XCTAssertEqual(
+            CanvasNodeStateReconciliation.filteredKeys(
+                ["a": 1, "b": 2],
+                existingNodeIDs: existing
+            ).keys.sorted(),
+            ["a"]
+        )
     }
 
     func testCanvasActiveEdgeRenderPolicyLimitsEdgesDuringNodeMotion() {
@@ -1403,6 +1583,47 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.edges.first?.style, "dashed")
     }
 
+    func testManifestV2RoundTripKeepsTodoGroupsAndTasks() throws {
+        let due = Date(timeIntervalSince1970: 1_900_000_000)
+        let completed = Date(timeIntervalSince1970: 1_800_000_000)
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: "workspace", title: "Paper", targetType: "file", displayPath: "/tmp/Paper.pdf", lastResolvedPath: "/tmp/Paper.pdf", note: "", tags: [], scope: "workspace", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "workspace", title: "Writing", isPinned: true, sortIndex: 2, createdAt: .distantPast, updatedAt: .distantPast)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "group", title: "Revise intro", details: "Tighten claims", isCompleted: true, isPinned: true, sortIndex: 4, createdAt: .distantPast, updatedAt: .distantPast, completedAt: completed, dueAt: due, linkedResourceId: "resource")
+            ]
+        )
+
+        let data = try JSONEncoder.minddesk.encode(manifest)
+        let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: data)
+
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertEqual(decoded.todoGroups.first?.title, "Writing")
+        XCTAssertEqual(decoded.todoGroups.first?.isPinned, true)
+        XCTAssertEqual(decoded.todos.first?.title, "Revise intro")
+        XCTAssertEqual(decoded.todos.first?.details, "Tighten claims")
+        XCTAssertEqual(decoded.todos.first?.isCompleted, true)
+        XCTAssertEqual(decoded.todos.first?.isPinned, true)
+        XCTAssertEqual(decoded.todos.first?.groupId, "group")
+        XCTAssertEqual(decoded.todos.first?.linkedResourceId, "resource")
+        XCTAssertEqual(decoded.todos.first?.dueAt, due)
+        XCTAssertEqual(decoded.todos.first?.completedAt, completed)
+    }
+
     func testLegacyManifestDefaultsNewCanvasFields() throws {
         let json = """
         {
@@ -1427,6 +1648,8 @@ final class CoreBehaviorTests: XCTestCase {
         """
 
         let decoded = try JSONDecoder.minddesk.decode(ExportManifest.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.todoGroups, [])
+        XCTAssertEqual(decoded.todos, [])
         XCTAssertEqual(decoded.canvases.first?.viewportX, 0)
         XCTAssertEqual(decoded.canvases.first?.viewportY, 0)
         XCTAssertEqual(decoded.canvases.first?.zoom, 1)
@@ -1438,6 +1661,36 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.canvases.first?.animationsEnabled, true)
         XCTAssertEqual(decoded.nodes.first?.zIndex, 0)
         XCTAssertEqual(decoded.edges.first?.targetArrow, "arrow")
+    }
+
+    func testManifestScopePolicyDropsTodosForGlobalLibraryOnly() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Shared", targetType: "folder", displayPath: "/tmp/Shared", lastResolvedPath: "/tmp/Shared", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "workspace", title: "Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "group", title: "Task", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: "resource")
+            ]
+        )
+
+        let scoped = ExportManifestScopePolicy.manifest(from: manifest, scope: .globalLibraryOnly)
+
+        XCTAssertEqual(scoped.resources.map(\.id), ["resource"])
+        XCTAssertTrue(scoped.todoGroups.isEmpty)
+        XCTAssertTrue(scoped.todos.isEmpty)
     }
 
     func testManifestImportValidationReportsBrokenReferences() {
@@ -1470,6 +1723,111 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Canvas canvas references missing workspace missing-workspace."))
         XCTAssertTrue(issues.contains("Node node references missing canvas missing-canvas."))
         XCTAssertTrue(issues.contains("Edge edge references missing source node missing-source."))
+    }
+
+    func testManifestImportValidationReportsBrokenTodoReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group", workspaceId: "missing-workspace", title: "Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "todo", workspaceId: "workspace", groupId: "missing-group", title: "Task", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: "missing-resource"),
+                TodoRecord(id: "orphan", workspaceId: "missing-workspace", groupId: nil, title: "Orphan", details: "", isCompleted: false, isPinned: false, sortIndex: 1, linkedResourceId: nil)
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Todo group group references missing workspace missing-workspace."))
+        XCTAssertTrue(issues.contains("Todo todo references missing group missing-group."))
+        XCTAssertTrue(issues.contains("Todo todo references missing linked resource missing-resource."))
+        XCTAssertTrue(issues.contains("Todo orphan references missing workspace missing-workspace."))
+    }
+
+    func testManifestImportValidationRejectsCrossWorkspaceTodoReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace-a", title: "A", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil),
+                WorkspaceRecord(id: "workspace-b", title: "B", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource-b", workspaceId: "workspace-b", title: "B File", targetType: "file", displayPath: "/tmp/b", lastResolvedPath: "/tmp/b", note: "", tags: [], scope: "workspace", status: "available"),
+                ResourceRecord(id: "global-resource", workspaceId: nil, title: "Global", targetType: "file", displayPath: "/tmp/global", lastResolvedPath: "/tmp/global", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            aliases: [],
+            todoGroups: [
+                TodoGroupRecord(id: "group-b", workspaceId: "workspace-b", title: "B Tasks", isPinned: false, sortIndex: 0)
+            ],
+            todos: [
+                TodoRecord(id: "cross-group", workspaceId: "workspace-a", groupId: "group-b", title: "Cross Group", details: "", isCompleted: false, isPinned: false, sortIndex: 0, linkedResourceId: nil),
+                TodoRecord(id: "cross-resource", workspaceId: "workspace-a", groupId: nil, title: "Cross Resource", details: "", isCompleted: false, isPinned: false, sortIndex: 1, linkedResourceId: "resource-b"),
+                TodoRecord(id: "global-link", workspaceId: "workspace-a", groupId: nil, title: "Global Link", details: "", isCompleted: false, isPinned: false, sortIndex: 2, linkedResourceId: "global-resource")
+            ]
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Todo cross-group references group group-b from another workspace."))
+        XCTAssertTrue(issues.contains("Todo cross-resource references linked resource resource-b from another workspace."))
+        XCTAssertFalse(issues.contains("Todo global-link references linked resource global-resource from another workspace."))
+    }
+
+    func testManifestImportValidationRejectsCrossWorkspaceSnippetAndCanvasResourceReferences() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace-a", title: "A", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil),
+                WorkspaceRecord(id: "workspace-b", title: "B", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource-b", workspaceId: "workspace-b", title: "B Folder", targetType: "folder", displayPath: "/tmp/b", lastResolvedPath: "/tmp/b", note: "", tags: [], scope: "workspace", status: "available"),
+                ResourceRecord(id: "global-resource", workspaceId: nil, title: "Global Folder", targetType: "folder", displayPath: "/tmp/global", lastResolvedPath: "/tmp/global", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "cross-snippet", workspaceId: "workspace-a", title: "Cross", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: "resource-b", requiresConfirmation: true),
+                SnippetRecord(id: "global-snippet", workspaceId: "workspace-a", title: "Global OK", kind: "command", body: "pwd", details: "", tags: [], scope: "workspace", workingDirectoryRef: "global-resource", requiresConfirmation: true),
+                SnippetRecord(id: "snippet-b", workspaceId: "workspace-b", title: "B Snippet", kind: "note", body: "B", details: "", tags: [], scope: "workspace", workingDirectoryRef: nil, requiresConfirmation: true),
+                SnippetRecord(id: "shared-snippet", workspaceId: nil, title: "Shared Snippet", kind: "note", body: "Shared", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: true)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas-a", workspaceId: "workspace-a", title: "A")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "cross-resource-node", canvasId: "canvas-a", title: "Cross", body: "", nodeType: "resource", objectType: "resourcePin", objectId: "resource-b", x: 0, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "global-resource-node", canvasId: "canvas-a", title: "Global", body: "", nodeType: "resource", objectType: "resourcePin", objectId: "global-resource", x: 220, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "cross-snippet-node", canvasId: "canvas-a", title: "Cross Snippet", body: "", nodeType: "snippet", objectType: "snippet", objectId: "snippet-b", x: 440, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "global-snippet-node", canvasId: "canvas-a", title: "Shared Snippet", body: "", nodeType: "snippet", objectType: "snippet", objectId: "shared-snippet", x: 660, y: 0, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Snippet cross-snippet references working directory resource resource-b from another workspace."))
+        XCTAssertTrue(issues.contains("Node cross-resource-node references resource resource-b from another workspace."))
+        XCTAssertTrue(issues.contains("Node cross-snippet-node references snippet snippet-b from another workspace."))
+        XCTAssertFalse(issues.contains("Snippet global-snippet references working directory resource global-resource from another workspace."))
+        XCTAssertFalse(issues.contains("Node global-resource-node references resource global-resource from another workspace."))
+        XCTAssertFalse(issues.contains("Node global-snippet-node references snippet shared-snippet from another workspace."))
     }
 
     func testManifestImportValidationRejectsWorkspaceScopedResourcesAndSnippetsWithoutWorkspaceID() {
@@ -1571,6 +1929,31 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(issues.contains("Edge edge references target node child from another canvas."))
     }
 
+    func testManifestImportValidationRejectsParentCycles() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "frame-a", canvasId: "canvas", title: "A", body: "", nodeType: "groupFrame", objectType: nil, objectId: nil, x: 0, y: 0, width: 300, height: 240, parentNodeId: "frame-b"),
+                CanvasNodeRecord(id: "frame-b", canvasId: "canvas", title: "B", body: "", nodeType: "groupFrame", objectType: nil, objectId: nil, x: 20, y: 20, width: 300, height: 240, parentNodeId: "frame-a")
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        XCTAssertTrue(
+            ManifestImportValidation.issues(in: manifest).contains("Canvas canvas has a cyclic frame parent relationship involving node frame-a.")
+        )
+    }
+
     func testManifestImportValidationRequiresObjectIDsAndAliasSources() {
         let manifest = ExportManifest(
             schemaVersion: 1,
@@ -1596,6 +1979,40 @@ final class CoreBehaviorTests: XCTestCase {
 
         XCTAssertTrue(issues.contains("Node resource-node has object type resourcePin without an object id."))
         XCTAssertTrue(issues.contains("Alias alias references missing resource object missing-resource."))
+    }
+
+    func testManifestImportValidationRejectsNodeObjectTypeMismatches() {
+        let manifest = ExportManifest(
+            schemaVersion: 1,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [
+                ResourceRecord(id: "resource", workspaceId: nil, title: "Resource", targetType: "file", displayPath: "/tmp/file", lastResolvedPath: "/tmp/file", note: "", tags: [], scope: "global", status: "available")
+            ],
+            snippets: [
+                SnippetRecord(id: "snippet", workspaceId: nil, title: "Snippet", kind: "prompt", body: "Body", details: "", tags: [], scope: "global", workingDirectoryRef: nil, requiresConfirmation: false)
+            ],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "note-ref", canvasId: "canvas", title: "Note", body: "", nodeType: "note", objectType: "resourcePin", objectId: "resource", x: 0, y: 0, width: 180, height: 120),
+                CanvasNodeRecord(id: "frame-ref", canvasId: "canvas", title: "Frame", body: "", nodeType: "groupFrame", objectType: "snippet", objectId: "snippet", x: 220, y: 0, width: 260, height: 200),
+                CanvasNodeRecord(id: "resource-web", canvasId: "canvas", title: "Resource Web", body: "example.com", nodeType: "resource", objectType: "webURL", objectId: nil, x: 0, y: 160, width: 180, height: 120),
+                CanvasNodeRecord(id: "snippet-resource", canvasId: "canvas", title: "Snippet Resource", body: "", nodeType: "snippet", objectType: "resourcePin", objectId: "resource", x: 220, y: 160, width: 180, height: 120)
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        let issues = ManifestImportValidation.issues(in: manifest)
+
+        XCTAssertTrue(issues.contains("Node note-ref with node type note cannot reference object type resourcePin."))
+        XCTAssertTrue(issues.contains("Node frame-ref with node type groupFrame cannot reference object type snippet."))
+        XCTAssertTrue(issues.contains("Node resource-web with node type resource cannot reference object type webURL."))
+        XCTAssertTrue(issues.contains("Node snippet-resource with node type snippet cannot reference object type resourcePin."))
     }
 
     func testManifestImportValidationAllowsLegacyWebURLBodyFallback() {
@@ -1688,6 +2105,30 @@ final class CoreBehaviorTests: XCTestCase {
         )
 
         XCTAssertTrue(ManifestImportValidation.issues(in: manifest).isEmpty)
+    }
+
+    func testManifestImportValidationAllowsDefaultResetAccentColor() {
+        let manifest = ExportManifest(
+            schemaVersion: 2,
+            exportedAt: Date(timeIntervalSince1970: 0),
+            workspaces: [
+                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
+            ],
+            resources: [],
+            snippets: [],
+            canvases: [
+                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
+            ],
+            nodes: [
+                CanvasNodeRecord(id: "node", canvasId: "canvas", title: "Node", body: "", nodeType: "note", objectType: nil, objectId: nil, x: 0, y: 0, width: 180, height: 120, accentColor: "")
+            ],
+            edges: [],
+            aliases: []
+        )
+
+        XCTAssertFalse(
+            ManifestImportValidation.issues(in: manifest).contains("Node node has unsupported accent color .")
+        )
     }
 
     func testManifestImportValidationRejectsInvalidEnumsAndUnsafeGeometry() {
@@ -2013,6 +2454,120 @@ final class CoreBehaviorTests: XCTestCase {
             ),
             "global"
         )
+    }
+
+    func testResourceIdentityNormalizesPathsAndClassifiesKinds() {
+        XCTAssertEqual(ResourceIdentity.normalizedPath("/tmp/Project/../Project/Plan.md"), "/tmp/Project/Plan.md")
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: true, isPackage: false, isSymbolicLink: false, isAliasFile: false), .folder)
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: true, isPackage: true, isSymbolicLink: false, isAliasFile: false), .package)
+        XCTAssertEqual(ResourceKind.resolved(exists: true, isDirectory: false, isPackage: false, isSymbolicLink: true, isAliasFile: false), .symlink)
+        XCTAssertEqual(ResourceKind.resolved(exists: false, isDirectory: false, isPackage: false, isSymbolicLink: false, isAliasFile: false), .unavailable)
+    }
+
+    func testResourceRenamePolicyPreservesClearedCustomName() {
+        let renamed = ResourceRenamePolicy.fields(
+            titleInput: "  Project Docs  ",
+            note: "Updated note",
+            originalName: "Docs"
+        )
+        let cleared = ResourceRenamePolicy.fields(
+            titleInput: "   ",
+            note: "Keep note",
+            originalName: "Docs"
+        )
+
+        XCTAssertEqual(renamed.title, "Project Docs")
+        XCTAssertEqual(renamed.customName, "Project Docs")
+        XCTAssertEqual(renamed.note, "Updated note")
+        XCTAssertEqual(cleared.title, "Docs")
+        XCTAssertEqual(cleared.customName, "")
+        XCTAssertEqual(cleared.note, "Keep note")
+    }
+
+    func testAliasImportSourceMapperUsesSourceTypeWhenIdsOverlap() {
+        let resourceMap = ["shared": "new-resource"]
+        let snippetMap = ["shared": "new-snippet"]
+
+        XCTAssertEqual(
+            AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: "resourcePin",
+                sourceObjectId: "shared",
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            ),
+            "new-resource"
+        )
+        XCTAssertEqual(
+            AliasImportSourceMapper.mappedSourceObjectId(
+                sourceObjectType: "snippet",
+                sourceObjectId: "shared",
+                resourceMap: resourceMap,
+                snippetMap: snippetMap
+            ),
+            "new-snippet"
+        )
+    }
+
+    func testReferenceIndexBuildsWhereUsedAndCleanupPlanForResource() {
+        let index = ReferenceIndex(
+            workspaceResources: [
+                WorkspaceResourceReference(resourceId: "resource", workspaceId: "workspace")
+            ],
+            canvasObjects: [
+                CanvasObjectReference(nodeId: "node", canvasId: "canvas", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource")
+            ],
+            todoLinks: [
+                TodoResourceReference(todoId: "todo", workspaceId: "workspace", linkedResourceId: "resource")
+            ],
+            snippetWorkingDirectories: [
+                SnippetWorkingDirectoryReference(snippetId: "snippet", resourceId: "resource")
+            ],
+            aliases: [
+                AliasObjectReference(aliasId: "alias", sourceObjectType: "resourcePin", sourceObjectId: "resource")
+            ]
+        )
+
+        let usages = index.resourceUsages(resourceId: "resource")
+        let plan = CleanupPlan.deletingResource(resourceId: "resource", index: index)
+
+        XCTAssertEqual(usages.map(\.kind), [.workspaceResource, .canvasNode, .todo, .snippetWorkingDirectory, .alias])
+        XCTAssertEqual(plan.canvasNodeIdsToDelete, ["node"])
+        XCTAssertEqual(plan.todoIdsClearingLinkedResource, ["todo"])
+        XCTAssertEqual(plan.snippetIdsClearingWorkingDirectory, ["snippet"])
+        XCTAssertEqual(plan.aliasIdsMarkingMissing, ["alias"])
+    }
+
+    func testCanvasDropPolicySkipsExistingResourceNodesOnSameCanvas() {
+        let plan = CanvasResourceDropPolicy.plan(
+            resourceIds: ["resource-a", "resource-b", "resource-a"],
+            canvasId: "canvas",
+            existingNodes: [
+                CanvasObjectReference(nodeId: "existing", canvasId: "canvas", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource-a"),
+                CanvasObjectReference(nodeId: "other-canvas", canvasId: "other", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource-b")
+            ]
+        )
+
+        XCTAssertEqual(plan.resourceIdsToCreateNodes, ["resource-b"])
+        XCTAssertEqual(plan.skippedExistingResourceIds, ["resource-a"])
+        XCTAssertEqual(plan.skippedDuplicateInputResourceIds, ["resource-a"])
+    }
+
+    func testResourceImportBatchSummaryReportsPerItemOutcomesAndLimit() {
+        let summary = ResourceImportBatchSummary(
+            insertedCount: 1,
+            reusedCount: 2,
+            skipped: [
+                ResourceImportItemIssue(path: "/tmp/skipped", reason: "Already on this canvas")
+            ],
+            failed: [
+                ResourceImportItemIssue(path: "/tmp/failed", reason: "Bookmark failed")
+            ],
+            truncatedCount: 3,
+            maximumInputCount: 200
+        )
+
+        XCTAssertEqual(summary.importedCount, 3)
+        XCTAssertEqual(summary.statusText, "Imported 1, reused 2, skipped 1, failed 1. 3 items were not processed because the limit is 200.")
     }
 
     func testSnippetLibraryFilteringShowsGlobalAndCurrentWorkspaceOnly() {
@@ -2611,6 +3166,13 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(CanvasResizeHandleGeometry.contains(center, in: hitRect))
     }
 
+    func testCanvasResizeHandleHitRectIsClampedForExtremeZoom() {
+        let center = CanvasEdgePoint(x: 200, y: 160)
+
+        XCTAssertEqual(CanvasResizeHandleGeometry.hitRect(center: center, zoom: 0.12).width, 30, accuracy: 0.0001)
+        XCTAssertEqual(CanvasResizeHandleGeometry.hitRect(center: center, zoom: 4.0).width, 56, accuracy: 0.0001)
+    }
+
     func testCanvasEdgeControlPointAndHandleScaleWithZoom() {
         let control = CanvasViewportProjection.screenPoint(
             x: 300,
@@ -2756,6 +3318,32 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(resource.height, 240)
         XCTAssertEqual(note.width, 180)
         XCTAssertEqual(note.height, 140)
+    }
+
+    func testCanvasNodeSizePolicyRejectsNonFiniteAndExtremeStoredSizes() {
+        let fallback = CanvasNodeSizePolicy.size(
+            kind: "resource",
+            storedWidth: .infinity,
+            storedHeight: .nan,
+            defaultWidth: 214,
+            defaultHeight: 132,
+            minimumWidth: 180,
+            minimumHeight: 112
+        )
+        let huge = CanvasNodeSizePolicy.size(
+            kind: "resource",
+            storedWidth: 99_999,
+            storedHeight: 80_000,
+            defaultWidth: 214,
+            defaultHeight: 132,
+            minimumWidth: 180,
+            minimumHeight: 112
+        )
+
+        XCTAssertEqual(fallback.width, 214)
+        XCTAssertEqual(fallback.height, 132)
+        XCTAssertEqual(huge.width, CanvasNodeSizePolicy.maximumDimension)
+        XCTAssertEqual(huge.height, CanvasNodeSizePolicy.maximumDimension)
     }
 
     func testCanvasCardTitleLayoutKeepsNoteTitleBoxHalfResourceHeight() {
@@ -2935,5 +3523,341 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: false, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: true, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount))
         XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateEdge(theme: "blue", animationsEnabled: true, reduceMotion: false, edgeCount: CanvasPerformancePolicy.maximumAnimatedEdgeCount + 1))
+    }
+
+    func testWorkspaceReentryBriefAggregatesCurrentWorkspaceOnly() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace-a", title: "A", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [
+                WorkspaceReentryResourceRecord(id: "global-used", workspaceId: nil, title: "Global Used", status: "available", scope: "global", updatedAt: now, lastOpenedAt: now),
+                WorkspaceReentryResourceRecord(id: "workspace-issue", workspaceId: "workspace-a", title: "Workspace Issue", status: "missingVolume", scope: "workspace", updatedAt: now, lastOpenedAt: nil),
+                WorkspaceReentryResourceRecord(id: "other-private", workspaceId: "workspace-b", title: "Other", status: "missingVolume", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "workspace-snippet", workspaceId: "workspace-a", title: "Workspace Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "other-snippet", workspaceId: "workspace-b", title: "Other Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "todo-a", workspaceId: "workspace-a", title: "Todo A", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: "workspace-issue"),
+                WorkspaceReentryTodoRecord(id: "todo-b", workspaceId: "workspace-b", title: "Todo B", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: "other-private")
+            ],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas-a", workspaceId: "workspace-a", updatedAt: now),
+                WorkspaceReentryCanvasRecord(id: "canvas-b", workspaceId: "workspace-b", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "node-a", canvasId: "canvas-a", objectType: "resourcePin", objectId: "global-used", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "node-b", canvasId: "canvas-b", objectType: "resourcePin", objectId: "other-private", updatedAt: now)
+            ],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.workspaceId, "workspace-a")
+        XCTAssertEqual(brief.nextTaskIds, ["todo-a"])
+        XCTAssertEqual(brief.resourceIssueIds, ["workspace-issue"])
+        XCTAssertEqual(brief.recentSnippetIds, ["workspace-snippet"])
+        XCTAssertEqual(brief.canvasSummary.cardCount, 1)
+    }
+
+    func testWorkspaceReentryBriefBadgePriorityUsesOverdueDueOpenAndResourceIssues() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [
+                WorkspaceReentryResourceRecord(id: "issue", workspaceId: "workspace", title: "Issue", status: "unavailable", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "overdue", workspaceId: "workspace", title: "Overdue", isCompleted: false, isPinned: false, sortIndex: 3, updatedAt: now, dueAt: now.addingTimeInterval(-86_400), linkedResourceId: nil),
+                WorkspaceReentryTodoRecord(id: "due", workspaceId: "workspace", title: "Due", isCompleted: false, isPinned: false, sortIndex: 2, updatedAt: now, dueAt: now.addingTimeInterval(2_000), linkedResourceId: nil),
+                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.openTaskCount, 3)
+        XCTAssertEqual(brief.overdueTaskCount, 1)
+        XCTAssertEqual(brief.dueSoonTaskCount, 1)
+        XCTAssertEqual(brief.badges.map(\.kind), [.overdueTasks, .resourceIssues])
+        XCTAssertEqual(brief.badges.map(\.count), [1, 1])
+    }
+
+    func testWorkspaceReentryBriefCapsAndOrdersItemsDeterministically() {
+        let now = Date(timeIntervalSince1970: 20_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let todos = [
+            WorkspaceReentryTodoRecord(id: "z", workspaceId: "workspace", title: "Same", isCompleted: false, isPinned: true, sortIndex: 2, updatedAt: now, dueAt: nil, linkedResourceId: nil),
+            WorkspaceReentryTodoRecord(id: "a", workspaceId: "workspace", title: "Same", isCompleted: false, isPinned: true, sortIndex: 2, updatedAt: now, dueAt: nil, linkedResourceId: nil),
+            WorkspaceReentryTodoRecord(id: "due", workspaceId: "workspace", title: "Due", isCompleted: false, isPinned: false, sortIndex: 9, updatedAt: now, dueAt: now.addingTimeInterval(100), linkedResourceId: nil),
+            WorkspaceReentryTodoRecord(id: "later", workspaceId: "workspace", title: "Later", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+        ]
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: todos,
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: now,
+            taskLimit: 3
+        )
+
+        XCTAssertEqual(brief.nextTaskIds, ["due", "a", "z"])
+    }
+
+    func testWorkspaceReentryBriefTodoTieBreakIgnoresUpdatedAt() {
+        let now = Date(timeIntervalSince1970: 25_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "newer", workspaceId: "workspace", title: "Zeta", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now.addingTimeInterval(100), dueAt: nil, linkedResourceId: nil),
+                WorkspaceReentryTodoRecord(id: "older", workspaceId: "workspace", title: "Alpha", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.nextTaskIds, ["older", "newer"])
+    }
+
+    func testWorkspaceReentryBriefIgnoresCompletedAndDanglingReferences() {
+        let now = Date(timeIntervalSince1970: 30_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "done", workspaceId: "workspace", title: "Done", isCompleted: true, isPinned: true, sortIndex: 0, updatedAt: now, dueAt: now.addingTimeInterval(-1), linkedResourceId: "missing-completed-resource"),
+                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: "missing-todo-resource")
+            ],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "node", canvasId: "canvas", objectType: "resourcePin", objectId: "missing-node-resource", updatedAt: now)
+            ],
+            edges: [
+                WorkspaceReentryCanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "missing-node", updatedAt: now)
+            ],
+            now: now
+        )
+
+        XCTAssertEqual(brief.nextTaskIds, ["open"])
+        XCTAssertTrue(brief.resourceIssueIds.isEmpty)
+        XCTAssertEqual(brief.canvasSummary.cardCount, 1)
+        XCTAssertEqual(brief.canvasSummary.validLinkCount, 0)
+        XCTAssertEqual(brief.unresolvedReferenceCount, 3)
+    }
+
+    func testWorkspaceReentryBriefCountsUnresolvedSnippetNodeReferences() {
+        let now = Date(timeIntervalSince1970: 35_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "workspace-snippet", workspaceId: "workspace", title: "Workspace", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "global-snippet", workspaceId: nil, title: "Global", scope: "global", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "private-snippet", workspaceId: "other-workspace", title: "Private", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "unknown-snippet", workspaceId: nil, title: "Unknown", scope: "shared", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "workspace-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "workspace-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "global-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "global-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "missing-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "missing-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "private-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "private-snippet", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "unknown-snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "unknown-snippet", updatedAt: now)
+            ],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.unresolvedReferenceCount, 3)
+    }
+
+    func testWorkspaceReentryBriefHandlesEmptyWorkspace() {
+        let now = Date(timeIntervalSince1970: 40_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.workspaceId, "workspace")
+        XCTAssertTrue(brief.badges.isEmpty)
+        XCTAssertTrue(brief.nextTaskIds.isEmpty)
+        XCTAssertTrue(brief.resourceIssueIds.isEmpty)
+        XCTAssertTrue(brief.recentSnippetIds.isEmpty)
+        XCTAssertEqual(brief.canvasSummary.cardCount, 0)
+        XCTAssertFalse(brief.isLargeDataDegraded)
+    }
+
+    func testWorkspaceReentryBriefCanvasLastUpdateIgnoresWorkspaceUpdatedAt() {
+        let workspaceUpdatedAt = Date(timeIntervalSince1970: 60_000)
+        let canvasUpdatedAt = Date(timeIntervalSince1970: 10_000)
+        let nodeUpdatedAt = Date(timeIntervalSince1970: 20_000)
+        let edgeUpdatedAt = Date(timeIntervalSince1970: 30_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: workspaceUpdatedAt)
+
+        let emptyBrief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [],
+            canvases: [],
+            nodes: [],
+            edges: [],
+            now: workspaceUpdatedAt
+        )
+        XCTAssertNil(emptyBrief.canvasSummary.lastUpdatedAt)
+
+        let canvasBrief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [],
+            todos: [],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: canvasUpdatedAt)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "source", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: nodeUpdatedAt),
+                WorkspaceReentryCanvasNodeRecord(id: "target", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: canvasUpdatedAt)
+            ],
+            edges: [
+                WorkspaceReentryCanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "source", targetNodeId: "target", updatedAt: edgeUpdatedAt)
+            ],
+            now: workspaceUpdatedAt
+        )
+
+        XCTAssertEqual(canvasBrief.canvasSummary.lastUpdatedAt, edgeUpdatedAt)
+    }
+
+    func testWorkspaceReentryBriefFailsClosedForUnknownResourceAndSnippetScopes() {
+        let now = Date(timeIntervalSince1970: 70_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [
+                WorkspaceReentryResourceRecord(id: "unknown-resource", workspaceId: nil, title: "Unknown", status: "unavailable", scope: "shared", updatedAt: now.addingTimeInterval(10), lastOpenedAt: nil),
+                WorkspaceReentryResourceRecord(id: "workspace-resource", workspaceId: "workspace", title: "Workspace", status: "unavailable", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "unknown-snippet", workspaceId: nil, title: "Unknown", scope: "shared", updatedAt: now.addingTimeInterval(10), lastCopiedAt: now.addingTimeInterval(10), lastUsedAt: nil),
+                WorkspaceReentrySnippetRecord(id: "workspace-snippet", workspaceId: "workspace", title: "Workspace", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "todo", workspaceId: "workspace", title: "Todo", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: "unknown-resource")
+            ],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "resource-node", canvasId: "canvas", objectType: "resourcePin", objectId: "workspace-resource", updatedAt: now),
+                WorkspaceReentryCanvasNodeRecord(id: "snippet-node", canvasId: "canvas", objectType: "snippet", objectId: "unknown-snippet", updatedAt: now)
+            ],
+            edges: [],
+            now: now
+        )
+
+        XCTAssertEqual(brief.resourceIssueIds, ["workspace-resource"])
+        XCTAssertEqual(brief.recentSnippetIds, ["workspace-snippet"])
+        XCTAssertEqual(brief.resourceIssueCount, 1)
+    }
+
+    func testWorkspaceReentryBriefDegradesLargeInputsToCountsOnly() {
+        let now = Date(timeIntervalSince1970: 50_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let nodes = (0...WorkspaceReentryBriefPolicy.maximumDetailedNodeCount).map { index in
+            WorkspaceReentryCanvasNodeRecord(id: "node-\(index)", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: now)
+        }
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [
+                WorkspaceReentryResourceRecord(id: "issue", workspaceId: "workspace", title: "Issue", status: "unavailable", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "recent-snippet", workspaceId: "workspace", title: "Recent Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ],
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
+            ],
+            nodes: nodes,
+            edges: [],
+            now: now
+        )
+
+        XCTAssertTrue(brief.isLargeDataDegraded)
+        XCTAssertTrue(brief.nextTaskIds.isEmpty)
+        XCTAssertTrue(brief.resourceIssueIds.isEmpty)
+        XCTAssertTrue(brief.recentSnippetIds.isEmpty)
+        XCTAssertEqual(brief.openTaskCount, 1)
+        XCTAssertEqual(brief.resourceIssueCount, 1)
+        XCTAssertFalse(brief.badges.isEmpty)
+        XCTAssertEqual(brief.canvasSummary.cardCount, nodes.count)
+    }
+
+    func testWorkspaceReentryBriefDoesNotDegradeForUnrelatedLargeWorkspaceInputs() {
+        let now = Date(timeIntervalSince1970: 80_000)
+        let workspace = WorkspaceReentryWorkspaceRecord(id: "workspace", title: "Workspace", lastOpenedAt: nil, updatedAt: now)
+        let otherNodes = (0...WorkspaceReentryBriefPolicy.maximumDetailedNodeCount).map { index in
+            WorkspaceReentryCanvasNodeRecord(id: "other-node-\(index)", canvasId: "other-canvas", objectType: nil, objectId: nil, updatedAt: now)
+        }
+        let otherEdges = (0...WorkspaceReentryBriefPolicy.maximumDetailedEdgeCount).map { index in
+            WorkspaceReentryCanvasEdgeRecord(id: "other-edge-\(index)", canvasId: "other-canvas", sourceNodeId: "missing-a", targetNodeId: "missing-b", updatedAt: now)
+        }
+        let otherTodos = (0...WorkspaceReentryBriefPolicy.maximumDetailedTodoCount).map { index in
+            WorkspaceReentryTodoRecord(id: "other-todo-\(index)", workspaceId: "other-workspace", title: "Other", isCompleted: false, isPinned: false, sortIndex: index, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+        }
+        let brief = WorkspaceReentryBriefPolicy.brief(
+            for: workspace,
+            resources: [],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "snippet", workspaceId: "workspace", title: "Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "todo", workspaceId: "workspace", title: "Todo", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ] + otherTodos,
+            canvases: [
+                WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now),
+                WorkspaceReentryCanvasRecord(id: "other-canvas", workspaceId: "other-workspace", updatedAt: now)
+            ],
+            nodes: [
+                WorkspaceReentryCanvasNodeRecord(id: "node", canvasId: "canvas", objectType: nil, objectId: nil, updatedAt: now)
+            ] + otherNodes,
+            edges: otherEdges,
+            now: now
+        )
+
+        XCTAssertFalse(brief.isLargeDataDegraded)
+        XCTAssertEqual(brief.nextTaskIds, ["todo"])
+        XCTAssertEqual(brief.recentSnippetIds, ["snippet"])
+        XCTAssertEqual(brief.canvasSummary.cardCount, 1)
     }
 }

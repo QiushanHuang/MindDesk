@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v2.0.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v2.3.0-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v2.0.0](#whats-new-in-v200)
+- [What's New in v2.3.0](#whats-new-in-v230)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -87,17 +87,18 @@ This creates a practical middle layer between strict file classification and fre
 
 | Area | Capability |
 | --- | --- |
-| Home | Reopen recent workspaces, pinned resources, and recent snippets quickly. |
+| Home | Reopen recent workspaces, scan status badges, pinned resources, and recent snippets quickly. |
 | Global Library | Keep reusable file and folder sources available across workspaces, see where each resource is used, and filter by workspace. |
 | Pinned Folders / Files | Keep high-priority resources close, expand folders, copy paths, and open Finder targets. |
 | Snippet Library | Store prompts, commands, text blocks, and operational references. Snippets can be copied, edited, deleted, expanded, and reused in workspaces. |
 | Workspace Canvas | Build visual workflow maps with global resources, workspace resources, prompt cards, note cards, and organization frames. |
+| Workspace Resume Brief | Re-enter a workspace through next tasks, known resource issues, canvas counts, and recently used snippets. |
 | Connections | Draw directional workflow links with visible arrows, animated flow, draggable bend points, lockable anchors, and automatic obstacle avoidance. |
 | Layout | Auto-arrange workflow cards, align selected nodes, resize cards and frames, zoom like a visual board, and box-select groups. |
 | macOS Integration | Open folders in Finder, reveal files, copy full paths, create Finder aliases after confirmation, and prepare command workflows. |
 | Data Portability | Export and import schema-versioned JSON manifests for backup and migration. |
 | Reliability | Uses an app-specific SwiftData store path, startup recovery behavior, backup retention logic, and a regression checklist for core workflows. |
-| Todo Board | Track project tasks in workspace groups with task details, pinned items, DDL dates, and linked resources. |
+| Todo Board | Track project tasks in workspace groups with task details, pinned items, due dates, and linked resources. |
 
 ### Use Cases
 
@@ -111,18 +112,18 @@ This creates a practical middle layer between strict file classification and fre
 
 ### Install the App Package
 
-Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases).
+Download the latest package from [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases).
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v2.0.0-macOS-arm64.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -140,8 +141,8 @@ Use the source package when you want to inspect the implementation, build locall
 You can also clone the repository directly:
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### Build From Source
@@ -200,15 +201,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v2.0.0-macOS/artifacts/
+dist/release/MindDesk-v2.3.0-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.0.0-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.3.0-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v2.0.0-macOS.dmg`
-- `MindDesk-v2.0.0-macOS.zip`
+- `MindDesk-v2.3.0-macOS.dmg`
+- `MindDesk-v2.3.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -262,31 +263,31 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v2.0.0`
+Current release: `v2.3.0`
 
 Highlights:
 
-- Workspace and global-library import safety was tightened: scope-aware manifest validation, drop-target filtering, bookmark persistence, bounded folder previews, and working-directory validation now fail closed instead of silently drifting.
-- Settings are now versioned and resettable from the app, with centralized defaults shared across Home, Canvas, Todo Board, and command/snippet behaviors.
-- The large-canvas responsiveness work from v1.4 is now paired with safer geometry guards, finite-value sanitization, and denser regression coverage around routing, visibility, and interaction states.
-- Release packaging, CI, README metadata, version artifacts, and GitHub release workflow are aligned for a full v2.0.0 publication pass.
+- Workspace Resume Brief v0 summarizes next tasks, known resource issues, canvas counts, and recent snippets directly below the workspace header.
+- Home Recent Workspaces now show compact status badges without becoming a cross-workspace task list.
+- Re-entry summaries are powered by a pure core policy with deterministic ordering, workspace-scoped visibility, and fail-closed handling for unknown scopes.
+- Dangling resource and snippet canvas references are counted, including missing, private, and unknown-scope records.
+- Large workspaces degrade to count-only status so the brief avoids building heavy detail lists.
 
-Full release notes are available in [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md).
+Full release notes are available in [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md).
 
-### What's New in v2.0.0
+### What's New in v2.3.0
 
-MindDesk v2.0.0 is the first major release built from the fully merged upgrade set:
+MindDesk v2.3.0 is a minor product-logic release focused on reducing project re-entry cost:
 
 | Release Area | Included Scope |
 | --- | --- |
-| Canvas performance | Visible-work-only routing, lighter rendering during interaction, stable frame dragging, edge animation limits, and density-aware controls for large canvases. |
-| Resource and snippet safety | Scope-aware import/export validation, target-aware drag/drop filtering, stricter bookmark persistence, bounded folder preview enumeration, and invalid working-directory rejection for command snippets. |
-| Settings and consistency | Centralized defaults, reset-all settings support, safer non-finite geometry handling, and shared behavior across Home, Canvas, Todo Board, and Settings surfaces. |
-| Release operations | Updated release metadata, package naming, versioned notes, CI guardrails, and GitHub workflow packaging for the formal v2.0.0 rollout. |
+| Workspace re-entry | The workspace header now includes a compact Resume Brief for next tasks, known resource issues, canvas card/link counts, and recent snippets. |
+| Home status badges | Recent workspace cards show at most two task/resource badges so Home remains a launcher, not a dashboard. |
+| Core product logic | A pure `MindDeskCore` policy computes summaries with stable ordering, caps, current-workspace aggregation, and large-data degradation. |
+| Privacy boundaries | Workspace-scoped resources and snippets fail closed for unknown/private scopes and do not leak into another workspace's brief. |
+| Stability guardrails | Dangling resource and snippet canvas refs are counted, and equal-priority task ordering no longer changes just because a task was edited. |
 
-This release turns the app from a polished feature branch into a publishable major version: the visible interaction model stays familiar, while the failure paths, import boundaries, release metadata, and packaging path are all tightened enough to ship as a coherent new baseline.
-
-The manifest schema remains conservative. The upgrade focuses on safety, behavior consistency, and packaging maturity rather than introducing a disruptive new storage format.
+The new surface is deliberately quiet and read-only. Resume actions only open a workspace or switch internal Workspace tabs; they do not open Finder, launch Terminal, run commands, or request bookmark authorization.
 
 ### Project Structure
 
@@ -326,7 +327,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v2.0.0 新增内容](#v200-新增内容)
+- [v2.3.0 新增内容](#v230-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -379,17 +380,18 @@ flowchart LR
 
 | 模块 | 功能 |
 | --- | --- |
-| Home | 快速回到最近工作区、Pinned 资源和常用 Snippet。 |
+| Home | 快速回到最近工作区，扫描状态徽章、Pinned 资源和常用 Snippet。 |
 | Global Library | 统一登记可跨项目复用的文件和文件夹来源，展示资源被哪些 Workspace 使用，并支持按 Workspace 筛选。 |
 | Pinned Folders / Files | 把高频文件夹和文件放在侧边栏，可展开、复制路径、进入 Finder。 |
 | Snippet Library | 管理 Prompt、命令、文本片段和操作参考，可复制、编辑、删除、展开全文并复用到工作区。 |
 | Workspace Canvas | 用全局资源、工作区资源、Prompt 卡片、Note 卡片和 Organization Frame 搭建项目可视化工作流。 |
+| Workspace Resume Brief | 通过下一步任务、已知资源问题、Canvas 数量和最近使用的 Snippet 快速重新进入工作区。 |
 | Connections | 方向箭头、蓝色流光、可拖拽控制点、锁定/解锁控制点、自动避开卡片的连接线。 |
 | Layout | 自动布局、对齐、框选、缩放、卡片和组织框自由拉伸。 |
 | macOS 集成 | 打开 Finder 文件夹、定位文件、复制完整路径、确认后创建 Finder alias、配合 Terminal 工作流。 |
 | 数据导入导出 | 使用带 schema version 的 JSON manifest 做备份、迁移和恢复。 |
 | 稳定性 | 独立 SwiftData 存储路径、启动失败提示、备份保留逻辑、功能回归清单和核心测试。 |
-| Todo Board | 在 Workspace 内按 Group 管理任务，支持任务详情、Pinned、DDL 和关联资源。 |
+| Todo Board | 在 Workspace 内按 Group 管理任务，支持任务详情、Pinned、Due Date 和关联资源。 |
 
 ### 适用场景
 
@@ -403,18 +405,18 @@ flowchart LR
 
 ### 安装 App 包
 
-从 [GitHub Releases](https://github.com/QiushanHuang/MyDesk/releases) 下载最新版本。
+从 [GitHub Releases](https://github.com/QiushanHuang/MindDesk/releases) 下载最新版本。
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.0.0-macOS-arm64.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.3.0-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.0.0-macOS-arm64.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.3.0-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -432,8 +434,8 @@ GitHub Releases 会同时提供源码包：
 也可以直接克隆仓库：
 
 ```bash
-git clone https://github.com/QiushanHuang/MyDesk.git
-cd MyDesk
+git clone https://github.com/QiushanHuang/MindDesk.git
+cd MindDesk
 ```
 
 ### 从源码构建
@@ -481,15 +483,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v2.0.0-macOS/artifacts/
+dist/release/MindDesk-v2.3.0-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.0.0-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.3.0-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v2.0.0-macOS.dmg`
-- `MindDesk-v2.0.0-macOS.zip`
+- `MindDesk-v2.3.0-macOS.dmg`
+- `MindDesk-v2.3.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -543,31 +545,31 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v2.0.0`
+当前版本：`v2.3.0`
 
 重点更新：
 
-- 导入和资源访问链路做了 fail-closed 加固：manifest scope 校验、拖放目标过滤、bookmark 持久化、文件夹预览扫描上限、命令 snippet 工作目录校验都更严格。
-- 设置系统升级为统一默认值和可重置模型，Home、Canvas、Todo Board、Snippet/Command 行为不再各自漂移。
-- 延续 v1.4 的大画布性能专项，同时补齐非有限几何值保护、更多回归测试和交互态边界校验。
-- README、版本元数据、发布说明、CI 守卫和 GitHub Release 打包链路整体切到 `v2.0.0`。
+- Workspace 顶部新增 Resume Brief，用于显示 next tasks、known resource issues、canvas counts 和 recent snippets。
+- Home Recent Workspaces 新增紧凑状态徽章，但不会变成跨 workspace 任务列表。
+- Re-entry summary 由纯 Core policy 计算，排序稳定、限制明细数量、只聚合当前 workspace，并对未知 scope fail closed。
+- 缺失、私有或未知 scope 的 resource/snippet canvas 引用会计入 unresolved references。
+- 大 workspace 会降级为 count-only 状态，避免在摘要里构建过重的明细列表。
 
-完整更新内容见 [`docs/releases/v2.0.0.md`](docs/releases/v2.0.0.md)。
+完整更新内容见 [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md)。
 
-### v2.0.0 新增内容
+### v2.3.0 新增内容
 
-MindDesk v2.0.0 是把并行升级线程、交互性能优化、导入与设置加固、发布流程整理后形成的第一个正式大版本：
+MindDesk v2.3.0 是一次面向项目重入逻辑的小版本更新，重点降低重新进入复杂 workspace 的记忆成本：
 
 | 发布面向 | 已纳入范围 |
 | --- | --- |
-| Canvas 性能 | 视口可见性裁剪、交互态轻量绘制、Frame 拖拽稳定化、连线动画限流、大画布密度控制。 |
-| 资源与 Snippet 安全性 | scope 感知的导入导出校验、拖放目标过滤、bookmark 持久化、文件夹预览限流、命令工作目录严格校验。 |
-| 设置与一致性 | 集中默认值、全局重置设置、非有限几何值保护，以及 Home / Canvas / Todo / Settings 的共享行为规则。 |
-| 发布运营 | 版本说明、产物命名、CI 发布守卫和 GitHub workflow 打包链路全部切换到正式 `v2.0.0` 发布口径。 |
+| Workspace 重入 | Workspace header 下方新增 Resume Brief，集中显示 next tasks、资源问题、canvas card/link counts 和 recent snippets。 |
+| Home 状态徽章 | Recent workspace 卡片最多显示两个任务/资源状态徽章，保持 Home 的启动器定位。 |
+| Core 产品逻辑 | 新增纯 `MindDeskCore` policy，负责稳定排序、数量上限、当前 workspace 聚合和大数据降级。 |
+| 隐私边界 | workspace-scoped resource/snippet 对未知或其他 workspace scope fail closed，不会泄漏到当前 brief。 |
+| 稳定性守卫 | resource/snippet canvas 悬空引用会计数；同优先级任务不会因为 `updatedAt` 改变而重新排序。 |
 
-这个版本不是换一套产品交互，而是把现有能力补到可正式发布的强度：保留已有使用习惯，同时把失败路径、导入边界、设置一致性和发布链路整理到一个稳定基线。
-
-底层 manifest schema 依旧保持保守，没有为了发大版本引入破坏式数据格式切换；重点是稳定性、行为一致性和可发布性。
+新增入口保持克制和只读：Resume 操作只会打开 workspace 或切换 Workspace 内部 tab，不会打开 Finder、启动 Terminal、执行命令或请求 bookmark 授权。
 
 ### 项目结构
 
