@@ -3621,14 +3621,14 @@ final class CoreBehaviorTests: XCTestCase {
             resources: [],
             snippets: [],
             todos: [
-                WorkspaceReentryTodoRecord(id: "done", workspaceId: "workspace", title: "Done", isCompleted: true, isPinned: true, sortIndex: 0, updatedAt: now, dueAt: now.addingTimeInterval(-1), linkedResourceId: "missing-resource"),
-                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: "missing-resource")
+                WorkspaceReentryTodoRecord(id: "done", workspaceId: "workspace", title: "Done", isCompleted: true, isPinned: true, sortIndex: 0, updatedAt: now, dueAt: now.addingTimeInterval(-1), linkedResourceId: "missing-completed-resource"),
+                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 1, updatedAt: now, dueAt: nil, linkedResourceId: "missing-todo-resource")
             ],
             canvases: [
                 WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
             ],
             nodes: [
-                WorkspaceReentryCanvasNodeRecord(id: "node", canvasId: "canvas", objectType: "resourcePin", objectId: "missing-resource", updatedAt: now)
+                WorkspaceReentryCanvasNodeRecord(id: "node", canvasId: "canvas", objectType: "resourcePin", objectId: "missing-node-resource", updatedAt: now)
             ],
             edges: [
                 WorkspaceReentryCanvasEdgeRecord(id: "edge", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "missing-node", updatedAt: now)
@@ -3640,7 +3640,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(brief.resourceIssueIds.isEmpty)
         XCTAssertEqual(brief.canvasSummary.cardCount, 1)
         XCTAssertEqual(brief.canvasSummary.validLinkCount, 0)
-        XCTAssertEqual(brief.unresolvedReferenceCount, 2)
+        XCTAssertEqual(brief.unresolvedReferenceCount, 3)
     }
 
     func testWorkspaceReentryBriefHandlesEmptyWorkspace() {
@@ -3674,9 +3674,15 @@ final class CoreBehaviorTests: XCTestCase {
         }
         let brief = WorkspaceReentryBriefPolicy.brief(
             for: workspace,
-            resources: [],
-            snippets: [],
-            todos: [],
+            resources: [
+                WorkspaceReentryResourceRecord(id: "issue", workspaceId: "workspace", title: "Issue", status: "unavailable", scope: "workspace", updatedAt: now, lastOpenedAt: nil)
+            ],
+            snippets: [
+                WorkspaceReentrySnippetRecord(id: "recent-snippet", workspaceId: "workspace", title: "Recent Snippet", scope: "workspace", updatedAt: now, lastCopiedAt: now, lastUsedAt: nil)
+            ],
+            todos: [
+                WorkspaceReentryTodoRecord(id: "open", workspaceId: "workspace", title: "Open", isCompleted: false, isPinned: false, sortIndex: 0, updatedAt: now, dueAt: nil, linkedResourceId: nil)
+            ],
             canvases: [
                 WorkspaceReentryCanvasRecord(id: "canvas", workspaceId: "workspace", updatedAt: now)
             ],
@@ -3689,6 +3695,9 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(brief.nextTaskIds.isEmpty)
         XCTAssertTrue(brief.resourceIssueIds.isEmpty)
         XCTAssertTrue(brief.recentSnippetIds.isEmpty)
+        XCTAssertEqual(brief.openTaskCount, 1)
+        XCTAssertEqual(brief.resourceIssueCount, 1)
+        XCTAssertFalse(brief.badges.isEmpty)
         XCTAssertEqual(brief.canvasSummary.cardCount, nodes.count)
     }
 }
