@@ -89,7 +89,7 @@ struct ContentView: View {
     @State private var renamingWorkspace: WorkspaceModel?
     @State private var workspaceToDelete: WorkspaceModel?
     @State private var renamingResource: ResourcePinModel?
-    @State private var resourceToRemove: ResourcePinModel?
+    @State private var resourceRemovalRequest: ResourceRemovalRequest?
     @State private var editingSnippet: SnippetModel?
     @State private var snippetToDelete: SnippetModel?
     @State private var pinnedFoldersDropTarget = false
@@ -330,21 +330,21 @@ struct ContentView: View {
             }
         }
         .alert("Remove source metadata?", isPresented: Binding(
-            get: { resourceToRemove != nil },
-            set: { if !$0 { resourceToRemove = nil } }
+            get: { resourceRemovalRequest != nil },
+            set: { if !$0 { resourceRemovalRequest = nil } }
         )) {
             Button("Remove From MindDesk", role: .destructive) {
-                if let resourceToRemove {
-                    removeResourceFromLibrary(resourceToRemove)
+                if let resourceRemovalRequest {
+                    removeResourceFromLibrary(resourceRemovalRequest)
                 }
-                resourceToRemove = nil
+                resourceRemovalRequest = nil
             }
             Button("Cancel", role: .cancel) {
-                resourceToRemove = nil
+                resourceRemovalRequest = nil
             }
         } message: {
-            if let resourceToRemove {
-                Text("This removes \(resourceToRemove.displayName) and related MindDesk canvas cards/aliases from MindDesk metadata only. Finder files and folders are not deleted, renamed, or moved.")
+            if let resourceRemovalRequest {
+                Text(resourceRemovalRequest.message)
             }
         }
         .alert("Delete snippet metadata?", isPresented: Binding(
@@ -551,7 +551,7 @@ struct ContentView: View {
                 onSelectResource: { selection = .resource($0.id) },
                 onStatus: setStatus,
                 onInspect: showInspector,
-                onRemove: { resourceToRemove = $0 },
+                onRemove: beginResourceRemoval,
                 onEditSnippet: { editingSnippet = $0 },
                 onDeleteSnippet: { snippetToDelete = $0 },
                 onSelectWorkspace: { selection = .workspace($0) }
@@ -568,7 +568,7 @@ struct ContentView: View {
                 onSelect: { selection = .resource($0.id) },
                 onStatus: setStatus,
                 onInspect: showInspector,
-                onRemove: { resourceToRemove = $0 }
+                onRemove: beginResourceRemoval
             )
             .padding()
         case .pinnedFiles:
@@ -583,7 +583,7 @@ struct ContentView: View {
                 onSelect: { selection = .resource($0.id) },
                 onStatus: setStatus,
                 onInspect: showInspector,
-                onRemove: { resourceToRemove = $0 }
+                onRemove: beginResourceRemoval
             )
             .padding()
         case .resource(let id):
@@ -592,7 +592,7 @@ struct ContentView: View {
                     resource: resource,
                     onStatus: setStatus,
                     onInspect: showInspector,
-                    onRemove: { resourceToRemove = $0 }
+                    onRemove: beginResourceRemoval
                 )
                 .onAppear {
                     showInspector(.resource(resource.id))
@@ -643,7 +643,7 @@ struct ContentView: View {
                     onRenameWorkspace: { renamingWorkspace = $0 },
                     onDeleteWorkspace: { workspaceToDelete = $0 },
                     onToggleWorkspacePinned: { toggleWorkspacePinned($0) },
-                    onRemoveResource: { resourceToRemove = $0 },
+                    onRemoveResource: beginResourceRemoval,
                     onEditSnippet: { editingSnippet = $0 },
                     onDeleteSnippet: { snippetToDelete = $0 },
                     onSelectWorkspace: { selection = .workspace($0) }
@@ -708,7 +708,7 @@ struct ContentView: View {
         }
         Divider()
         Button("Remove from MindDesk", role: .destructive) {
-            resourceToRemove = resource
+            beginResourceRemoval(resource)
         }
     }
 
@@ -762,9 +762,7 @@ struct ContentView: View {
     private func addWorkspace() {
         let nextIndex = (orderedWorkspaces.map(\.sortIndex).max() ?? -1) + 1
         let workspace = WorkspaceModel(title: "New Workspace", details: "Describe this workspace.", sortIndex: nextIndex)
-        let canvas = CanvasModel(workspaceId: workspace.id, title: "Workspace Map", zoom: defaultCanvasZoom)
         modelContext.insert(workspace)
-        modelContext.insert(canvas)
         do {
             try modelContext.save()
             selection = .workspace(workspace.id)
@@ -1128,26 +1126,20 @@ struct ContentView: View {
         }
     }
 
-    private func removeResourceFromLibrary(_ resource: ResourcePinModel) {
+    private func beginResourceRemoval(_ resource: ResourcePinModel) {
+        resourceRemovalRequest = ResourceRemovalRequest(resource: resource, cleanup: resourceCleanupPlan(for: resource))
+    }
+
+    private func removeResourceFromLibrary(_ request: ResourceRemovalRequest) {
+        let resource = request.resource
         do {
-            let index = ReferenceIndex(
-                canvasObjects: canvasObjectReferences(),
-                todoLinks: todos.map {
-                    TodoResourceReference(todoId: $0.id, workspaceId: $0.workspaceId, linkedResourceId: $0.linkedResourceId)
-                },
-                snippetWorkingDirectories: snippets.map {
-                    SnippetWorkingDirectoryReference(snippetId: $0.id, resourceId: $0.workingDirectoryRef)
-                },
-                aliases: aliases.map {
-                    AliasObjectReference(aliasId: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId)
-                }
-            )
-            let cleanup = CleanupPlan.deletingResource(resourceId: resource.id, index: index)
+            let cleanup = request.cleanup
             let resourceNodeIds = Set(cleanup.canvasNodeIdsToDelete)
+            let resourceEdgeIds = Set(cleanup.canvasEdgeIdsToDelete)
             let todoIdsClearingLinkedResource = Set(cleanup.todoIdsClearingLinkedResource)
             let snippetIdsClearingWorkingDirectory = Set(cleanup.snippetIdsClearingWorkingDirectory)
             let aliasIdsMarkingMissing = Set(cleanup.aliasIdsMarkingMissing)
-            for edge in edges where resourceNodeIds.contains(edge.sourceNodeId) || resourceNodeIds.contains(edge.targetNodeId) {
+            for edge in edges where resourceEdgeIds.contains(edge.id) {
                 modelContext.delete(edge)
             }
             for node in nodes where resourceNodeIds.contains(node.id) {
@@ -1170,11 +1162,31 @@ struct ContentView: View {
                 selection = .home
                 inspectorSelection = nil
             }
-            setStatus("Removed \(resource.displayName) from MindDesk metadata. Finder items affected: 0")
+            setStatus("Removed \(request.displayName) from MindDesk metadata. Finder items affected: 0")
         } catch {
             modelContext.rollback()
             setStatus(error.localizedDescription)
         }
+    }
+
+    private func resourceCleanupPlan(for resource: ResourcePinModel) -> CleanupPlan {
+        CleanupPlan.deletingResource(resourceId: resource.id, index: resourceReferenceIndex())
+    }
+
+    private func resourceReferenceIndex() -> ReferenceIndex {
+        ReferenceIndex(
+            canvasObjects: canvasObjectReferences(),
+            canvasEdges: canvasEdgeReferences(),
+            todoLinks: todos.map {
+                TodoResourceReference(todoId: $0.id, workspaceId: $0.workspaceId, linkedResourceId: $0.linkedResourceId)
+            },
+            snippetWorkingDirectories: snippets.map {
+                SnippetWorkingDirectoryReference(snippetId: $0.id, resourceId: $0.workingDirectoryRef)
+            },
+            aliases: aliases.map {
+                AliasObjectReference(aliasId: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId)
+            }
+        )
     }
 
     private func canvasObjectReferences() -> [CanvasObjectReference] {
@@ -1186,6 +1198,17 @@ struct ContentView: View {
                 workspaceId: workspaceIdByCanvasId[$0.canvasId] ?? "",
                 objectType: $0.objectType,
                 objectId: $0.objectId
+            )
+        }
+    }
+
+    private func canvasEdgeReferences() -> [CanvasEdgeReference] {
+        edges.map {
+            CanvasEdgeReference(
+                edgeId: $0.id,
+                canvasId: $0.canvasId,
+                sourceNodeId: $0.sourceNodeId,
+                targetNodeId: $0.targetNodeId
             )
         }
     }
@@ -2074,6 +2097,7 @@ struct WorkspaceResumeBriefView: View {
     let resourcesByID: [String: ResourcePinModel]
     let snippetsByID: [String: SnippetModel]
     let onShowCanvas: () -> Void
+    let onShowTasks: () -> Void
     let onShowResources: () -> Void
     let onShowSnippets: () -> Void
 
@@ -2082,10 +2106,6 @@ struct WorkspaceResumeBriefView: View {
             return "Large workspace"
         }
         return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
-    }
-
-    private var taskTitles: [String] {
-        brief.nextTaskIds.compactMap { todosByID[$0]?.title }
     }
 
     private var resourceIssueTitles: [String] {
@@ -2135,12 +2155,14 @@ struct WorkspaceResumeBriefView: View {
                     systemImage: "rectangle.connected.to.line.below",
                     action: onShowCanvas
                 )
-                resumeItem(
+                resumeButton(
                     title: "Next",
                     value: taskSummary,
-                    detail: joined(taskTitles),
-                    systemImage: "checklist"
+                    detail: brief.openTaskCount == 0 ? "No open tasks" : "View open tasks",
+                    systemImage: "checklist",
+                    action: onShowTasks
                 )
+                .disabled(brief.openTaskCount == 0)
                 resumeButton(
                     title: "Resources",
                     value: resourceSummary,
@@ -2642,8 +2664,10 @@ struct WorkspaceDetailView: View {
     let onDeleteSnippet: (SnippetModel) -> Void
     let onSelectWorkspace: (String) -> Void
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
-    @State private var tab = "Canvas"
+    @State private var tab = WorkspaceDetailTab.defaultTab
     @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
+    @State private var isTasksTabOpen = true
+    @State private var isTasksDoneColumnOpen = true
 
     private var defaultCanvasZoom: Double {
         CanvasZoomBaseline.actualZoom(
@@ -2714,22 +2738,35 @@ struct WorkspaceDetailView: View {
                 }
             }
 
-            WorkspaceResumeBriefView(
-                brief: reentryBrief,
-                todosByID: workspaceTodosByID,
-                resourcesByID: resourcesByID,
-                snippetsByID: snippetsByID,
-                onShowCanvas: { tab = "Canvas" },
-                onShowResources: { tab = "Resources" },
-                onShowSnippets: { tab = "Snippets" }
-            )
-
             switch tab {
-            case "Resources":
+            case .overview:
+                WorkspaceResumeBriefView(
+                    brief: reentryBrief,
+                    todosByID: workspaceTodosByID,
+                    resourcesByID: resourcesByID,
+                    snippetsByID: snippetsByID,
+                    onShowCanvas: { activateTab(.canvas) },
+                    onShowTasks: { activateTab(.tasks) },
+                    onShowResources: { activateTab(.resources) },
+                    onShowSnippets: { activateTab(.snippets) }
+                )
+            case .tasks:
+                WorkspaceTodoBoardView(
+                    workspaceId: workspace.id,
+                    resources: workspaceAvailableResources,
+                    todos: workspaceTodos,
+                    groups: workspaceTodoGroups,
+                    isOpen: $isTasksTabOpen,
+                    isDoneColumnOpen: $isTasksDoneColumnOpen,
+                    onStatus: onStatus,
+                    presentation: .fullHeightTab
+                )
+                .id(workspace.id)
+            case .resources:
                 ResourceListView(title: "Workspace Resources", resources: currentWorkspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
-            case "Snippets":
+            case .snippets:
                 SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
-            default:
+            case .canvas:
                 if let canvas = workspaceCanvas {
                     WorkspaceCanvasView(
                         canvas: canvas,
@@ -2759,17 +2796,16 @@ struct WorkspaceDetailView: View {
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            onCanvasTabActiveChange(tab == "Canvas")
-            ensureCanvas()
+            onCanvasTabActiveChange(tab.activatesCanvas)
             markWorkspaceOpened()
         }
         .onChange(of: workspace.id) { _, _ in
-            onCanvasTabActiveChange(tab == "Canvas")
-            ensureCanvas()
+            tab = WorkspaceDetailTab.tabAfterWorkspaceChange(from: tab)
+            onCanvasTabActiveChange(false)
             markWorkspaceOpened()
         }
         .onChange(of: tab) { _, newValue in
-            onCanvasTabActiveChange(newValue == "Canvas")
+            onCanvasTabActiveChange(newValue.activatesCanvas)
         }
     }
 
@@ -2795,12 +2831,16 @@ struct WorkspaceDetailView: View {
 
     private var workspaceViewPicker: some View {
         Picker("View", selection: $tab) {
-            Text("Canvas").tag("Canvas")
-            Text("Resources").tag("Resources")
-            Text("Snippets").tag("Snippets")
+            ForEach(WorkspaceDetailTab.allCases) { tab in
+                Text(tab.title).tag(tab)
+            }
         }
         .pickerStyle(.segmented)
-        .frame(width: 320)
+        .frame(width: 500)
+    }
+
+    private func activateTab(_ newTab: WorkspaceDetailTab) {
+        tab = newTab
     }
 
     private func markWorkspaceOpened() {
@@ -2814,8 +2854,15 @@ struct WorkspaceDetailView: View {
     }
 
     private func ensureCanvas() {
+        guard tab == .canvas else { return }
         guard canvases.first(where: { $0.workspaceId == workspace.id }) == nil else { return }
         guard createdCanvasByWorkspaceId[workspace.id] == nil else { return }
+        let workspaceId = workspace.id
+        let descriptor = WorkspaceCanvasLookup.descriptor(for: workspaceId)
+        if let existing = try? modelContext.fetch(descriptor).first {
+            createdCanvasByWorkspaceId[workspace.id] = existing
+            return
+        }
         let created = CanvasModel(workspaceId: workspace.id, title: "Workspace Map", zoom: defaultCanvasZoom)
         createdCanvasByWorkspaceId[workspace.id] = created
         modelContext.insert(created)

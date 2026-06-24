@@ -1660,6 +1660,21 @@ public struct CanvasObjectReference: Equatable, Identifiable, Sendable {
     }
 }
 
+public struct CanvasEdgeReference: Equatable, Identifiable, Sendable {
+    public var id: String { edgeId }
+    public var edgeId: String
+    public var canvasId: String
+    public var sourceNodeId: String
+    public var targetNodeId: String
+
+    public init(edgeId: String, canvasId: String, sourceNodeId: String, targetNodeId: String) {
+        self.edgeId = edgeId
+        self.canvasId = canvasId
+        self.sourceNodeId = sourceNodeId
+        self.targetNodeId = targetNodeId
+    }
+}
+
 public struct WorkspaceResourceReference: Equatable, Sendable {
     public var resourceId: String
     public var workspaceId: String
@@ -1727,6 +1742,7 @@ public struct ResourceUsageRecord: Equatable, Sendable {
 public struct ReferenceIndex: Equatable, Sendable {
     public var workspaceResources: [WorkspaceResourceReference]
     public var canvasObjects: [CanvasObjectReference]
+    public var canvasEdges: [CanvasEdgeReference]
     public var todoLinks: [TodoResourceReference]
     public var snippetWorkingDirectories: [SnippetWorkingDirectoryReference]
     public var aliases: [AliasObjectReference]
@@ -1734,12 +1750,14 @@ public struct ReferenceIndex: Equatable, Sendable {
     public init(
         workspaceResources: [WorkspaceResourceReference] = [],
         canvasObjects: [CanvasObjectReference] = [],
+        canvasEdges: [CanvasEdgeReference] = [],
         todoLinks: [TodoResourceReference] = [],
         snippetWorkingDirectories: [SnippetWorkingDirectoryReference] = [],
         aliases: [AliasObjectReference] = []
     ) {
         self.workspaceResources = workspaceResources
         self.canvasObjects = canvasObjects
+        self.canvasEdges = canvasEdges
         self.todoLinks = todoLinks
         self.snippetWorkingDirectories = snippetWorkingDirectories
         self.aliases = aliases
@@ -1768,27 +1786,36 @@ public struct ReferenceIndex: Equatable, Sendable {
 
 public struct CleanupPlan: Equatable, Sendable {
     public var canvasNodeIdsToDelete: [String]
+    public var canvasEdgeIdsToDelete: [String]
     public var todoIdsClearingLinkedResource: [String]
     public var snippetIdsClearingWorkingDirectory: [String]
     public var aliasIdsMarkingMissing: [String]
 
     public init(
         canvasNodeIdsToDelete: [String] = [],
+        canvasEdgeIdsToDelete: [String] = [],
         todoIdsClearingLinkedResource: [String] = [],
         snippetIdsClearingWorkingDirectory: [String] = [],
         aliasIdsMarkingMissing: [String] = []
     ) {
         self.canvasNodeIdsToDelete = canvasNodeIdsToDelete
+        self.canvasEdgeIdsToDelete = canvasEdgeIdsToDelete
         self.todoIdsClearingLinkedResource = todoIdsClearingLinkedResource
         self.snippetIdsClearingWorkingDirectory = snippetIdsClearingWorkingDirectory
         self.aliasIdsMarkingMissing = aliasIdsMarkingMissing
     }
 
     public static func deletingResource(resourceId: String, index: ReferenceIndex) -> CleanupPlan {
-        CleanupPlan(
-            canvasNodeIdsToDelete: index.canvasObjects
-                .filter { $0.objectType == "resourcePin" && $0.objectId == resourceId }
-                .map(\.nodeId)
+        let canvasNodeIdsToDelete = index.canvasObjects
+            .filter { $0.objectType == "resourcePin" && $0.objectId == resourceId }
+            .map(\.nodeId)
+            .sorted()
+        let canvasNodeIdSet = Set(canvasNodeIdsToDelete)
+        return CleanupPlan(
+            canvasNodeIdsToDelete: canvasNodeIdsToDelete,
+            canvasEdgeIdsToDelete: index.canvasEdges
+                .filter { canvasNodeIdSet.contains($0.sourceNodeId) || canvasNodeIdSet.contains($0.targetNodeId) }
+                .map(\.edgeId)
                 .sorted(),
             todoIdsClearingLinkedResource: index.todoLinks
                 .filter { $0.linkedResourceId == resourceId }

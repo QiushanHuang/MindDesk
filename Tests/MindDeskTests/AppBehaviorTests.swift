@@ -1,5 +1,6 @@
 import XCTest
 import MindDeskCore
+import SwiftData
 @testable import MindDesk
 
 final class AppBehaviorTests: XCTestCase {
@@ -241,5 +242,136 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(resource.title, "Docs")
         XCTAssertEqual(resource.customName, "")
         XCTAssertEqual(resource.note, "Keep note")
+    }
+
+    @MainActor
+    func testSeedDataDoesNotCreateCanvasBeforeExplicitCanvasEntry() throws {
+        let container = try makeInMemoryModelContainer()
+        let context = ModelContext(container)
+
+        try SeedData.seedIfNeeded(
+            context: context,
+            workspaces: [],
+            resources: [],
+            snippets: [],
+            canvases: [],
+            nodes: []
+        )
+
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WorkspaceModel>()), 1)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<SnippetModel>()), 2)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CanvasModel>()), 0)
+        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CanvasNodeModel>()), 0)
+    }
+
+    func testResourceRemovalImpactMessageListsAllCleanupPlanEffects() {
+        let cleanup = CleanupPlan(
+            canvasNodeIdsToDelete: ["node-a", "node-b"],
+            canvasEdgeIdsToDelete: ["edge-a"],
+            todoIdsClearingLinkedResource: ["todo-a", "todo-b", "todo-c"],
+            snippetIdsClearingWorkingDirectory: ["snippet-a"],
+            aliasIdsMarkingMissing: ["alias-a", "alias-b"]
+        )
+        let message = ResourceRemovalImpactMessage.text(displayName: "Project Docs", cleanup: cleanup)
+
+        XCTAssertEqual(message, expectedResourceRemovalMessage(displayName: "Project Docs", cleanup: cleanup))
+    }
+
+    func testResourceRemovalRequestSnapshotsCleanupAndMessage() {
+        let resource = ResourcePinModel(
+            id: "resource",
+            title: "Docs",
+            targetType: .folder,
+            displayPath: "/tmp/Docs",
+            lastResolvedPath: "/tmp/Docs",
+            scope: .global,
+            customName: "Project Docs"
+        )
+        let cleanup = CleanupPlan(
+            canvasNodeIdsToDelete: ["node"],
+            canvasEdgeIdsToDelete: ["edge"],
+            todoIdsClearingLinkedResource: ["todo"],
+            snippetIdsClearingWorkingDirectory: ["snippet"],
+            aliasIdsMarkingMissing: ["alias"]
+        )
+        let displayName = resource.displayName
+
+        let request = ResourceRemovalRequest(resource: resource, cleanup: cleanup)
+        resource.customName = "Renamed After Alert"
+
+        XCTAssertEqual(request.id, "resource")
+        XCTAssertEqual(request.displayName, displayName)
+        XCTAssertEqual(request.cleanup, cleanup)
+        XCTAssertEqual(request.message, expectedResourceRemovalMessage(displayName: displayName, cleanup: cleanup))
+    }
+
+    func testWorkspaceCanvasLookupLimitsExistingCanvasFetch() {
+        let descriptor = WorkspaceCanvasLookup.descriptor(for: "workspace")
+
+        XCTAssertEqual(descriptor.fetchLimit, 1)
+    }
+
+    @MainActor
+    func testWorkspaceCanvasLookupFetchesOnlyRequestedWorkspace() throws {
+        let container = try makeInMemoryModelContainer()
+        let context = ModelContext(container)
+        let otherCanvas = CanvasModel(id: "canvas-other", workspaceId: "workspace-other")
+        let requestedCanvas = CanvasModel(id: "canvas-requested", workspaceId: "workspace-requested")
+        context.insert(otherCanvas)
+        context.insert(requestedCanvas)
+        try context.save()
+
+        let canvases = try context.fetch(WorkspaceCanvasLookup.descriptor(for: "workspace-requested"))
+
+        XCTAssertEqual(canvases.map(\.id), ["canvas-requested"])
+    }
+
+    func testWorkspaceDetailTabDefaultsToOverviewAndKeepsCanvasExplicit() {
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab, .overview)
+        XCTAssertEqual(WorkspaceDetailTab.allCases.map(\.title), ["Overview", "Tasks", "Canvas", "Resources", "Snippets"])
+        XCTAssertEqual(WorkspaceDetailTab.tabAfterWorkspaceChange(from: .canvas), .overview)
+        XCTAssertFalse(WorkspaceDetailTab.overview.activatesCanvas)
+        XCTAssertFalse(WorkspaceDetailTab.tasks.activatesCanvas)
+        XCTAssertTrue(WorkspaceDetailTab.canvas.activatesCanvas)
+    }
+
+    func testWorkspaceTodoBoardPresentationSeparatesCanvasPanelFromFullHeightTab() {
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.usesFixedHeight)
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.showsCollapseControl)
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.usesPanelChrome)
+
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesFixedHeight)
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.showsCollapseControl)
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesPanelChrome)
+    }
+
+    @MainActor
+    private func makeInMemoryModelContainer() throws -> ModelContainer {
+        let schema = Schema([
+            WorkspaceModel.self,
+            ResourcePinModel.self,
+            SnippetModel.self,
+            WorkspaceTodoModel.self,
+            WorkspaceTodoGroupModel.self,
+            CanvasModel.self,
+            CanvasNodeModel.self,
+            CanvasEdgeModel.self,
+            FinderAliasRecordModel.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func expectedResourceRemovalMessage(displayName: String, cleanup: CleanupPlan) -> String {
+        """
+        This removes \(displayName) from MindDesk metadata only.
+
+        Canvas cards removed: \(cleanup.canvasNodeIdsToDelete.count)
+        Canvas links removed: \(cleanup.canvasEdgeIdsToDelete.count)
+        Todo linked resources cleared: \(cleanup.todoIdsClearingLinkedResource.count)
+        Command working directories cleared: \(cleanup.snippetIdsClearingWorkingDirectory.count)
+        Alias records marked missing: \(cleanup.aliasIdsMarkingMissing.count)
+        Finder items affected: 0
+        """
     }
 }

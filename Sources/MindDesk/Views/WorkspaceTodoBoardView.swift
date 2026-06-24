@@ -112,6 +112,23 @@ private func fetchTodoForUndo(id: String, in context: ModelContext) -> Workspace
     return try? context.fetch(descriptor).first
 }
 
+enum WorkspaceTodoBoardPresentation {
+    case canvasPanel
+    case fullHeightTab
+
+    var usesFixedHeight: Bool {
+        self == .canvasPanel
+    }
+
+    var showsCollapseControl: Bool {
+        self == .canvasPanel
+    }
+
+    var usesPanelChrome: Bool {
+        self == .canvasPanel
+    }
+}
+
 struct WorkspaceTodoBoardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager) private var undoManager
@@ -126,6 +143,7 @@ struct WorkspaceTodoBoardView: View {
     let onStatus: (String) -> Void
     var expandedHeight: CGFloat = 300
     var collapsedHeight: CGFloat = 42
+    var presentation: WorkspaceTodoBoardPresentation = .canvasPanel
 
     @State private var selectedGroupId: String?
     @State private var defaultGroupId: String?
@@ -172,19 +190,28 @@ struct WorkspaceTodoBoardView: View {
         return orderedTodos(openTodos.filter { groupId(for: $0) == group.id })
     }
 
+    private var isEffectivelyOpen: Bool {
+        presentation == .fullHeightTab || isOpen
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             header
 
-            if isOpen {
+            if isEffectivelyOpen {
                 boardBody
             }
         }
-        .padding(isOpen ? 10 : 8)
+        .padding(isEffectivelyOpen ? 10 : 8)
         .frame(maxWidth: .infinity)
-        .frame(height: isOpen ? expandedHeight : collapsedHeight)
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .frame(height: presentation.usesFixedHeight ? (isEffectivelyOpen ? expandedHeight : collapsedHeight) : nil)
+        .frame(maxHeight: presentation.usesFixedHeight ? nil : .infinity, alignment: .top)
+        .background {
+            if presentation.usesPanelChrome {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(.thinMaterial)
+            }
+        }
         .onAppear {
             if defaultGroupId == nil {
                 defaultGroupId = initialDefaultGroupId()
@@ -231,26 +258,28 @@ struct WorkspaceTodoBoardView: View {
             } label: {
                 Label("New Group", systemImage: "folder.badge.plus")
             }
-            .disabled(!isOpen)
+            .disabled(!isEffectivelyOpen)
 
             Button {
                 addTodo()
             } label: {
                 Label("New Task", systemImage: "plus")
             }
-            .disabled(!isOpen)
+            .disabled(!isEffectivelyOpen)
 
             Button {
                 isDoneColumnOpen.toggle()
             } label: {
                 Label(isDoneColumnOpen ? "Hide Done" : "Show Done", systemImage: isDoneColumnOpen ? "sidebar.right" : "sidebar.leading")
             }
-            .disabled(!isOpen)
+            .disabled(!isEffectivelyOpen)
 
-            Button {
-                isOpen.toggle()
-            } label: {
-                Label(isOpen ? "Close Tasks" : "Open Tasks", systemImage: isOpen ? "chevron.down" : "chevron.up")
+            if presentation.showsCollapseControl {
+                Button {
+                    isOpen.toggle()
+                } label: {
+                    Label(isOpen ? "Close Tasks" : "Open Tasks", systemImage: isOpen ? "chevron.down" : "chevron.up")
+                }
             }
         }
         .buttonStyle(.bordered)

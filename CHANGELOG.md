@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-06-24 - Workspace Overview and lazy Canvas minor release
+
+### Added
+- Added a Workspace Overview default tab so workspace entry no longer starts on Canvas.
+- Added a dedicated full-height Tasks tab while keeping the existing compact Canvas task panel behavior.
+- Added resource removal impact copy that reports exact MindDesk metadata cleanup counts before deletion.
+- Added release notes for v2.4.0 and updated README release metadata.
+
+### Changed
+- Deferred Canvas creation for new workspaces and seed data until the user explicitly opens the Canvas tab.
+- Reused a single resource removal cleanup snapshot for both the confirmation message and destructive action.
+
+### Fixed
+- Removed incident Canvas links when resource metadata is deleted.
+- Limited existing Canvas lookup to one matching workspace row.
+
+### Verification
+- Local rebuild and release validation completed with Swift tests, Swift build, bundle verification, release metadata checks, and an ad-hoc release package build.
+
 ## 2026-06-11 - Workspace Resume Brief minor release
 
 ### Added

@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v2.3.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v2.4.0-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v2.3.0](#whats-new-in-v230)
+- [What's New in v2.4.0](#whats-new-in-v240)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -116,18 +116,18 @@ Download the latest package from [GitHub Releases](https://github.com/QiushanHua
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG from the current draft release, for example `MindDesk-v2.4.0-macOS-adhoc.dmg`.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.zip`.
+1. Download the ZIP, for example `MindDesk-v2.4.0-macOS-adhoc.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
-Public release artifacts are expected to be Developer ID signed, notarized, stapled, and Gatekeeper-assessed before upload. Internal ad-hoc packages are allowed only when explicitly built with `--mode adhoc --allow-adhoc`, and those artifacts include an `-adhoc` suffix.
+The v2.4.0 draft release uses the same internal ad-hoc package style as the previous draft releases. It is not Developer ID notarized and may require explicit approval in macOS Gatekeeper. The Developer ID workflow still produces architecture-specific names such as `MindDesk-v2.4.0-macOS-arm64.dmg` when notarized distribution is needed later.
 
 ### Use the Source Package
 
@@ -201,15 +201,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v2.3.0-macOS/artifacts/
+dist/release/MindDesk-v2.4.0-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.3.0-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.4.0-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v2.3.0-macOS.dmg`
-- `MindDesk-v2.3.0-macOS.zip`
+- `MindDesk-v2.4.0-macOS.dmg`
+- `MindDesk-v2.4.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -263,31 +263,31 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v2.3.0`
+Current release: `v2.4.0`
 
 Highlights:
 
-- Workspace Resume Brief v0 summarizes next tasks, known resource issues, canvas counts, and recent snippets directly below the workspace header.
-- Home Recent Workspaces now show compact status badges without becoming a cross-workspace task list.
-- Re-entry summaries are powered by a pure core policy with deterministic ordering, workspace-scoped visibility, and fail-closed handling for unknown scopes.
-- Dangling resource and snippet canvas references are counted, including missing, private, and unknown-scope records.
-- Large workspaces degrade to count-only status so the brief avoids building heavy detail lists.
+- Workspace detail now opens on an Overview tab instead of creating or rendering Canvas immediately.
+- Tasks now has a dedicated full-height tab while the Canvas task panel remains a compact panel.
+- Canvas metadata is created lazily only after the user explicitly opens the Canvas tab.
+- Resource removal confirmation now lists the exact MindDesk metadata impact and reuses the same cleanup snapshot for deletion.
+- Resource cleanup now removes incident Canvas links along with resource cards, linked todo references, command working directories, and alias status.
 
-Full release notes are available in [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md).
+Full release notes are available in [`docs/releases/v2.4.0.md`](docs/releases/v2.4.0.md).
 
-### What's New in v2.3.0
+### What's New in v2.4.0
 
-MindDesk v2.3.0 is a minor product-logic release focused on reducing project re-entry cost:
+MindDesk v2.4.0 is a minor product-logic release focused on reducing unnecessary Canvas work and making destructive metadata actions clearer:
 
 | Release Area | Included Scope |
 | --- | --- |
-| Workspace re-entry | The workspace header now includes a compact Resume Brief for next tasks, known resource issues, canvas card/link counts, and recent snippets. |
-| Home status badges | Recent workspace cards show at most two task/resource badges so Home remains a launcher, not a dashboard. |
-| Core product logic | A pure `MindDeskCore` policy computes summaries with stable ordering, caps, current-workspace aggregation, and large-data degradation. |
-| Privacy boundaries | Workspace-scoped resources and snippets fail closed for unknown/private scopes and do not leak into another workspace's brief. |
-| Stability guardrails | Dangling resource and snippet canvas refs are counted, and equal-priority task ordering no longer changes just because a task was edited. |
+| Workspace entry | Workspace detail defaults to Overview and resets to Overview when switching workspaces. |
+| Tasks workflow | Tasks has a dedicated full-height tab, separate from the compact Canvas task panel presentation. |
+| Canvas lifecycle | New workspaces and seed data no longer create Canvas records until the Canvas tab is explicitly opened. |
+| Resource cleanup | Removing a resource snapshots and displays the exact cleanup plan before deleting MindDesk metadata. |
+| Safety guardrails | Resource cleanup deletes incident Canvas links and keeps Finder files/folders untouched. |
 
-The new surface is deliberately quiet and read-only. Resume actions only open a workspace or switch internal Workspace tabs; they do not open Finder, launch Terminal, run commands, or request bookmark authorization.
+This release is intentionally scoped as C-lite: it removes eager Canvas creation and rendering, while the deeper root-level Canvas data loading work remains a follow-up performance item.
 
 ### Project Structure
 
@@ -327,7 +327,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v2.3.0 新增内容](#v230-新增内容)
+- [v2.4.0 新增内容](#v240-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -409,18 +409,18 @@ flowchart LR
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.3.0-macOS-arm64.dmg`。
+1. 从当前 draft release 下载 DMG，例如 `MindDesk-v2.4.0-macOS-adhoc.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.3.0-macOS-arm64.zip`。
+1. 下载 ZIP，例如 `MindDesk-v2.4.0-macOS-adhoc.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
-公开发布产物必须在上传前完成 Developer ID 签名、notarization、stapling 和 Gatekeeper `spctl` 评估。内部 ad-hoc 包只允许显式使用 `--mode adhoc --allow-adhoc` 构建，产物名会带 `-adhoc` 后缀，不能作为公开发布包使用。
+v2.4.0 draft release 沿用前几个 draft release 的内部 ad-hoc 包形式，没有走 Developer ID notarization，macOS Gatekeeper 可能需要用户显式允许。后续需要 notarized 分发时，Developer ID workflow 仍会生成类似 `MindDesk-v2.4.0-macOS-arm64.dmg` 的架构后缀产物。
 
 ### 使用源码包
 
@@ -483,15 +483,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v2.3.0-macOS/artifacts/
+dist/release/MindDesk-v2.4.0-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.3.0-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.4.0-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v2.3.0-macOS.dmg`
-- `MindDesk-v2.3.0-macOS.zip`
+- `MindDesk-v2.4.0-macOS.dmg`
+- `MindDesk-v2.4.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -545,31 +545,31 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v2.3.0`
+当前版本：`v2.4.0`
 
 重点更新：
 
-- Workspace 顶部新增 Resume Brief，用于显示 next tasks、known resource issues、canvas counts 和 recent snippets。
-- Home Recent Workspaces 新增紧凑状态徽章，但不会变成跨 workspace 任务列表。
-- Re-entry summary 由纯 Core policy 计算，排序稳定、限制明细数量、只聚合当前 workspace，并对未知 scope fail closed。
-- 缺失、私有或未知 scope 的 resource/snippet canvas 引用会计入 unresolved references。
-- 大 workspace 会降级为 count-only 状态，避免在摘要里构建过重的明细列表。
+- Workspace detail 默认进入 Overview，不再一进入 workspace 就创建或渲染 Canvas。
+- Tasks 获得独立的全高 tab，同时保留 Canvas 内的紧凑任务面板。
+- Canvas metadata 只会在用户明确打开 Canvas tab 后懒创建。
+- 删除资源前会展示精确的 MindDesk metadata 影响，并用同一份 cleanup 快照执行删除。
+- 资源清理现在会删除相关 Canvas links，并清理 todo、command working directory 和 alias 状态；Finder 文件不会被删除、移动或重命名。
 
-完整更新内容见 [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md)。
+完整更新内容见 [`docs/releases/v2.4.0.md`](docs/releases/v2.4.0.md)。
 
-### v2.3.0 新增内容
+### v2.4.0 新增内容
 
-MindDesk v2.3.0 是一次面向项目重入逻辑的小版本更新，重点降低重新进入复杂 workspace 的记忆成本：
+MindDesk v2.4.0 是一次产品逻辑小版本更新，重点减少不必要的 Canvas 工作，并让破坏性 metadata 操作更清楚：
 
 | 发布面向 | 已纳入范围 |
 | --- | --- |
-| Workspace 重入 | Workspace header 下方新增 Resume Brief，集中显示 next tasks、资源问题、canvas card/link counts 和 recent snippets。 |
-| Home 状态徽章 | Recent workspace 卡片最多显示两个任务/资源状态徽章，保持 Home 的启动器定位。 |
-| Core 产品逻辑 | 新增纯 `MindDeskCore` policy，负责稳定排序、数量上限、当前 workspace 聚合和大数据降级。 |
-| 隐私边界 | workspace-scoped resource/snippet 对未知或其他 workspace scope fail closed，不会泄漏到当前 brief。 |
-| 稳定性守卫 | resource/snippet canvas 悬空引用会计数；同优先级任务不会因为 `updatedAt` 改变而重新排序。 |
+| Workspace 入口 | Workspace detail 默认进入 Overview，切换 workspace 后也回到 Overview。 |
+| Tasks workflow | Tasks 拥有独立全高 tab，并与 Canvas 内紧凑任务面板分离。 |
+| Canvas 生命周期 | 新建 workspace 和 seed data 不再提前创建 Canvas record，只有打开 Canvas tab 时才懒创建。 |
+| 资源清理 | 删除资源前会快照 cleanup plan，并在确认弹窗中显示精确影响。 |
+| 安全守卫 | 资源清理会删除相关 Canvas links，但真实 Finder 文件和文件夹不会被触碰。 |
 
-新增入口保持克制和只读：Resume 操作只会打开 workspace 或切换 Workspace 内部 tab，不会打开 Finder、启动 Terminal、执行命令或请求 bookmark 授权。
+本轮定义为 C-lite：已经移除 eager Canvas 创建和渲染，根层 Canvas 数据全局查询的进一步下沉仍作为后续性能优化项。
 
 ### 项目结构
 
