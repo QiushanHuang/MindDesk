@@ -14,7 +14,7 @@
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
 ![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v2.3.0-0A84FF)
+![Release](https://img.shields.io/badge/release-v3.0.0-0A84FF)
 
 ---
 
@@ -34,7 +34,7 @@
 - [Build From Source](#build-from-source)
 - [Data, Privacy, and Reliability](#data-privacy-and-reliability)
 - [Release Notes](#release-notes)
-- [What's New in v2.3.0](#whats-new-in-v230)
+- [What's New in v3.0.0](#whats-new-in-v300)
 - [Project Structure](#project-structure)
 - [Roadmap](#roadmap)
 - [中文说明](#中文)
@@ -134,14 +134,14 @@ Download the latest public package from the GitHub Release marked `Latest`. Draf
 
 Recommended app package:
 
-1. Download the DMG for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.dmg` from the GitHub Release workflow.
+1. Download the DMG for your architecture, for example `MindDesk-v3.0.0-macOS-arm64.dmg` from the GitHub Release workflow.
 2. Open the DMG.
 3. Drag `MindDesk.app` into `Applications`.
 4. Launch `MindDesk` from Applications.
 
 Alternative app archive:
 
-1. Download the ZIP for your architecture, for example `MindDesk-v2.3.0-macOS-arm64.zip`.
+1. Download the ZIP for your architecture, for example `MindDesk-v3.0.0-macOS-arm64.zip`.
 2. Unzip it.
 3. Move `MindDesk.app` to `Applications`.
 
@@ -227,15 +227,15 @@ Internal ad-hoc packages must be explicit and are not for public release:
 Release artifacts are written to:
 
 ```text
-dist/release/MindDesk-v2.3.0-macOS/artifacts/
+dist/release/MindDesk-v3.0.0-macOS/artifacts/
 ```
 
-The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v2.3.0-macOS-arm64.dmg`.
+The GitHub Release workflow sets `RELEASE_PLATFORM_SUFFIX` from the runner architecture, so workflow artifacts use names such as `MindDesk-v3.0.0-macOS-arm64.dmg`.
 
 The release script creates:
 
-- `MindDesk-v2.3.0-macOS.dmg`
-- `MindDesk-v2.3.0-macOS.zip`
+- `MindDesk-v3.0.0-macOS.dmg`
+- `MindDesk-v3.0.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -310,33 +310,35 @@ Current data model principles:
 
 ### Release Notes
 
-Current release: `v2.3.0`
+Current release: `v3.0.0`
 
-Release status: `v2.3.0` documentation describes the current metadata line in this checkout. Treat it as release-eligible only when the corresponding GitHub Release is published and notarized artifacts are attached; draft or ad-hoc artifacts are for internal validation.
+Release status: `v3.0.0` documentation describes the current metadata line in this checkout. Treat it as release-eligible only when the corresponding GitHub Release is published and notarized artifacts are attached; draft or ad-hoc artifacts are for internal validation.
 
 Highlights:
 
-- Workspace Resume Brief v0 summarizes next tasks, known resource issues, canvas counts, and recent snippets directly below the workspace header.
-- Home Recent Workspaces now show compact status badges without becoming a cross-workspace task list.
-- Re-entry summaries are powered by a pure core policy with deterministic ordering, workspace-scoped visibility, and fail-closed handling for unknown scopes.
-- Dangling resource and snippet canvas references are counted, including missing, private, and unknown-scope records.
-- Large workspaces degrade to count-only status so the brief avoids building heavy detail lists.
+- Agent Review packages export AI-readable prompts, workflow guidance, help topics, capability summaries, validation reports, and proposal contracts.
+- `.mip.json` packages provide a normalized, human-reviewable interchange wrapper around manifests and agent context.
+- Proposal Review blocks unsafe or stale agent proposals before pending review and keeps every side effect behind explicit in-app confirmation.
+- Canvas, Settings, import/export, validation, and Help surfaces have been expanded for larger workspaces and agent-assisted workflows.
+- Release packaging now includes worktree guards, artifact verification, failure diagnostics, ad-hoc smoke validation, and notarized workflow checks.
 
-Full release notes are available in [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md).
+Full release notes are available in [`docs/releases/v3.0.0.md`](docs/releases/v3.0.0.md).
 
-### What's New in v2.3.0
+### What's New in v3.0.0
 
-MindDesk v2.3.0 is a minor product-logic release focused on reducing project re-entry cost:
+MindDesk v3.0.0 is a major foundation release for AI-readable project handoff, safer agent review, portable interchange, richer workspace controls, and release-ready packaging:
 
 | Release Area | Included Scope |
 | --- | --- |
-| Workspace re-entry | The workspace header now includes a compact Resume Brief for next tasks, known resource issues, canvas card/link counts, and recent snippets. |
-| Home status badges | Recent workspace cards show at most two task/resource badges so Home remains a launcher, not a dashboard. |
-| Core product logic | A pure `MindDeskCore` policy computes summaries with stable ordering, caps, current-workspace aggregation, and large-data degradation. |
-| Privacy boundaries | Workspace-scoped resources and snippets fail closed for unknown/private scopes and do not leak into another workspace's brief. |
-| Stability guardrails | Dangling resource and snippet canvas refs are counted, and equal-priority task ordering no longer changes just because a task was edited. |
+| Agent handoff | Agent Review exports curated prompts, workflow guidance, custom guidance, help topics, capability summaries, readiness checks, and stable proposal contracts. |
+| Interchange format | `.mip.json` packages wrap manifest data with validation reports, package policy, references, help topics, and non-authorizing authority mirrors for human and AI review. |
+| Proposal Review | Raw proposal and source package JSON are validated before pending review; stale context, forged policy, unsupported payloads, replay attempts, and size limit violations are blocked. |
+| Import/export safety | Typed manifest wire metadata identifies portable manifests while preserving legacy import compatibility and rejecting unsupported typed versions. |
+| Product surfaces | Settings, import, export, proposal, validation, Help, and Agent Review UI now expose the new controls and safety boundaries. |
+| Canvas performance | Viewport-aware edge indexing, routing policies, and large-workspace degradation improve responsiveness for dense canvases. |
+| Release operations | Packaging scripts and CI workflows now guard release-critical worktrees, verify artifacts, preserve failure diagnostics, and distinguish internal ad-hoc packages from notarized public releases. |
 
-The new surface is deliberately quiet and read-only. Resume actions only open a workspace or switch internal Workspace tabs; they do not open Finder, launch Terminal, run commands, or request bookmark authorization.
+The new agent surface is deliberately read-only and non-authorizing. Agents can inspect exported context and draft proposal envelope JSON; they cannot grant file, Finder, Terminal, URL, clipboard, alias, command, import/export, or apply permissions. Any side effect still requires Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet.
 
 ### Project Structure
 
@@ -376,7 +378,7 @@ script/               build, run, and release packaging helpers
 - [从源码构建](#从源码构建)
 - [数据、隐私与稳定性](#数据隐私与稳定性)
 - [版本更新](#版本更新)
-- [v2.3.0 新增内容](#v230-新增内容)
+- [v3.0.0 新增内容](#v300-新增内容)
 - [项目结构](#项目结构-1)
 - [路线图](#路线图)
 - [English README](#english)
@@ -478,14 +480,14 @@ Core 集成应使用 `MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:s
 
 推荐安装方式：
 
-1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v2.3.0-macOS-arm64.dmg`。
+1. 下载与你的架构匹配的 DMG，例如 GitHub Release workflow 产出的 `MindDesk-v3.0.0-macOS-arm64.dmg`。
 2. 打开 DMG。
 3. 将 `MindDesk.app` 拖入 `Applications`。
 4. 从 Applications 启动 MindDesk。
 
 备用方式：
 
-1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v2.3.0-macOS-arm64.zip`。
+1. 下载与你的架构匹配的 ZIP，例如 `MindDesk-v3.0.0-macOS-arm64.zip`。
 2. 解压。
 3. 将 `MindDesk.app` 移动到 `Applications`。
 
@@ -559,15 +561,15 @@ xcrun notarytool store-credentials minddesk-notary --apple-id <email> --team-id 
 发布产物会生成在：
 
 ```text
-dist/release/MindDesk-v2.3.0-macOS/artifacts/
+dist/release/MindDesk-v3.0.0-macOS/artifacts/
 ```
 
-GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v2.3.0-macOS-arm64.dmg` 的架构后缀。
+GitHub Release workflow 会根据 runner 架构设置 `RELEASE_PLATFORM_SUFFIX`，因此工作流产物会带上类似 `MindDesk-v3.0.0-macOS-arm64.dmg` 的架构后缀。
 
 其中包括：
 
-- `MindDesk-v2.3.0-macOS.dmg`
-- `MindDesk-v2.3.0-macOS.zip`
+- `MindDesk-v3.0.0-macOS.dmg`
+- `MindDesk-v3.0.0-macOS.zip`
 - `RELEASE-NOTES.md`
 - `INSTALL.txt`
 - `SHA256SUMS.txt`
@@ -644,33 +646,35 @@ gh secret set APP_STORE_CONNECT_API_KEY_BASE64 --body "$(base64 -i AuthKey_KEYID
 
 ### 版本更新
 
-当前版本：`v2.3.0`
+当前版本：`v3.0.0`
 
-发布状态：`v2.3.0` 表示当前 checkout 的版本元数据线。只有对应 GitHub Release 已发布并附带 notarized 产物时，才视为可公开安装版本；Draft 或 ad-hoc 产物仅用于内部验证。
+发布状态：`v3.0.0` 表示当前 checkout 的版本元数据线。只有对应 GitHub Release 已发布并附带 notarized 产物时，才视为可公开安装版本；Draft 或 ad-hoc 产物仅用于内部验证。
 
 重点更新：
 
-- Workspace 顶部新增 Resume Brief，用于显示 next tasks、known resource issues、canvas counts 和 recent snippets。
-- Home Recent Workspaces 新增紧凑状态徽章，但不会变成跨 workspace 任务列表。
-- Re-entry summary 由纯 Core policy 计算，排序稳定、限制明细数量、只聚合当前 workspace，并对未知 scope fail closed。
-- 缺失、私有或未知 scope 的 resource/snippet canvas 引用会计入 unresolved references。
-- 大 workspace 会降级为 count-only 状态，避免在摘要里构建过重的明细列表。
+- Agent Review package 会导出 AI 可读提示词、workflow 指引、help topics、capability summaries、validation reports 和 proposal contracts。
+- `.mip.json` package 为 manifest 与 agent context 提供标准化、可人工审查的 interchange wrapper。
+- Proposal Review 会在 pending review 前阻断不安全或 stale 的 agent proposal，并把所有副作用继续放在显式 in-app confirmation 后。
+- Canvas、Settings、导入导出、validation 和 Help 页面已经扩展到更大的 workspace 和 agent-assisted workflow。
+- 发布包装增加 worktree guard、artifact verification、failure diagnostics、ad-hoc smoke validation 和 notarized workflow checks。
 
-完整更新内容见 [`docs/releases/v2.3.0.md`](docs/releases/v2.3.0.md)。
+完整更新内容见 [`docs/releases/v3.0.0.md`](docs/releases/v3.0.0.md)。
 
-### v2.3.0 新增内容
+### v3.0.0 新增内容
 
-MindDesk v2.3.0 是一次面向项目重入逻辑的小版本更新，重点降低重新进入复杂 workspace 的记忆成本：
+MindDesk v3.0.0 是一次面向 AI handoff、安全 agent review、通用 interchange、更多工作台控制和 release-ready packaging 的大版本基础更新：
 
 | 发布面向 | 已纳入范围 |
 | --- | --- |
-| Workspace 重入 | Workspace header 下方新增 Resume Brief，集中显示 next tasks、资源问题、canvas card/link counts 和 recent snippets。 |
-| Home 状态徽章 | Recent workspace 卡片最多显示两个任务/资源状态徽章，保持 Home 的启动器定位。 |
-| Core 产品逻辑 | 新增纯 `MindDeskCore` policy，负责稳定排序、数量上限、当前 workspace 聚合和大数据降级。 |
-| 隐私边界 | workspace-scoped resource/snippet 对未知或其他 workspace scope fail closed，不会泄漏到当前 brief。 |
-| 稳定性守卫 | resource/snippet canvas 悬空引用会计数；同优先级任务不会因为 `updatedAt` 改变而重新排序。 |
+| Agent handoff | Agent Review 导出提示词、workflow 指引、自定义 guidance、help topics、capability summaries、readiness checks 和稳定 proposal contract。 |
+| Interchange format | `.mip.json` package 把 manifest data、validation report、package policy、references、help topics 和 non-authorizing authority mirrors 放进可审查 wrapper。 |
+| Proposal Review | 创建 pending review 前校验原始 proposal/source package JSON，阻断 stale context、伪造 policy、unsupported payload、replay attempt 和 size limit violation。 |
+| 导入导出安全 | Portable manifest 使用 typed wire metadata，同时保留 legacy import 兼容，并拒绝 unsupported typed version。 |
+| 产品界面 | Settings、导入、导出、proposal、validation、Help 和 Agent Review UI 已暴露新控制和安全边界。 |
+| Canvas 性能 | Viewport-aware edge indexing、routing policies 和大 workspace 降级提高 dense canvas 响应性。 |
+| 发布工程 | Packaging scripts 和 CI workflow 增加 release-critical worktree guard、artifact verification、failure diagnostics，并区分内部 ad-hoc package 与 notarized public release。 |
 
-新增入口保持克制和只读：Resume 操作只会打开 workspace 或切换 Workspace 内部 tab，不会打开 Finder、启动 Terminal、执行命令或请求 bookmark 授权。
+新的 agent surface 仍是 read-only 和 non-authorizing。Agent 可以读取导出上下文并生成 proposal envelope JSON，但不能授权 file、Finder、Terminal、URL、clipboard、alias、command、import/export 或 apply action。任何副作用仍必须通过 Proposal Review，并在 review sheet 之外由用户进行即时确认。
 
 ### 项目结构
 
