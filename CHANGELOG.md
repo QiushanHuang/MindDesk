@@ -1,5 +1,33 @@
 # Changelog
 
+## 2026-06-27 - v3.0.0 foundation documentation and ad-hoc packaging
+
+### Added
+- Added v3.0.0 release metadata and release notes for the Agent Review, `.mip.json`, Proposal Review, validation, Help, Canvas performance, and release guardrail foundation work.
+- Added `docs/user-manual.md` as the user-facing manual for installation, navigation, resources, snippets, Canvas, tasks, Quick Open, import/export, Agent Review, Proposal Review, Settings, Help, and troubleshooting.
+- Documented that the current v3.0.0 artifact evidence is ad-hoc package validation only, not Developer ID notarization, stapling, Gatekeeper assessment, CI success, or GitHub Release publication.
+
+### Changed
+- Refined README into a shorter bilingual project homepage and moved detailed user workflows and agent safety details into the user manual.
+- Clarified release artifact naming across local notarized, local ad-hoc, and GitHub Release workflow outputs.
+
+### Release-line Note
+- `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.
+- The current v3.0.0 branch must not be treated as the public successor to v2.4.0 until the v2.4.0 product behavior is merged or the release record explicitly says it is excluded.
+
+### Verification
+- Local v3.0.0 ad-hoc artifacts were generated and verified with `script/verify_release_artifacts.sh`.
+- Release-critical worktree guard passed after committing the v3 foundation work.
+
+## 2026-06-24 - v2.4.0 sibling release record
+
+### Added
+- Preserved the v2.4.0 sibling release note in `docs/releases/v2.4.0.md` for release-line traceability.
+
+### Release-line Note
+- v2.4.0 contains product behavior from the sibling `origin/codex/v2-4-c-lite` branch: Overview-first workspace entry, a dedicated Tasks tab, lazy Canvas creation, and exact resource-removal metadata cleanup messaging.
+- These behaviors are not automatically present in the current v3.0.0 foundation branch unless the v2.4.0 code line is merged.
+
 ## 2026-06-11 - Workspace Resume Brief minor release
 
 ### Added
