@@ -234,7 +234,7 @@
 - [x] `./script/package_release.sh --mode adhoc --allow-adhoc`
 - [x] ad-hoc release artifacts 通过 `bash script/verify_release_artifacts.sh --artifact-dir ... --version ... --suffix ... --mode adhoc` 校验 ZIP、DMG 和 `SHA256SUMS.txt`。
 - [x] README 已明确 `v3.0.0` 当前只是 release metadata line / 本地 ad-hoc verified 状态，不等同于已公开 notarized release。
-- [x] `v2.4.0` sibling release-line 风险已在 README、`docs/releases/v3.0.0.md` 和 `docs/releases/v2.4.0.md` 记录；公开 Latest/tag/notarized release 前仍需合入 v2.4.0 行为或明确排除。
+- [x] `v2.4.0` sibling release-line 风险已处理：`v2.4.0` 仍记录为 sibling release，但 Overview-first workspace entry、独立 Tasks tab、lazy Canvas creation、resource-removal cleanup snapshot / exact impact messaging 已手动合入当前 v3 branch；README、`docs/releases/v3.0.0.md` 和 `docs/releases/v2.4.0.md` 已更新 lineage 说明。
 - [x] 使用手册已迁出 README 的详细用户操作、Agent Review 安全边界和 Proposal Review 限制，见 `docs/user-manual.md`。
 - [x] `bash -n script/build_and_run.sh`
 - [x] `bash -n script/package_release.sh`

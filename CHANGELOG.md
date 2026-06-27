@@ -10,10 +10,11 @@
 ### Changed
 - Refined README into a shorter bilingual project homepage and moved detailed user workflows and agent safety details into the user manual.
 - Clarified release artifact naming across local notarized, local ad-hoc, and GitHub Release workflow outputs.
+- Integrated v2.4.0 sibling release product behavior into the v3.0.0 branch: Overview-first workspace entry, dedicated Tasks tab, lazy Canvas creation, and exact resource-removal cleanup messaging.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.
-- The current v3.0.0 branch must not be treated as the public successor to v2.4.0 until the v2.4.0 product behavior is merged or the release record explicitly says it is excluded.
+- The v2.4.0 product behavior has been manually integrated into the current v3.0.0 branch for release-line continuity.
 
 ### Verification
 - Local v3.0.0 ad-hoc artifacts were generated and verified with `script/verify_release_artifacts.sh`.
@@ -26,7 +27,7 @@
 
 ### Release-line Note
 - v2.4.0 contains product behavior from the sibling `origin/codex/v2-4-c-lite` branch: Overview-first workspace entry, a dedicated Tasks tab, lazy Canvas creation, and exact resource-removal metadata cleanup messaging.
-- These behaviors are not automatically present in the current v3.0.0 foundation branch unless the v2.4.0 code line is merged.
+- These behaviors were later manually integrated into the v3.0.0 foundation branch during release readiness closeout.
 
 ## 2026-06-11 - Workspace Resume Brief minor release
 

@@ -5,7 +5,7 @@ import SwiftData
 
 final class AppBehaviorTests: XCTestCase {
     @MainActor
-    func testFirstLaunchSeedDataCreatesDefaultObjectsAndIsIdempotent() throws {
+    func testFirstLaunchSeedDataCreatesDefaultWorkspaceAndSnippetsWithoutCanvasAndIsIdempotent() throws {
         let schema = Schema([
             WorkspaceModel.self,
             ResourcePinModel.self,
@@ -30,10 +30,8 @@ final class AppBehaviorTests: XCTestCase {
         let nodes = try context.fetch(FetchDescriptor<CanvasNodeModel>())
 
         XCTAssertEqual(workspaces.map(\.title), ["Qiushan Studio"])
-        XCTAssertEqual(canvases.map(\.title), ["Main Workflow"])
-        XCTAssertEqual(nodes.map(\.title), ["Start Here"])
-        XCTAssertEqual(nodes.first?.canvasId, canvases.first?.id)
-        XCTAssertEqual(canvases.first?.workspaceId, workspaces.first?.id)
+        XCTAssertTrue(canvases.isEmpty)
+        XCTAssertTrue(nodes.isEmpty)
         XCTAssertEqual(Set(snippets.map(\.title)), ["Summarize Notes", "List Current Folder"])
         XCTAssertTrue(snippets.contains { $0.kind == .prompt && $0.scope == .global })
         XCTAssertTrue(snippets.contains { $0.kind == .command && $0.requiresConfirmation })
@@ -5227,19 +5225,115 @@ final class AppBehaviorTests: XCTestCase {
         )
     }
 
-    func testResourceRemovalConfirmationNamesAllMetadataCleanupSurfaces() {
-        let message = ResourceRemovalConfirmationText.message(forDisplayName: "Shared Plan")
+    func testResourceRemovalImpactMessageListsAllCleanupPlanEffects() {
+        let cleanup = CleanupPlan(
+            canvasNodeIdsToDelete: ["node-a", "node-b"],
+            canvasEdgeIdsToDelete: ["edge-a"],
+            todoIdsClearingLinkedResource: ["todo-a", "todo-b", "todo-c"],
+            snippetIdsClearingWorkingDirectory: ["snippet-a"],
+            aliasIdsMarkingMissing: ["alias-a", "alias-b"]
+        )
+        let message = ResourceRemovalImpactMessage.text(displayName: "Project Docs", cleanup: cleanup)
 
-        for required in [
-            "Shared Plan",
-            "canvas cards",
-            "task links",
-            "snippet working directories",
-            "aliases",
-            "Finder files and folders are not deleted"
-        ] {
-            XCTAssertTrue(message.contains(required), "Missing removal warning term: \(required)")
-        }
+        XCTAssertEqual(message, expectedResourceRemovalMessage(displayName: "Project Docs", cleanup: cleanup))
+    }
+
+    func testResourceRemovalRequestSnapshotsCleanupAndMessage() {
+        let resource = ResourcePinModel(
+            id: "resource",
+            title: "Docs",
+            targetType: .folder,
+            displayPath: "/tmp/Docs",
+            lastResolvedPath: "/tmp/Docs",
+            scope: .global,
+            customName: "Project Docs"
+        )
+        let cleanup = CleanupPlan(
+            canvasNodeIdsToDelete: ["node"],
+            canvasEdgeIdsToDelete: ["edge"],
+            todoIdsClearingLinkedResource: ["todo"],
+            snippetIdsClearingWorkingDirectory: ["snippet"],
+            aliasIdsMarkingMissing: ["alias"]
+        )
+        let displayName = resource.displayName
+
+        let request = ResourceRemovalRequest(resource: resource, cleanup: cleanup)
+        resource.customName = "Renamed After Alert"
+
+        XCTAssertEqual(request.id, "resource")
+        XCTAssertEqual(request.displayName, displayName)
+        XCTAssertEqual(request.cleanup, cleanup)
+        XCTAssertEqual(request.message, expectedResourceRemovalMessage(displayName: displayName, cleanup: cleanup))
+    }
+
+    func testWorkspaceCanvasLookupLimitsExistingCanvasFetch() {
+        let descriptor = WorkspaceCanvasLookup.descriptor(for: "workspace")
+
+        XCTAssertEqual(descriptor.fetchLimit, 1)
+    }
+
+    @MainActor
+    func testWorkspaceCanvasLookupFetchesOnlyRequestedWorkspace() throws {
+        let container = try makeInMemoryModelContainer()
+        let context = ModelContext(container)
+        let otherCanvas = CanvasModel(id: "canvas-other", workspaceId: "workspace-other")
+        let requestedCanvas = CanvasModel(id: "canvas-requested", workspaceId: "workspace-requested")
+        context.insert(otherCanvas)
+        context.insert(requestedCanvas)
+        try context.save()
+
+        let canvases = try context.fetch(WorkspaceCanvasLookup.descriptor(for: "workspace-requested"))
+
+        XCTAssertEqual(canvases.map(\.id), ["canvas-requested"])
+    }
+
+    func testWorkspaceDetailTabDefaultsToOverviewAndKeepsCanvasExplicit() {
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab, .overview)
+        XCTAssertEqual(WorkspaceDetailTab.allCases.map(\.title), ["Overview", "Tasks", "Canvas", "Resources", "Snippets"])
+        XCTAssertEqual(WorkspaceDetailTab.tabAfterWorkspaceChange(from: .canvas), .overview)
+        XCTAssertFalse(WorkspaceDetailTab.overview.activatesCanvas)
+        XCTAssertFalse(WorkspaceDetailTab.tasks.activatesCanvas)
+        XCTAssertTrue(WorkspaceDetailTab.canvas.activatesCanvas)
+    }
+
+    func testWorkspaceTodoBoardPresentationSeparatesCanvasPanelFromFullHeightTab() {
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.usesFixedHeight)
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.showsCollapseControl)
+        XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.usesPanelChrome)
+
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesFixedHeight)
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.showsCollapseControl)
+        XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesPanelChrome)
+    }
+
+    @MainActor
+    private func makeInMemoryModelContainer() throws -> ModelContainer {
+        let schema = Schema([
+            WorkspaceModel.self,
+            ResourcePinModel.self,
+            SnippetModel.self,
+            WorkspaceTodoModel.self,
+            WorkspaceTodoGroupModel.self,
+            CanvasModel.self,
+            CanvasNodeModel.self,
+            CanvasEdgeModel.self,
+            FinderAliasRecordModel.self
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func expectedResourceRemovalMessage(displayName: String, cleanup: CleanupPlan) -> String {
+        """
+        This removes \(displayName) from MindDesk metadata only.
+
+        Canvas cards removed: \(cleanup.canvasNodeIdsToDelete.count)
+        Canvas links removed: \(cleanup.canvasEdgeIdsToDelete.count)
+        Todo linked resources cleared: \(cleanup.todoIdsClearingLinkedResource.count)
+        Command working directories cleared: \(cleanup.snippetIdsClearingWorkingDirectory.count)
+        Alias records marked missing: \(cleanup.aliasIdsMarkingMissing.count)
+        Finder items affected: 0
+        """
     }
 
     func testResourceListOrderingUsesIDTieBreakForStableRows() {
@@ -5544,8 +5638,8 @@ final class AppBehaviorTests: XCTestCase {
         )
 
         XCTAssertTrue(action.isEnabled)
-        XCTAssertEqual(action.targetTab, "Canvas")
-        XCTAssertTrue(action.opensTaskPanel)
+        XCTAssertEqual(action.targetTab, "Tasks")
+        XCTAssertFalse(action.opensTaskPanel)
         XCTAssertEqual(action.statusMessage, "Showing 2 workspace tasks: Review outline, Ship draft")
     }
 
@@ -5649,11 +5743,11 @@ final class AppBehaviorTests: XCTestCase {
         let snippets = WorkspaceReentryEntryActionPolicy.action(for: .snippets, brief: brief)
 
         XCTAssertEqual(canvas.targetTab, "Canvas")
-        XCTAssertEqual(nextTasks.targetTab, "Canvas")
+        XCTAssertEqual(nextTasks.targetTab, "Tasks")
         XCTAssertEqual(resources.targetTab, "Resources")
         XCTAssertEqual(snippets.targetTab, "Snippets")
         XCTAssertFalse(canvas.opensTaskPanel)
-        XCTAssertTrue(nextTasks.opensTaskPanel)
+        XCTAssertFalse(nextTasks.opensTaskPanel)
         XCTAssertFalse(resources.opensTaskPanel)
         XCTAssertFalse(snippets.opensTaskPanel)
         XCTAssertNil(canvas.statusMessage)
@@ -5861,8 +5955,8 @@ final class AppBehaviorTests: XCTestCase {
         )
 
         XCTAssertTrue(action.isEnabled)
-        XCTAssertEqual(action.targetTab, "Canvas")
-        XCTAssertTrue(action.opensTaskPanel)
+        XCTAssertEqual(action.targetTab, "Tasks")
+        XCTAssertFalse(action.opensTaskPanel)
         XCTAssertEqual(action.statusMessage, "Showing 3 workspace tasks. Details paused for large workspace.")
         XCTAssertFalse(action.statusMessage?.contains("Secret") ?? false)
         XCTAssertFalse(action.statusMessage?.contains("https://") ?? false)

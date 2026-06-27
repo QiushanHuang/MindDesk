@@ -519,16 +519,12 @@ enum SeedData {
         guard workspaces.isEmpty, snippets.isEmpty, resources.isEmpty, canvases.isEmpty, nodes.isEmpty else { return }
 
         let workspace = WorkspaceModel(title: "Qiushan Studio", details: "Personal desktop, files, commands, and prompt workbench.", sortIndex: 0)
-        let canvas = CanvasModel(workspaceId: workspace.id, title: "Main Workflow")
         let prompt = SnippetModel(title: "Summarize Notes", kind: .prompt, body: "Summarize these notes into decisions, open questions, and next actions.", details: "General writing prompt", tags: ["writing"], scope: .global)
         let command = SnippetModel(title: "List Current Folder", kind: .command, body: "ls -la", details: "Safe directory listing", tags: ["shell"], scope: .global, requiresConfirmation: true)
-        let node = CanvasNodeModel(canvasId: canvas.id, title: "Start Here", body: "Drag files, folders, prompts, and commands onto this workspace map.", nodeType: .note, x: 120, y: 120)
 
         context.insert(workspace)
-        context.insert(canvas)
         context.insert(prompt)
         context.insert(command)
-        context.insert(node)
         try context.save()
     }
 }

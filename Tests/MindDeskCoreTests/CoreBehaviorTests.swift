@@ -8521,6 +8521,11 @@ final class CoreBehaviorTests: XCTestCase {
             canvasObjects: [
                 CanvasObjectReference(nodeId: "node", canvasId: "canvas", workspaceId: "workspace", objectType: "resourcePin", objectId: "resource")
             ],
+            canvasEdges: [
+                CanvasEdgeReference(edgeId: "edge-from-resource", canvasId: "canvas", sourceNodeId: "node", targetNodeId: "note"),
+                CanvasEdgeReference(edgeId: "edge-to-resource", canvasId: "canvas", sourceNodeId: "note", targetNodeId: "node"),
+                CanvasEdgeReference(edgeId: "edge-unrelated", canvasId: "canvas", sourceNodeId: "note", targetNodeId: "other")
+            ],
             todoLinks: [
                 TodoResourceReference(todoId: "todo", workspaceId: "workspace", linkedResourceId: "resource")
             ],
@@ -8537,6 +8542,7 @@ final class CoreBehaviorTests: XCTestCase {
 
         XCTAssertEqual(usages.map(\.kind), [.workspaceResource, .canvasNode, .todo, .snippetWorkingDirectory, .alias])
         XCTAssertEqual(plan.canvasNodeIdsToDelete, ["node"])
+        XCTAssertEqual(plan.canvasEdgeIdsToDelete, ["edge-from-resource", "edge-to-resource"])
         XCTAssertEqual(plan.todoIdsClearingLinkedResource, ["todo"])
         XCTAssertEqual(plan.snippetIdsClearingWorkingDirectory, ["snippet"])
         XCTAssertEqual(plan.aliasIdsMarkingMissing, ["alias"])

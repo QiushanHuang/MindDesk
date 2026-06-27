@@ -139,6 +139,10 @@ This creates a practical middle layer between strict file classification and fre
 
 Agent Review is non-authorizing. A `.mip.json`, prompt, help topic, capability catalog, custom guidance, validation report, or proposal text never grants permission to run commands, open Finder or URLs, copy to clipboard, create aliases, import, export, modify files, or apply changes. Any side effect still requires Proposal Review and a separate immediate in-app confirmation outside the review sheet.
 
+`helpTopics` are curated, non-authoritative retrieval help. Runtime-searchable fields are id, title, summary, bodyMarkdown, keywords, relatedObjectRefs, and category. `MindDeskAgentWorkflowSearchRequest` returns `MindDeskAgentWorkflowSearch.response(request:)`, `response(package:request:)`, and `minddesk.agent.workflow.search.response`; `MindDeskHelpSearchRequest` returns `minddesk.help.search.response`; `MindDeskExtensionCapabilitySearchRequest` returns `MindDeskExtensionCapabilitySearch.response(request:)` and `minddesk.extension.capability.search.response`. Searches enforce `helpLimit`, `capabilityLimit`, `includeMetaActions`, query cap, and limit cap, and return a bounded read-only retrieval result. Retrieval does not override validationReport, `agentIntegrationContract`, `extensionCapabilities`, agentPolicy, externalActionPolicy, serialized `validationReport`, Proposal Review, or in-app confirmation.
+
+Core or extension integrations that handle external proposal files should call `MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)` with raw JSON data. Forged source-package authority mirrors, `agentIntegrationContract` drift, top-level `agentPolicy`, top-level `externalActionPolicy`, and `package.validation-report.*` diagnostics block review. Missing raw authority mirrors report `contract.raw.missing`, `package.agent-policy.missing`, `package.external-action-policy.missing`, or `capability-catalog.raw.missing`. Top-level `helpTopics` are ignored/replaced, Top-level `agentGuide` defaults are regenerated, accepted proposal JSON fields are schema documentation only, and approval is not authorization.
+
 Core or extension integrations that handle external proposal files should call `MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)` with raw JSON data. The object-only gate is only for trusted in-process values.
 
 ### User Manual
@@ -280,7 +284,7 @@ Release status: `v3.0.0` documentation describes the current metadata line in th
 
 Full release notes are available in [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md).
 
-Lineage note: `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` foundation branch. The current `v3.0.0` documentation and ad-hoc package must not be treated as the public successor to `v2.4.0` until the v2.4.0 product behavior is merged or the release record explicitly says it is excluded.
+Lineage note: `v2.4.0` remains a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` foundation branch. Its product behavior has been manually integrated into the current v3 branch: Overview-first workspace entry, dedicated Tasks tab, lazy Canvas creation, and exact resource-removal cleanup messaging.
 
 ### What's New in v3.0.0
 
@@ -433,6 +437,10 @@ flowchart LR
 
 Agent Review 是只读、非授权流程。`.mip.json`、prompt、help topic、capability catalog、custom guidance、validation report 或 proposal text 都不能授权运行命令、打开 Finder/URL、复制到剪贴板、创建 alias、导入、导出、修改文件或 apply changes。任何副作用仍需要 Proposal Review，并且必须在 review sheet 之外由用户即时确认。
 
+`helpTopics` 是 curated / non-authoritative retrieval help。运行时可检索字段是 id、title、summary、bodyMarkdown、keywords、relatedObjectRefs 和 category。`MindDeskAgentWorkflowSearchRequest` 返回 `MindDeskAgentWorkflowSearch.response(request:)`、`response(package:request:)` 和 `minddesk.agent.workflow.search.response`；`MindDeskHelpSearchRequest` 返回 `minddesk.help.search.response`；`MindDeskExtensionCapabilitySearchRequest` 返回 `MindDeskExtensionCapabilitySearch.response(request:)` 和 `minddesk.extension.capability.search.response`。搜索会应用 `helpLimit`、`capabilityLimit`、`includeMetaActions`、query cap 和 limit cap，并只返回 bounded read-only retrieval result。Retrieval does not override validationReport、`agentIntegrationContract`、`extensionCapabilities`、agentPolicy、externalActionPolicy、serialized `validationReport`、Proposal Review 或 in-app confirmation。
+
+Review Agent Proposal sheet 是 human review surface only。处理外部 proposal 文件的集成应使用 `MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)` 校验原始 JSON。Forged source-package authority mirrors、`agentIntegrationContract` drift、top-level `agentPolicy`、top-level `externalActionPolicy`、`package.validation-report.*` diagnostics 会阻断 review。Missing raw authority mirrors 会报告 `contract.raw.missing`、`package.agent-policy.missing`、`package.external-action-policy.missing` 或 `capability-catalog.raw.missing`。Top-level `helpTopics` are ignored/replaced，Top-level `agentGuide` defaults are regenerated，accepted proposal JSON fields 只是 schema 文档；approval is not authorization，任何副作用仍需要 explicit immediate in-app confirmation outside the proposal review sheet。
+
 处理外部 proposal 文件的 Core 或 extension integration 应使用 `MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)` 传入原始 JSON data。object-only gate 只适合已经可信的进程内值。
 
 ### 使用手册
@@ -574,7 +582,7 @@ SwiftData 使用应用专属存储路径：
 
 完整更新内容见 [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md)。
 
-Lineage note：`v2.4.0` 是 `origin/codex/v2-4-c-lite` 上的 sibling release，不是当前 `codex/v3-foundation-p0` foundation branch 的祖先。在合入 v2.4.0 产品行为，或 release record 明确说明排除前，当前 `v3.0.0` 文档和 ad-hoc 包不能被视为 `v2.4.0` 的公开后继版本。
+Lineage note：`v2.4.0` 仍是 `origin/codex/v2-4-c-lite` 上的 sibling release，不是当前 `codex/v3-foundation-p0` foundation branch 的祖先。它的产品行为已经手动整合到当前 v3 branch：Overview-first workspace entry、独立 Tasks tab、lazy Canvas creation，以及精确的 resource-removal cleanup messaging。
 
 ### v3.0.0 新增内容
 
