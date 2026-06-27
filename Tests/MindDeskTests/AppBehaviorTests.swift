@@ -5531,6 +5531,26 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(resourceViewsSource.contains("Terminal run failed; copied command. Could not open Terminal"))
     }
 
+    func testWorkspaceCanvasCodexPanelPrefillsTerminalWithoutRunningCodex() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("case codexAgent"))
+        XCTAssertTrue(canvasSource.contains("Image(systemName: \"terminal\")"))
+        XCTAssertTrue(canvasSource.contains("Label(\"Open Codex CLI\", systemImage: \"terminal\")"))
+        XCTAssertTrue(canvasSource.contains("CanvasCodexCommandBuilder.command(prompt: prompt)"))
+        XCTAssertTrue(canvasSource.contains("try TerminalService().prefill(command: command, workingDirectory: codexWorkingDirectory)"))
+        XCTAssertFalse(canvasSource.contains("TerminalService().run(command: command"))
+        XCTAssertFalse(canvasSource.contains("codex exec"))
+        XCTAssertFalse(canvasSource.contains("codex apply"))
+    }
+
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {
         XCTAssertEqual(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: true), 3)
         XCTAssertEqual(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: false), 1)

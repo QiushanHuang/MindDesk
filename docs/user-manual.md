@@ -160,6 +160,7 @@ You can add:
 | Drag | Move cards or frames. |
 | Zoom | Zoom in/out, Fit All, or Fit Selected. |
 | Inspector | Edit title, notes, color, glow, and related metadata. |
+| Codex panel | Open a read-only Canvas prompt in Codex CLI through Terminal. |
 | Undo / recovery | Use the visible recovery flow after supported edits or deletes. |
 
 ### Links and Layout
@@ -176,6 +177,16 @@ You can add:
 | Auto Arrange | Automatically organize the layout. |
 
 Canvas diagnostics in Agent Review expose aggregate information only, such as counts, caps, booleans, and status fields. They do not expose raw coordinates, raw geometry, route geometry, bucket keys, per-edge lists, or raw node/edge identifiers.
+
+### Canvas Codex Panel
+
+1. Open a workspace Canvas.
+2. Use the terminal button in the Canvas left rail to open the Codex panel.
+3. Enter instructions for how Codex should inspect or organize the current Canvas.
+4. Choose `Open Codex CLI`.
+5. MindDesk opens Terminal with a read-only Codex command prefilled. Press Return in Terminal when you are ready.
+
+The Canvas Codex panel sends bounded read-only context and does not apply changes. Use Proposal Review for any proposed MindDesk changes.
 
 ## 9. Tasks / Todo Board
 

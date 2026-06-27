@@ -48,6 +48,74 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
+    func testCanvasCodexPromptBuilderIncludesReadOnlyProposalBoundary() {
+        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
+            workspaceTitle: "Launch Workspace",
+            canvasTitle: "Workflow Map",
+            userInstruction: "Organize this canvas into clearer groups.",
+            nodes: [
+                CanvasCodexPromptNodeRecord(id: "node-a", title: "Inbox", kind: "note", body: "Triage these ideas."),
+                CanvasCodexPromptNodeRecord(id: "node-b", title: "Build", kind: "resource", body: "Implementation files.")
+            ],
+            edges: [
+                CanvasCodexPromptEdgeRecord(sourceNodeID: "node-a", targetNodeID: "node-b", label: "next")
+            ],
+            selectedNodeIDs: ["node-a"],
+            selectedEdgeIDs: ["edge-a"]
+        ))
+
+        XCTAssertFalse(prompt.wasTruncated)
+        XCTAssertTrue(prompt.body.contains("read-only context"))
+        XCTAssertTrue(prompt.body.contains("Do not execute commands"))
+        XCTAssertTrue(prompt.body.contains("minddesk.proposal.envelope"))
+        XCTAssertTrue(prompt.body.contains("Proposal Review"))
+        XCTAssertTrue(prompt.body.contains("Launch Workspace"))
+        XCTAssertTrue(prompt.body.contains("Workflow Map"))
+        XCTAssertTrue(prompt.body.contains("node-a -> node-b"))
+    }
+
+    func testCanvasCodexPromptBuilderBoundsOversizedCanvasContext() {
+        let nodes = (0..<80).map { index in
+            CanvasCodexPromptNodeRecord(
+                id: "node-\(index)",
+                title: "Large Card \(index)",
+                kind: "note",
+                body: String(repeating: "Long canvas note. ", count: 80)
+            )
+        }
+        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
+            workspaceTitle: "Large Workspace",
+            canvasTitle: "Large Canvas",
+            userInstruction: String(repeating: "Organize this. ", count: 500),
+            nodes: nodes,
+            edges: [],
+            selectedNodeIDs: [],
+            selectedEdgeIDs: []
+        ))
+
+        XCTAssertTrue(prompt.wasTruncated)
+        XCTAssertLessThanOrEqual(Data(prompt.body.utf8).count, CanvasCodexPromptBuilder.maximumPromptBytes)
+        XCTAssertTrue(prompt.body.contains("prompt was bounded before opening Codex"))
+    }
+
+    func testCanvasCodexCommandBuilderUsesSafeInteractiveCodexFlagsAndSingleLinePrompt() {
+        let prompt = "Organize 'Inbox'; do not run $(rm -rf ~)\nSecond line\u{2028}third"
+        let command = CanvasCodexCommandBuilder.command(prompt: prompt)
+
+        XCTAssertTrue(command.hasPrefix("codex --sandbox read-only --ask-for-approval untrusted -- "))
+        XCTAssertFalse(command.contains("\n"))
+        XCTAssertFalse(command.contains("\r"))
+        XCTAssertFalse(command.contains("\u{2028}"))
+        XCTAssertFalse(command.contains(" --full-auto"))
+        XCTAssertFalse(command.contains("dangerously-bypass"))
+        XCTAssertFalse(command.contains("--sandbox workspace-write"))
+        XCTAssertFalse(command.contains("--sandbox danger-full-access"))
+        XCTAssertFalse(command.contains("--ask-for-approval never"))
+        XCTAssertFalse(command.contains("codex exec"))
+        XCTAssertFalse(command.contains("codex apply"))
+        XCTAssertTrue(command.contains("'Organize '\\''Inbox'\\''; do not run $(rm -rf ~) Second line third'"))
+    }
+
     func testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode() throws {
         let manifestData = try JSONSerialization.data(withJSONObject: [
             "schemaVersion": 999,
@@ -3665,6 +3733,45 @@ final class CoreBehaviorTests: XCTestCase {
             ),
             .reduced
         )
+        XCTAssertFalse(CanvasEdgeAnimationInteractionPolicy.shouldDeferGlowAnimation(
+            isNodeDragging: false,
+            isViewportMoving: true,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false
+        ))
+        XCTAssertFalse(CanvasEdgeAnimationInteractionPolicy.shouldDeferGlowAnimation(
+            isNodeDragging: false,
+            isViewportMoving: false,
+            isZooming: true,
+            isResizing: false,
+            isEdgeControlDragging: false
+        ))
+        XCTAssertTrue(CanvasEdgeAnimationPolicy.effectiveTimelinePlan(
+            preferredFrameRate: .smooth,
+            theme: "blue",
+            animationsEnabled: true,
+            reduceMotion: false,
+            visibleEdgeCount: CanvasPerformancePolicy.maximumSmoothAnimatedVisibleEdgeCount,
+            visibleCardCount: CanvasPerformancePolicy.maximumSmoothAnimatedVisibleCardCount,
+            routedPointCount: CanvasPerformancePolicy.maximumSmoothAnimatedRoutePointCount,
+            zoom: 1,
+            baselineZoom: 1,
+            isInteracting: CanvasEdgeAnimationInteractionPolicy.shouldDeferGlowAnimation(
+                isNodeDragging: false,
+                isViewportMoving: true,
+                isZooming: true,
+                isResizing: false,
+                isEdgeControlDragging: false
+            )
+        ).shouldAnimate)
+        XCTAssertTrue(CanvasEdgeAnimationInteractionPolicy.shouldDeferGlowAnimation(
+            isNodeDragging: true,
+            isViewportMoving: false,
+            isZooming: false,
+            isResizing: false,
+            isEdgeControlDragging: false
+        ))
         XCTAssertNil(CanvasEdgeAnimationPolicy.effectiveTimelineMinimumInterval(
             preferredFrameRate: .smooth,
             theme: "blue",

@@ -594,6 +594,13 @@ enum CanvasInspectorVisibilityPolicy {
     }
 }
 
+private enum CanvasRightRailPanel: String, CaseIterable, Identifiable {
+    case inspector
+    case codexAgent
+
+    var id: String { rawValue }
+}
+
 enum CanvasStartLinkContextMenuTarget: CaseIterable {
     case card
     case frame
@@ -1023,7 +1030,7 @@ struct WorkspaceCanvasView: View {
     @State private var resizeStartSizes: [String: CGSize] = [:]
     @State private var transientNodeSizes: [String: CGSize] = [:]
     @State private var resizingNodeId: String?
-    @State private var isCanvasInspectorVisible = CanvasInspectorVisibilityPolicy.defaultVisibility
+    @State private var canvasRightRailPanel: CanvasRightRailPanel? = CanvasInspectorVisibilityPolicy.defaultVisibility ? .inspector : nil
     @State private var isTodoPanelOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
     @State private var isTodoDoneColumnOpen = false
     @State private var isTodoPanelInitialized = false
@@ -1037,6 +1044,7 @@ struct WorkspaceCanvasView: View {
     @State private var canvasSurfaceSize: CGSize = .zero
     @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
     @State private var webCardDraft = ""
+    @State private var codexInstruction = ""
     @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
     @Environment(\.undoManager) private var undoManager
@@ -1105,7 +1113,7 @@ struct WorkspaceCanvasView: View {
             animationsEnabled: canvas.animationsEnabled,
             reduceMotion: reduceMotion,
             edgeCount: edgeCount,
-            isInteracting: isCanvasInteracting
+            isInteracting: isEdgeGlowSuspendingInteraction
         )
     }
 
@@ -1116,6 +1124,16 @@ struct WorkspaceCanvasView: View {
             transientZoom != nil ||
             resizingNodeId != nil ||
             !edgeControlDragStart.isEmpty
+    }
+
+    private var isEdgeGlowSuspendingInteraction: Bool {
+        CanvasEdgeAnimationInteractionPolicy.shouldDeferGlowAnimation(
+            isNodeDragging: !nodeDragStart.isEmpty,
+            isViewportMoving: transientViewportOffset != .zero,
+            isZooming: transientZoomViewportOffset != .zero || transientZoom != nil,
+            isResizing: resizingNodeId != nil || !transientNodeSizes.isEmpty,
+            isEdgeControlDragging: !edgeControlDragStart.isEmpty
+        )
     }
 
     private func shouldReducePeerCardDetails(visibleCardCount: Int) -> Bool {
@@ -1152,6 +1170,52 @@ struct WorkspaceCanvasView: View {
                 return nameComparison == .orderedAscending
             }
             return $0.id < $1.id
+        }
+    }
+
+    private var currentCodexPrompt: CanvasCodexPrompt {
+        CanvasCodexPromptBuilder.prompt(for: codexPromptContext)
+    }
+
+    private var codexPromptContext: CanvasCodexPromptContext {
+        CanvasCodexPromptContext(
+            workspaceTitle: workspacesById[canvas.workspaceId]?.title ?? "Workspace",
+            canvasTitle: canvas.title,
+            userInstruction: codexInstruction,
+            nodes: workflowNodes.map { node in
+                CanvasCodexPromptNodeRecord(
+                    id: node.id,
+                    title: node.title,
+                    kind: node.nodeTypeRaw,
+                    body: node.body
+                )
+            },
+            edges: visibleEdges.map { edge in
+                CanvasCodexPromptEdgeRecord(
+                    sourceNodeID: edge.sourceNodeId,
+                    targetNodeID: edge.targetNodeId,
+                    label: edge.label
+                )
+            },
+            selectedNodeIDs: selectedNodeIDs.sorted(),
+            selectedEdgeIDs: selectedEdgeIDs.sorted()
+        )
+    }
+
+    private var codexWorkingDirectory: String {
+        let current = FileManager.default.currentDirectoryPath
+        return current.isEmpty || current == "/" ? NSHomeDirectory() : current
+    }
+
+    private func openCodexForCanvas() {
+        let prompt = currentCodexPrompt.body
+        let command = CanvasCodexCommandBuilder.command(prompt: prompt)
+        do {
+            try TerminalService().prefill(command: command, workingDirectory: codexWorkingDirectory)
+            onStatus("Opened Terminal with Codex CLI prompt prefilled.")
+        } catch {
+            ClipboardService().copy(command)
+            onStatus("Could not open Terminal for Codex. Copied the Codex command instead. \(error.localizedDescription)")
         }
     }
 
@@ -1214,8 +1278,8 @@ struct WorkspaceCanvasView: View {
                         .frame(width: CanvasSideRailLayout.leftRailWidth)
                     canvasSurface
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if isCanvasInspectorVisible {
-                        canvasRightRail
+                    if let canvasRightRailPanel {
+                        canvasRightRail(for: canvasRightRailPanel)
                             .frame(width: CanvasSideRailLayout.rightRailWidth(availableWidth: proxy.size.width))
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
@@ -1235,7 +1299,7 @@ struct WorkspaceCanvasView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.16), value: isCanvasInspectorVisible)
+        .animation(.easeInOut(duration: 0.16), value: canvasRightRailPanel)
         .animation(.easeInOut(duration: 0.16), value: isTodoPanelOpen)
         .animation(.easeInOut(duration: 0.16), value: isTodoDoneColumnOpen)
         .onAppear {
@@ -1406,15 +1470,27 @@ struct WorkspaceCanvasView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 4)
-                    Button {
-                        isCanvasInspectorVisible = CanvasInspectorVisibilityPolicy.toggled(from: isCanvasInspectorVisible)
-                    } label: {
-                        Image(systemName: "sidebar.right")
-                            .frame(width: 24, height: 24)
+                    HStack(spacing: 6) {
+                        Button {
+                            toggleRightRailPanel(.inspector)
+                        } label: {
+                            Image(systemName: "sidebar.right")
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(canvasRightRailPanel == .inspector ? .accentColor : nil)
+                        .help(canvasRightRailPanel == .inspector ? "Hide canvas inspector" : "Show canvas inspector")
+
+                        Button {
+                            toggleRightRailPanel(.codexAgent)
+                        } label: {
+                            Image(systemName: "terminal")
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(canvasRightRailPanel == .codexAgent ? .accentColor : nil)
+                        .help(canvasRightRailPanel == .codexAgent ? "Hide Codex agent panel" : "Show Codex agent panel")
                     }
-                    .buttonStyle(.bordered)
-                    .tint(isCanvasInspectorVisible ? .accentColor : nil)
-                    .help(isCanvasInspectorVisible ? "Hide canvas inspector" : "Show canvas inspector")
                 }
 
                 Button {
@@ -1603,7 +1679,21 @@ struct WorkspaceCanvasView: View {
         }
     }
 
-    private var canvasRightRail: some View {
+    private func toggleRightRailPanel(_ panel: CanvasRightRailPanel) {
+        canvasRightRailPanel = canvasRightRailPanel == panel ? nil : panel
+    }
+
+    @ViewBuilder
+    private func canvasRightRail(for panel: CanvasRightRailPanel) -> some View {
+        switch panel {
+        case .inspector:
+            canvasInspectorRail
+        case .codexAgent:
+            canvasCodexAgentRail
+        }
+    }
+
+    private var canvasInspectorRail: some View {
         GeometryReader { proxy in
             ScrollView([.vertical, .horizontal]) {
                 VStack(alignment: .leading, spacing: 14) {
@@ -1725,6 +1815,72 @@ struct WorkspaceCanvasView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    private var canvasCodexAgentRail: some View {
+        GeometryReader { proxy in
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 14) {
+                    GroupBox("Codex") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Open Codex with a read-only Canvas prompt. MindDesk will prefill Terminal; press Return there to start.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            TextField("Ask Codex to organize this canvas...", text: $codexInstruction, axis: .vertical)
+                                .lineLimit(4...8)
+
+                            Button {
+                                openCodexForCanvas()
+                            } label: {
+                                Label("Open Codex CLI", systemImage: "terminal")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(codexInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Button {
+                                ClipboardService().copy(currentCodexPrompt.body)
+                                onStatus("Copied Canvas Codex prompt.")
+                            } label: {
+                                Label("Copy Prompt", systemImage: "doc.on.doc")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(codexInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    GroupBox("Context") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            CanvasCodexContextLine("Cards", value: "\(workflowNodes.count)")
+                            CanvasCodexContextLine("Links", value: "\(visibleEdges.count)")
+                            CanvasCodexContextLine("Selected Cards", value: "\(selectedNodeIDs.count)")
+                            CanvasCodexContextLine("Selected Links", value: "\(selectedEdgeIDs.count)")
+                            if currentCodexPrompt.wasTruncated {
+                                Text("Prompt is bounded before it is sent to Codex.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    GroupBox("Boundary") {
+                        Text("Codex receives read-only context. Use Proposal Review for any proposed MindDesk changes; this panel does not execute or apply agent output.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding(12)
+                .frame(
+                    width: CanvasSideRailLayout.rightRailScrollableContentWidth(railWidth: proxy.size.width),
+                    alignment: .topLeading
+                )
+            }
+        }
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
     private var canvasSurface: some View {
         GeometryReader { proxy in
             let snapshot = renderSnapshot
@@ -1757,7 +1913,11 @@ struct WorkspaceCanvasView: View {
                 routedPointCount: 0,
                 zoom: effectiveZoom,
                 baselineZoom: zoomBaseline,
-                isInteracting: isCanvasInteracting
+                isInteracting: isCanvasInteracting,
+                isAnimationSuspendingInteraction: isEdgeGlowSuspendingInteraction,
+                animationsEnabled: canvas.animationsEnabled,
+                reduceMotion: reduceMotion,
+                animationTheme: canvas.linkAnimationThemeRaw
             )
             let visibleEdgeCandidateCount = edgeVisibilityPlan.visibleCandidateCount
             let candidateEdgeIDs = edgeVisibilityPlan.renderEdgeIDs
@@ -1845,7 +2005,7 @@ struct WorkspaceCanvasView: View {
                 routedPointCount: routedPointCount,
                 zoom: effectiveZoom,
                 baselineZoom: zoomBaseline,
-                isInteracting: isCanvasInteracting
+                isInteracting: isEdgeGlowSuspendingInteraction
             )
             let edgeAnimationMinimumInterval = edgeAnimationTimelinePlan.minimumInterval
             let animateVisibleEdges = edgeAnimationTimelinePlan.shouldAnimate
@@ -5801,6 +5961,27 @@ private final class FittingTitleDrawingView: NSView {
             attributes: attributes
         )
         return CGSize(width: ceil(measured.width), height: ceil(measured.height))
+    }
+}
+
+private struct CanvasCodexContextLine: View {
+    let title: String
+    let value: String
+
+    init(_ title: String, value: String) {
+        self.title = title
+        self.value = value
+    }
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .font(.caption)
     }
 }
 

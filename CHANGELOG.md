@@ -6,11 +6,13 @@
 - Added v3.0.0 release metadata and release notes for the Agent Review, `.mip.json`, Proposal Review, validation, Help, Canvas performance, and release guardrail foundation work.
 - Added `docs/user-manual.md` as the user-facing manual for installation, navigation, resources, snippets, Canvas, tasks, Quick Open, import/export, Agent Review, Proposal Review, Settings, Help, and troubleshooting.
 - Documented that the current v3.0.0 artifact evidence is ad-hoc package validation only, not Developer ID notarization, stapling, Gatekeeper assessment, CI success, or GitHub Release publication.
+- Added a Canvas Codex panel that builds a bounded read-only Canvas prompt and opens Codex CLI in Terminal with safe interactive flags.
 
 ### Changed
 - Refined README into a shorter bilingual project homepage and moved detailed user workflows and agent safety details into the user manual.
 - Clarified release artifact naming across local notarized, local ad-hoc, and GitHub Release workflow outputs.
 - Integrated v2.4.0 sibling release product behavior into the v3.0.0 branch: Overview-first workspace entry, dedicated Tasks tab, lazy Canvas creation, and exact resource-removal cleanup messaging.
+- Kept Canvas edge glow animation active during viewport pan and zoom while preserving geometry-edit safeguards.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.

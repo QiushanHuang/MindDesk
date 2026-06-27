@@ -618,6 +618,7 @@ public enum CanvasEdgeVisibilityPlanner {
         zoom: Double,
         baselineZoom: Double,
         isInteracting: Bool,
+        isAnimationSuspendingInteraction: Bool? = nil,
         animationsEnabled: Bool = true,
         reduceMotion: Bool = false,
         animationTheme: String = "blue",
@@ -642,6 +643,7 @@ public enum CanvasEdgeVisibilityPlanner {
             zoom: zoom,
             baselineZoom: baselineZoom,
             isInteracting: isInteracting,
+            isAnimationSuspendingInteraction: isAnimationSuspendingInteraction,
             animationsEnabled: animationsEnabled,
             reduceMotion: reduceMotion,
             animationTheme: animationTheme
@@ -663,6 +665,7 @@ public enum CanvasEdgeVisibilityPlanner {
         zoom: Double,
         baselineZoom: Double,
         isInteracting: Bool,
+        isAnimationSuspendingInteraction: Bool? = nil,
         animationsEnabled: Bool = true,
         reduceMotion: Bool = false,
         animationTheme: String = "blue"
@@ -685,6 +688,7 @@ public enum CanvasEdgeVisibilityPlanner {
             zoom: zoom,
             baselineZoom: baselineZoom,
             isInteracting: isInteracting,
+            isAnimationSuspendingInteraction: isAnimationSuspendingInteraction,
             animationsEnabled: animationsEnabled,
             reduceMotion: reduceMotion,
             animationTheme: animationTheme
@@ -703,6 +707,7 @@ public enum CanvasEdgeVisibilityPlanner {
         zoom: Double,
         baselineZoom: Double,
         isInteracting: Bool,
+        isAnimationSuspendingInteraction: Bool? = nil,
         animationsEnabled: Bool = true,
         reduceMotion: Bool = false,
         animationTheme: String = "blue"
@@ -720,6 +725,7 @@ public enum CanvasEdgeVisibilityPlanner {
             zoom: zoom,
             baselineZoom: baselineZoom,
             isInteracting: isInteracting,
+            isAnimationSuspendingInteraction: isAnimationSuspendingInteraction,
             animationsEnabled: animationsEnabled,
             reduceMotion: reduceMotion,
             animationTheme: animationTheme
@@ -738,6 +744,7 @@ public enum CanvasEdgeVisibilityPlanner {
         zoom: Double,
         baselineZoom: Double,
         isInteracting: Bool,
+        isAnimationSuspendingInteraction: Bool? = nil,
         animationsEnabled: Bool = true,
         reduceMotion: Bool = false,
         animationTheme: String = "blue"
@@ -755,6 +762,7 @@ public enum CanvasEdgeVisibilityPlanner {
             zoom: zoom,
             baselineZoom: baselineZoom,
             isInteracting: isInteracting,
+            isAnimationSuspendingInteraction: isAnimationSuspendingInteraction,
             animationsEnabled: animationsEnabled,
             reduceMotion: reduceMotion,
             animationTheme: animationTheme
@@ -774,6 +782,7 @@ public enum CanvasEdgeVisibilityPlanner {
         zoom: Double,
         baselineZoom: Double,
         isInteracting: Bool,
+        isAnimationSuspendingInteraction: Bool?,
         animationsEnabled: Bool,
         reduceMotion: Bool,
         animationTheme: String
@@ -805,7 +814,7 @@ public enum CanvasEdgeVisibilityPlanner {
             routedPointCount: routedPointCount,
             zoom: zoom,
             baselineZoom: baselineZoom,
-            isInteracting: isInteracting
+            isInteracting: isAnimationSuspendingInteraction ?? isInteracting
         )
         return CanvasEdgeVisibilityPlan(
             renderEdgeIDs: renderQuery.edgeIDs,
