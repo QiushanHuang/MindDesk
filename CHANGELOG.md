@@ -14,7 +14,8 @@
 - Integrated v2.4.0 sibling release product behavior into the v3.0.0 branch: Overview-first workspace entry, dedicated Tasks tab, lazy Canvas creation, and exact resource-removal cleanup messaging.
 - Kept Canvas edge glow animation active during viewport pan and zoom while preserving geometry-edit safeguards.
 - Added editable Canvas Codex prompt groups and presets, with resettable local preferences for common organization, review, summary, and proposal workflows.
-- Hardened the Canvas Codex launch path with an empty temporary session root, short helper scripts for Open Codex and Codex + Prompt, a clean embedded shell prompt, a `service_tier="fast"` CLI override, a `gpt-5.4` startup default for current CLI compatibility, bounded terminal output retention, and stable prompt-template storage.
+- Hardened the Canvas Codex launch path with an empty temporary session root, short helper scripts for Open Codex and Codex + Prompt, a clean embedded shell prompt, a `service_tier="fast"` CLI override, bounded terminal output retention, and stable prompt-template storage.
+- Removed the fixed Canvas Codex startup model so the embedded Codex terminal can use the user's active Codex account and model selection.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.

@@ -65,6 +65,8 @@ final class CanvasCodexSessionController: ObservableObject {
             Session: \(launchedSession.sessionDirectoryPath)
             Canvas prompt: \(launchedSession.promptFilePath)
 
+            Terminal is ready. Click here and type directly, or use Open Codex / Codex + Prompt.
+
             """
         } catch {
             currentRunID = nil

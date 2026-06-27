@@ -110,7 +110,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(command.contains("--no-alt-screen"))
         XCTAssertTrue(command.contains("--sandbox read-only"))
         XCTAssertTrue(command.contains("--ask-for-approval on-request"))
-        XCTAssertTrue(command.contains("-m 'gpt-5.4'"))
+        XCTAssertFalse(command.contains("-m "))
         XCTAssertTrue(command.contains("-C '/tmp/My Workspace'"))
         XCTAssertFalse(command.contains("$(cat"))
         XCTAssertTrue(promptCommand.hasPrefix(command))

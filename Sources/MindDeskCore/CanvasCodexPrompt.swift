@@ -356,7 +356,6 @@ public enum CanvasCodexPromptBuilder {
 
 public enum CanvasCodexCommandBuilder {
     public static let executableName = "codex"
-    public static let interactiveDefaultModel = "gpt-5.4"
     public static let serviceTierOverride = "service_tier=\"fast\""
 
     public static func interactiveCodexCommand(workingDirectory: String) -> String {
@@ -366,7 +365,6 @@ public enum CanvasCodexCommandBuilder {
             "--no-alt-screen",
             "--sandbox read-only",
             "--ask-for-approval on-request",
-            "-m \(ShellQuoter.singleQuote(interactiveDefaultModel))",
             "-C \(ShellQuoter.singleQuote(workingDirectory))"
         ].joined(separator: " ")
     }

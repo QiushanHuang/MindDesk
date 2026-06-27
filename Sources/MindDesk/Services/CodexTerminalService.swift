@@ -97,6 +97,7 @@ struct CodexTerminalService {
             contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexPromptCommand(promptFilePath: promptFile.path, workingDirectory: sessionDirectory.path)),
             in: sessionDirectory
         )
+        try Self.writeZshConfiguration(in: sessionDirectory)
         let outputSink = CodexTerminalOutputSink(handler: onOutput)
 
         var masterFileDescriptor: Int32 = -1
@@ -112,7 +113,7 @@ struct CodexTerminalService {
         process.executableURL = URL(fileURLWithPath: launchPlan.executablePath)
         process.arguments = launchPlan.arguments
         process.currentDirectoryURL = URL(fileURLWithPath: launchPlan.currentDirectoryPath, isDirectory: true)
-        process.environment = Self.environment()
+        process.environment = Self.environment(sessionDirectoryPath: sessionDirectory.path)
         process.standardInput = slaveHandle
         process.standardOutput = slaveHandle
         process.standardError = slaveHandle
@@ -151,7 +152,7 @@ struct CodexTerminalService {
     static func launchPlan(promptFilePath: String, sessionDirectoryPath: String) -> CodexTerminalLaunchPlan {
         CodexTerminalLaunchPlan(
             executablePath: "/bin/zsh",
-            arguments: ["-f"],
+            arguments: ["-i"],
             currentDirectoryPath: sessionDirectoryPath,
             promptFilePath: promptFilePath,
             openCodexCommand: "./minddesk-open-codex.sh",
@@ -173,6 +174,20 @@ struct CodexTerminalService {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 
+    private static func writeZshConfiguration(in directory: URL) throws {
+        let configuration = """
+        unsetopt beep
+        setopt prompt_subst
+        PROMPT='minddesk:%~ %# '
+        RPROMPT=''
+        """
+        try configuration.write(
+            to: directory.appendingPathComponent(".zshrc", isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
     private static func makeSessionDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("minddesk-codex-terminal-\(UUID().uuidString)", isDirectory: true)
@@ -180,7 +195,7 @@ struct CodexTerminalService {
         return directory
     }
 
-    private static func environment() -> [String: String] {
+    private static func environment(sessionDirectoryPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
         let additions = [
@@ -198,9 +213,7 @@ struct CodexTerminalService {
         environment["PATH"] = uniquePathItems.joined(separator: ":")
         environment["TERM"] = environment["TERM"] == "dumb" ? "xterm-256color" : (environment["TERM"] ?? "xterm-256color")
         environment["COLORTERM"] = environment["COLORTERM"] ?? "truecolor"
-        environment["PS1"] = "minddesk:%~ %# "
-        environment["PROMPT"] = "minddesk:%~ %# "
-        environment["RPROMPT"] = ""
+        environment["ZDOTDIR"] = sessionDirectoryPath
         environment["NO_COLOR"] = "1"
         return environment
     }

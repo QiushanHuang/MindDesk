@@ -5589,7 +5589,7 @@ final class AppBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(plan.executablePath, "/bin/zsh")
-        XCTAssertEqual(plan.arguments, ["-f"])
+        XCTAssertEqual(plan.arguments, ["-i"])
         XCTAssertEqual(plan.currentDirectoryPath, "/tmp/minddesk-codex-terminal-test")
         XCTAssertEqual(plan.promptFilePath, "/tmp/minddesk-codex-terminal-test/minddesk-canvas-prompt.txt")
         XCTAssertTrue(plan.usesPTY)
@@ -5597,6 +5597,37 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(plan.openCodexWithPromptCommand, "./minddesk-open-codex-with-prompt.sh")
         XCTAssertFalse(plan.openCodexCommand.contains("codex "))
         XCTAssertFalse(plan.openCodexWithPromptCommand.contains("$(cat"))
+    }
+
+    func testCodexTerminalServiceStartsPTYAndAcceptsInput() throws {
+        let outputExpectation = expectation(description: "PTY echoed command output")
+        let lock = NSLock()
+        var transcript = ""
+        var didFulfill = false
+
+        let session = try CodexTerminalService().start(prompt: "Smoke prompt") { event in
+            guard case .text(let text) = event else { return }
+            lock.lock()
+            transcript += text
+            if !didFulfill, transcript.contains("MINDDESK_PTY_OK") {
+                didFulfill = true
+                outputExpectation.fulfill()
+            }
+            lock.unlock()
+        }
+        defer {
+            session.close()
+        }
+
+        XCTAssertEqual(
+            try String(contentsOf: URL(fileURLWithPath: session.promptFilePath), encoding: .utf8),
+            "Smoke prompt"
+        )
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: "\(session.sessionDirectoryPath)/minddesk-open-codex.sh"))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: "\(session.sessionDirectoryPath)/minddesk-open-codex-with-prompt.sh"))
+
+        session.write("echo MINDDESK_PTY_OK\n")
+        wait(for: [outputExpectation], timeout: 4.0)
     }
 
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {

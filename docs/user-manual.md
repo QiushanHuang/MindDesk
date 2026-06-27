@@ -354,7 +354,7 @@ Troubleshooting:
 | Missing or unauthorized resource | Reauthorize or re-add the resource. MindDesk does not move Finder files automatically. |
 | Import blocked | Check manifest format, size, version, and unsupported typed manifest version. |
 | Proposal blocked | Read sanitized diagnostics and confirm the proposal matches the original `.mip.json` and size limits. |
-| Codex session fails to start | Confirm the local `codex` CLI is installed, available on PATH, and logged in. MindDesk starts an embedded PTY terminal with a temporary session root, short helper scripts, a `service_tier="fast"` override so older `priority` config values do not block startup, and a `gpt-5.4` startup default for current CLI compatibility. |
+| Codex session fails to start | Confirm the local `codex` CLI is installed, available on PATH, and logged in. MindDesk starts an embedded PTY terminal with a temporary session root, short helper scripts, and a `service_tier="fast"` override so older `priority` config values do not block startup. The embedded terminal does not pin a model; use Codex account and `/model` controls as usual. |
 | Command run failure | Copy the command and run it manually in Terminal after checking working directory and permissions. |
 
 ## 14. Safety Boundary Quick Reference
