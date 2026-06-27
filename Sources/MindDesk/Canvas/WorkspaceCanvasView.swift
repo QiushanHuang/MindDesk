@@ -992,6 +992,9 @@ struct WorkspaceCanvasView: View {
     @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
     @AppStorage(AppPreferenceKeys.canvasAnimationFrameRate) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
     @AppStorage(AppPreferenceKeys.canvasZoomCommitCadence) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
+    @AppStorage(AppPreferenceKeys.canvasCodexPromptTemplateLibrary) private var codexTemplateLibraryRaw = AppPreferenceDefaults.canvasCodexPromptTemplateLibrary
+    @AppStorage(AppPreferenceKeys.canvasCodexPromptTemplateGroup) private var selectedCodexTemplateGroupID = AppPreferenceDefaults.canvasCodexPromptTemplateGroup
+    @AppStorage(AppPreferenceKeys.canvasCodexPromptTemplateOption) private var selectedCodexTemplateID = AppPreferenceDefaults.canvasCodexPromptTemplateOption
     let canvas: CanvasModel
     let resources: [ResourcePinModel]
     let allResources: [ResourcePinModel]
@@ -1045,6 +1048,7 @@ struct WorkspaceCanvasView: View {
     @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
     @State private var webCardDraft = ""
     @State private var codexInstruction = ""
+    @StateObject private var codexSession = CanvasCodexSessionController()
     @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
     @Environment(\.undoManager) private var undoManager
@@ -1177,11 +1181,31 @@ struct WorkspaceCanvasView: View {
         CanvasCodexPromptBuilder.prompt(for: codexPromptContext)
     }
 
+    private var codexTemplateGroups: [CanvasCodexPromptTemplateGroup] {
+        CanvasCodexPromptTemplateLibrary.decode(codexTemplateLibraryRaw)
+    }
+
+    private var codexTemplateGroupsBinding: Binding<[CanvasCodexPromptTemplateGroup]> {
+        Binding(
+            get: { CanvasCodexPromptTemplateLibrary.decode(codexTemplateLibraryRaw) },
+            set: { codexTemplateLibraryRaw = CanvasCodexPromptTemplateLibrary.encode($0) }
+        )
+    }
+
+    private var resolvedCodexInstruction: String {
+        CanvasCodexPromptTemplateLibrary.resolvedInstruction(
+            groupID: selectedCodexTemplateGroupID,
+            templateID: selectedCodexTemplateID,
+            customInstruction: codexInstruction,
+            groups: codexTemplateGroups
+        )
+    }
+
     private var codexPromptContext: CanvasCodexPromptContext {
         CanvasCodexPromptContext(
             workspaceTitle: workspacesById[canvas.workspaceId]?.title ?? "Workspace",
             canvasTitle: canvas.title,
-            userInstruction: codexInstruction,
+            userInstruction: resolvedCodexInstruction,
             nodes: workflowNodes.map { node in
                 CanvasCodexPromptNodeRecord(
                     id: node.id,
@@ -1202,21 +1226,42 @@ struct WorkspaceCanvasView: View {
         )
     }
 
+    private var codexSidebarContextSummary: CanvasCodexSidebarContextSummary {
+        CanvasCodexSidebarContextSummary(
+            cardCount: workflowNodes.count,
+            linkCount: visibleEdges.count,
+            selectedCardCount: selectedNodeIDs.count,
+            selectedLinkCount: selectedEdgeIDs.count,
+            promptByteCount: Data(currentCodexPrompt.body.utf8).count,
+            promptWasTruncated: currentCodexPrompt.wasTruncated
+        )
+    }
+
     private var codexWorkingDirectory: String {
         let current = FileManager.default.currentDirectoryPath
         return current.isEmpty || current == "/" ? NSHomeDirectory() : current
     }
 
-    private func openCodexForCanvas() {
-        let prompt = currentCodexPrompt.body
-        let command = CanvasCodexCommandBuilder.command(prompt: prompt)
-        do {
-            try TerminalService().prefill(command: command, workingDirectory: codexWorkingDirectory)
-            onStatus("Opened Terminal with Codex CLI prompt prefilled.")
-        } catch {
-            ClipboardService().copy(command)
-            onStatus("Could not open Terminal for Codex. Copied the Codex command instead. \(error.localizedDescription)")
-        }
+    private func startCodexSession() {
+        codexSession.start(prompt: currentCodexPrompt, workingDirectory: codexWorkingDirectory)
+        onStatus("Started in-sidebar Codex session.")
+    }
+
+    private func stopCodexSession() {
+        codexSession.stop()
+        onStatus("Stopped in-sidebar Codex session.")
+    }
+
+    private func copyCodexPrompt() {
+        ClipboardService().copy(currentCodexPrompt.body)
+        onStatus("Copied Canvas Codex prompt.")
+    }
+
+    private func resetCodexTemplates() {
+        codexTemplateLibraryRaw = AppPreferenceDefaults.canvasCodexPromptTemplateLibrary
+        selectedCodexTemplateGroupID = AppPreferenceDefaults.canvasCodexPromptTemplateGroup
+        selectedCodexTemplateID = AppPreferenceDefaults.canvasCodexPromptTemplateOption
+        onStatus("Reset Canvas Codex prompt templates.")
     }
 
     @discardableResult
@@ -1280,7 +1325,7 @@ struct WorkspaceCanvasView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     if let canvasRightRailPanel {
                         canvasRightRail(for: canvasRightRailPanel)
-                            .frame(width: CanvasSideRailLayout.rightRailWidth(availableWidth: proxy.size.width))
+                            .frame(width: canvasRightRailWidth(for: canvasRightRailPanel, availableWidth: proxy.size.width))
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -1312,6 +1357,7 @@ struct WorkspaceCanvasView: View {
             .onDisappear {
                 flushPendingScrollZoomCommit()
                 flushPendingNodeTextCommits()
+                codexSession.stop()
             }
             .onChange(of: canvasDefaultZoomPercent) { _, _ in
                 onStatus("Canvas display baseline updated")
@@ -1325,6 +1371,7 @@ struct WorkspaceCanvasView: View {
             .onChange(of: canvas.id) { _, _ in
                 initializeTodoPanelDefaults()
                 resetTransientCanvasInteractionState()
+                codexSession.reset()
                 handledOpenCanvasNodeRequestID = 0
             }
             .onChange(of: openTodoPanelRequest) { _, request in
@@ -1683,6 +1730,15 @@ struct WorkspaceCanvasView: View {
         canvasRightRailPanel = canvasRightRailPanel == panel ? nil : panel
     }
 
+    private func canvasRightRailWidth(for panel: CanvasRightRailPanel, availableWidth: Double) -> Double {
+        switch panel {
+        case .inspector:
+            CanvasSideRailLayout.rightRailWidth(availableWidth: availableWidth)
+        case .codexAgent:
+            CanvasSideRailLayout.codexRailWidth(availableWidth: availableWidth)
+        }
+    }
+
     @ViewBuilder
     private func canvasRightRail(for panel: CanvasRightRailPanel) -> some View {
         switch panel {
@@ -1816,69 +1872,19 @@ struct WorkspaceCanvasView: View {
     }
 
     private var canvasCodexAgentRail: some View {
-        GeometryReader { proxy in
-            ScrollView([.vertical, .horizontal]) {
-                VStack(alignment: .leading, spacing: 14) {
-                    GroupBox("Codex") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Open Codex with a read-only Canvas prompt. MindDesk will prefill Terminal; press Return there to start.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-
-                            TextField("Ask Codex to organize this canvas...", text: $codexInstruction, axis: .vertical)
-                                .lineLimit(4...8)
-
-                            Button {
-                                openCodexForCanvas()
-                            } label: {
-                                Label("Open Codex CLI", systemImage: "terminal")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .disabled(codexInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                            Button {
-                                ClipboardService().copy(currentCodexPrompt.body)
-                                onStatus("Copied Canvas Codex prompt.")
-                            } label: {
-                                Label("Copy Prompt", systemImage: "doc.on.doc")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .disabled(codexInstruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    GroupBox("Context") {
-                        VStack(alignment: .leading, spacing: 6) {
-                            CanvasCodexContextLine("Cards", value: "\(workflowNodes.count)")
-                            CanvasCodexContextLine("Links", value: "\(visibleEdges.count)")
-                            CanvasCodexContextLine("Selected Cards", value: "\(selectedNodeIDs.count)")
-                            CanvasCodexContextLine("Selected Links", value: "\(selectedEdgeIDs.count)")
-                            if currentCodexPrompt.wasTruncated {
-                                Text("Prompt is bounded before it is sent to Codex.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    GroupBox("Boundary") {
-                        Text("Codex receives read-only context. Use Proposal Review for any proposed MindDesk changes; this panel does not execute or apply agent output.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .padding(12)
-                .frame(
-                    width: CanvasSideRailLayout.rightRailScrollableContentWidth(railWidth: proxy.size.width),
-                    alignment: .topLeading
-                )
-            }
-        }
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        CanvasCodexAgentSidebar(
+            templateGroups: codexTemplateGroupsBinding,
+            selectedGroupID: $selectedCodexTemplateGroupID,
+            selectedTemplateID: $selectedCodexTemplateID,
+            customInstruction: $codexInstruction,
+            session: codexSession,
+            prompt: currentCodexPrompt,
+            contextSummary: codexSidebarContextSummary,
+            onRun: startCodexSession,
+            onStop: stopCodexSession,
+            onCopyPrompt: copyCodexPrompt,
+            onResetTemplates: resetCodexTemplates
+        )
     }
 
     private var canvasSurface: some View {

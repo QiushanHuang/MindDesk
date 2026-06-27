@@ -15,6 +15,9 @@ public enum AppPreferenceKeys {
     public static let canvasConnectSingleShot = "canvasConnectSingleShot"
     public static let canvasAnimationFrameRate = "canvasAnimationFrameRate"
     public static let canvasZoomCommitCadence = "canvasZoomCommitCadence"
+    public static let canvasCodexPromptTemplateLibrary = "canvasCodexPromptTemplateLibrary"
+    public static let canvasCodexPromptTemplateGroup = "canvasCodexPromptTemplateGroup"
+    public static let canvasCodexPromptTemplateOption = "canvasCodexPromptTemplateOption"
     public static let workspaceCanvasTodoPanelDefaultOpen = "workspaceCanvasTodoPanelDefaultOpen"
     public static let workspaceCanvasTodoDoneColumnDefaultOpen = "workspaceCanvasTodoDoneColumnDefaultOpen"
     public static let workspaceCanvasTodoDoneColumnOpen = "workspaceCanvasTodoDoneColumnOpen"
@@ -57,6 +60,9 @@ public enum AppPreferenceDefaults {
     public static let canvasConnectSingleShot = true
     public static let canvasAnimationFrameRate = CanvasAnimationFrameRate.balanced.rawValue
     public static let canvasZoomCommitCadence = CanvasZoomCommitCadence.balanced.rawValue
+    public static let canvasCodexPromptTemplateLibrary = ""
+    public static let canvasCodexPromptTemplateGroup = CanvasCodexPromptTemplateLibrary.defaultGroupID
+    public static let canvasCodexPromptTemplateOption = CanvasCodexPromptTemplateLibrary.defaultTemplateID
     public static let workspaceCanvasTodoPanelDefaultOpen = false
     public static let workspaceCanvasTodoDoneColumnDefaultOpen = false
     public static let workspaceCanvasTodoColumnRatio = TodoBoardColumnSplit.defaultRatio
@@ -157,7 +163,7 @@ public enum AppSettingsResetDescriptor {
     public static let alertTitle = "Reset all MindDesk settings?"
     public static let confirmButtonTitle = "Reset Settings"
     public static let cancelButtonTitle = "Cancel"
-    public static let resetScopeSummary = "Reset All Settings restores launch destination, workspace open destination, appearance, text scale, control density, Canvas interaction, workspace task defaults, portable JSON defaults, and Custom Agent Review Guidance to product defaults."
+    public static let resetScopeSummary = "Reset All Settings restores launch destination, workspace open destination, appearance, text scale, control density, Canvas interaction, Canvas Codex prompt templates, workspace task defaults, portable JSON defaults, and Custom Agent Review Guidance to product defaults."
     public static let obsoleteKeySummary = "It also removes old preference entries left by previous versions, including obsolete settings keys."
     public static let protectedDataSummary = "It does not delete workspaces, resources, snippets, tasks, canvases, cards, exports, raw backups, quarantine, or local recovery data."
 
@@ -177,7 +183,7 @@ public enum AppSettingsResetDescriptor {
     }
 
     public static var alertInformativeText: String {
-        "\(resetScopeSummary) Custom Agent Review Guidance will be cleared. Defaults include Home launch, Workspaces opening to Canvas, system appearance and text scale, balanced density, Complete Workspace Map export without usage dates, scroll-down-zooms-out Canvas behavior, 100% Canvas baseline, Single-use Connect on, balanced link animation and zoom save timing, Workspace Canvas task panel off, Done column off, and a 50/50 task split. \(obsoleteKeySummary) \(protectedDataSummary)"
+        "\(resetScopeSummary) Custom Agent Review Guidance will be cleared. Defaults include Home launch, Workspaces opening to Canvas, system appearance and text scale, balanced density, Complete Workspace Map export without usage dates, scroll-down-zooms-out Canvas behavior, 100% Canvas baseline, Single-use Connect on, balanced link animation and zoom save timing, built-in Canvas Codex prompt templates, Workspace Canvas task panel off, Done column off, and a 50/50 task split. \(obsoleteKeySummary) \(protectedDataSummary)"
     }
 
     public static let obsoleteKeysCleared = AppPreferenceDefaults.obsoleteKeys
@@ -273,6 +279,27 @@ public enum AppSettingsResetDescriptor {
             title: "Zoom Save Timing",
             defaultStoredValue: .string(AppPreferenceDefaults.canvasZoomCommitCadence),
             defaultValueDescription: "Balanced"
+        ),
+        AppSettingsResetItem(
+            key: AppPreferenceKeys.canvasCodexPromptTemplateLibrary,
+            category: .canvas,
+            title: "Canvas Codex Templates",
+            defaultStoredValue: .string(AppPreferenceDefaults.canvasCodexPromptTemplateLibrary),
+            defaultValueDescription: "Built-in prompt groups"
+        ),
+        AppSettingsResetItem(
+            key: AppPreferenceKeys.canvasCodexPromptTemplateGroup,
+            category: .canvas,
+            title: "Canvas Codex Template Group",
+            defaultStoredValue: .string(AppPreferenceDefaults.canvasCodexPromptTemplateGroup),
+            defaultValueDescription: "Organize"
+        ),
+        AppSettingsResetItem(
+            key: AppPreferenceKeys.canvasCodexPromptTemplateOption,
+            category: .canvas,
+            title: "Canvas Codex Prompt",
+            defaultStoredValue: .string(AppPreferenceDefaults.canvasCodexPromptTemplateOption),
+            defaultValueDescription: "Organize canvas"
         ),
         AppSettingsResetItem(
             key: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen,

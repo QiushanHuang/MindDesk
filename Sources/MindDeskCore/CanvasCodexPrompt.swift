@@ -64,6 +64,214 @@ public struct CanvasCodexPrompt: Equatable, Sendable {
     }
 }
 
+public struct CanvasCodexPromptTemplateOption: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var title: String
+    public var body: String
+
+    public init(id: String, title: String, body: String) {
+        self.id = id
+        self.title = title
+        self.body = body
+    }
+}
+
+public struct CanvasCodexPromptTemplateGroup: Codable, Equatable, Identifiable, Sendable {
+    public var id: String
+    public var title: String
+    public var templates: [CanvasCodexPromptTemplateOption]
+
+    public init(id: String, title: String, templates: [CanvasCodexPromptTemplateOption]) {
+        self.id = id
+        self.title = title
+        self.templates = templates
+    }
+}
+
+public enum CanvasCodexPromptTemplateLibrary {
+    public static let maximumGroupCount = 8
+    public static let maximumTemplatesPerGroup = 8
+    public static let maximumTemplateTitleCharacters = 80
+    public static let maximumTemplateBodyCharacters = 1_200
+    public static let maximumCustomInstructionCharacters = 1_000
+    public static let maximumStoredJSONBytes = 128_000
+
+    public static let defaultGroups: [CanvasCodexPromptTemplateGroup] = [
+        CanvasCodexPromptTemplateGroup(
+            id: "organize",
+            title: "Organize",
+            templates: [
+                CanvasCodexPromptTemplateOption(
+                    id: "organize-canvas",
+                    title: "Organize canvas",
+                    body: "Review the current Canvas structure. Suggest clearer card groups, better link labels, and sequencing improvements. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review."
+                ),
+                CanvasCodexPromptTemplateOption(
+                    id: "organize-selection",
+                    title: "Organize selection",
+                    body: "Focus on the selected Canvas cards and links. Identify a cleaner grouping or ordering for the selected work. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review."
+                )
+            ]
+        ),
+        CanvasCodexPromptTemplateGroup(
+            id: "review",
+            title: "Review",
+            templates: [
+                CanvasCodexPromptTemplateOption(
+                    id: "review-gaps",
+                    title: "Find gaps",
+                    body: "Review the Canvas for missing context, duplicate cards, weak assumptions, and unclear dependencies. Use concise findings first. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review."
+                ),
+                CanvasCodexPromptTemplateOption(
+                    id: "review-links",
+                    title: "Review links",
+                    body: "Inspect the Canvas links and labels. Identify links that should be renamed, removed, or added. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review."
+                )
+            ]
+        ),
+        CanvasCodexPromptTemplateGroup(
+            id: "summarize",
+            title: "Summarize",
+            templates: [
+                CanvasCodexPromptTemplateOption(
+                    id: "summarize-work",
+                    title: "Summarize work",
+                    body: "Summarize the Canvas into decisions, open questions, next actions, and risk areas. If you recommend structure changes, return them only as a minddesk.proposal.envelope for Proposal Review."
+                ),
+                CanvasCodexPromptTemplateOption(
+                    id: "summarize-handoff",
+                    title: "Prepare handoff",
+                    body: "Create a concise handoff from this Canvas for another human or agent. Include context, priorities, blockers, and follow-up questions. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review."
+                )
+            ]
+        ),
+        CanvasCodexPromptTemplateGroup(
+            id: "proposal",
+            title: "Proposal",
+            templates: [
+                CanvasCodexPromptTemplateOption(
+                    id: "proposal-json",
+                    title: "Draft proposal",
+                    body: "Draft a minddesk.proposal.envelope that proposes safe Canvas organization changes. Do not claim approval. The proposal must be reviewed through Proposal Review before anything changes."
+                )
+            ]
+        )
+    ]
+
+    public static var defaultGroupID: String {
+        defaultGroups.first?.id ?? "organize"
+    }
+
+    public static var defaultTemplateID: String {
+        defaultGroups.first?.templates.first?.id ?? "organize-canvas"
+    }
+
+    public static func encode(_ groups: [CanvasCodexPromptTemplateGroup]) -> String {
+        let boundedGroups = bounded(groups)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(boundedGroups),
+              data.count <= maximumStoredJSONBytes,
+              let value = String(data: data, encoding: .utf8)
+        else {
+            return ""
+        }
+        return value
+    }
+
+    public static func decode(_ value: String) -> [CanvasCodexPromptTemplateGroup] {
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let data = value.data(using: .utf8),
+              data.count <= maximumStoredJSONBytes,
+              let decoded = try? JSONDecoder().decode([CanvasCodexPromptTemplateGroup].self, from: data)
+        else {
+            return defaultGroups
+        }
+        let boundedGroups = bounded(decoded)
+        return boundedGroups.isEmpty ? defaultGroups : boundedGroups
+    }
+
+    public static func resolvedInstruction(
+        groupID: String,
+        templateID: String,
+        customInstruction: String,
+        groups: [CanvasCodexPromptTemplateGroup]
+    ) -> String {
+        let boundedGroups = bounded(groups)
+        let group = boundedGroups.first { $0.id == groupID } ?? boundedGroups.first
+        let template = group?.templates.first { $0.id == templateID } ?? group?.templates.first
+        let templateBody = template?.body ?? defaultGroups.first?.templates.first?.body ?? ""
+        let custom = boundedText(customInstruction, maximumCharacters: maximumCustomInstructionCharacters)
+        guard !custom.isEmpty else { return templateBody }
+        return "\(templateBody)\n\nAdditional user instruction:\n\(custom)"
+    }
+
+    public static func bounded(_ groups: [CanvasCodexPromptTemplateGroup]) -> [CanvasCodexPromptTemplateGroup] {
+        var usedGroupIDs = Set<String>()
+        return groups.prefix(maximumGroupCount).compactMap { group -> CanvasCodexPromptTemplateGroup? in
+            let title = boundedText(group.title, maximumCharacters: maximumTemplateTitleCharacters)
+            let id = uniqueIdentifier(boundedIdentifier(group.id, fallback: title), used: &usedGroupIDs)
+            var usedTemplateIDs = Set<String>()
+            let templates = group.templates.prefix(maximumTemplatesPerGroup).compactMap { template -> CanvasCodexPromptTemplateOption? in
+                let templateTitle = boundedText(template.title, maximumCharacters: maximumTemplateTitleCharacters)
+                let templateBody = boundedText(template.body, maximumCharacters: maximumTemplateBodyCharacters)
+                guard !templateTitle.isEmpty, !templateBody.isEmpty else { return nil }
+                return CanvasCodexPromptTemplateOption(
+                    id: uniqueIdentifier(boundedIdentifier(template.id, fallback: templateTitle), used: &usedTemplateIDs),
+                    title: templateTitle,
+                    body: templateBody
+                )
+            }
+            guard !title.isEmpty, !templates.isEmpty else { return nil }
+            return CanvasCodexPromptTemplateGroup(id: id, title: title, templates: templates)
+        }
+    }
+
+    private static func uniqueIdentifier(_ value: String, used: inout Set<String>) -> String {
+        if !used.contains(value) {
+            used.insert(value)
+            return value
+        }
+
+        var suffix = 2
+        while used.contains("\(value)-\(suffix)") {
+            suffix += 1
+        }
+        let uniqueValue = "\(value)-\(suffix)"
+        used.insert(uniqueValue)
+        return uniqueValue
+    }
+
+    private static func boundedIdentifier(_ value: String, fallback: String) -> String {
+        let cleaned = boundedText(value, maximumCharacters: 64)
+            .lowercased()
+            .map { character in
+                character.isLetter || character.isNumber || character == "-" ? character : "-"
+            }
+        let collapsed = String(cleaned).split(separator: "-").joined(separator: "-")
+        if !collapsed.isEmpty {
+            return collapsed
+        }
+        let fallbackCleaned = boundedText(fallback, maximumCharacters: 64)
+            .lowercased()
+            .map { character in
+                character.isLetter || character.isNumber || character == "-" ? character : "-"
+            }
+        let fallbackCollapsed = String(fallbackCleaned).split(separator: "-").joined(separator: "-")
+        return fallbackCollapsed.isEmpty ? UUID().uuidString : fallbackCollapsed
+    }
+
+    private static func boundedText(_ value: String, maximumCharacters: Int) -> String {
+        let cleaned = value
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\u{2028}", with: "\n")
+            .replacingOccurrences(of: "\u{2029}", with: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard cleaned.count > maximumCharacters else { return cleaned }
+        return String(cleaned.prefix(maximumCharacters)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 public enum CanvasCodexPromptBuilder {
     public static let maximumPromptBytes = 14_000
     public static let maximumNodeCount = 48
@@ -147,21 +355,33 @@ public enum CanvasCodexPromptBuilder {
 }
 
 public enum CanvasCodexCommandBuilder {
-    public static let requiredPrefix = "codex --sandbox read-only --ask-for-approval untrusted --"
+    public static let executableName = "codex"
+    public static let serviceTierOverride = "service_tier=\"flex\""
 
-    public static func command(prompt: String) -> String {
-        "\(requiredPrefix) \(ShellQuoter.singleQuote(singleLinePromptArgument(prompt)))"
+    public static func execArguments(workingDirectory: String) -> [String] {
+        [
+            "-c",
+            serviceTierOverride,
+            "exec",
+            "--json",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--color",
+            "never",
+            "-C",
+            resolvedWorkingDirectory(workingDirectory),
+            "-"
+        ]
     }
 
-    public static func singleLinePromptArgument(_ prompt: String) -> String {
-        prompt
-            .replacingOccurrences(of: "\r", with: " ")
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\u{2028}", with: " ")
-            .replacingOccurrences(of: "\u{2029}", with: " ")
-            .replacingOccurrences(of: "\t", with: " ")
-            .split(separator: " ")
-            .joined(separator: " ")
+    public static func resolvedWorkingDirectory(_ workingDirectory: String) -> String {
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "/" {
+            return NSHomeDirectory()
+        }
+        return trimmed
     }
 }
 

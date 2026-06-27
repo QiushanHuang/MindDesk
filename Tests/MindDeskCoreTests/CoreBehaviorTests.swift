@@ -98,22 +98,139 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(prompt.body.contains("prompt was bounded before opening Codex"))
     }
 
-    func testCanvasCodexCommandBuilderUsesSafeInteractiveCodexFlagsAndSingleLinePrompt() {
-        let prompt = "Organize 'Inbox'; do not run $(rm -rf ~)\nSecond line\u{2028}third"
-        let command = CanvasCodexCommandBuilder.command(prompt: prompt)
+    func testCanvasCodexCommandBuilderUsesSafeStreamingExecArguments() {
+        let arguments = CanvasCodexCommandBuilder.execArguments(workingDirectory: "/tmp/My Workspace")
 
-        XCTAssertTrue(command.hasPrefix("codex --sandbox read-only --ask-for-approval untrusted -- "))
-        XCTAssertFalse(command.contains("\n"))
-        XCTAssertFalse(command.contains("\r"))
-        XCTAssertFalse(command.contains("\u{2028}"))
-        XCTAssertFalse(command.contains(" --full-auto"))
-        XCTAssertFalse(command.contains("dangerously-bypass"))
-        XCTAssertFalse(command.contains("--sandbox workspace-write"))
-        XCTAssertFalse(command.contains("--sandbox danger-full-access"))
-        XCTAssertFalse(command.contains("--ask-for-approval never"))
-        XCTAssertFalse(command.contains("codex exec"))
-        XCTAssertFalse(command.contains("codex apply"))
-        XCTAssertTrue(command.contains("'Organize '\\''Inbox'\\''; do not run $(rm -rf ~) Second line third'"))
+        XCTAssertEqual(arguments, [
+            "-c",
+            "service_tier=\"flex\"",
+            "exec",
+            "--json",
+            "--sandbox",
+            "read-only",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "--color",
+            "never",
+            "-C",
+            "/tmp/My Workspace",
+            "-"
+        ])
+        XCTAssertTrue(arguments.contains("--json"))
+        XCTAssertTrue(arguments.contains("-c"))
+        XCTAssertTrue(arguments.contains("service_tier=\"flex\""))
+        XCTAssertTrue(arguments.contains("--skip-git-repo-check"))
+        XCTAssertTrue(arguments.contains("--ephemeral"))
+        XCTAssertTrue(arguments.contains("--color"))
+        XCTAssertTrue(arguments.contains("never"))
+        XCTAssertTrue(arguments.contains("-C"))
+        XCTAssertTrue(arguments.contains("/tmp/My Workspace"))
+        XCTAssertEqual(arguments.last, "-")
+        if let colorIndex = arguments.firstIndex(of: "--color"), arguments.indices.contains(colorIndex + 1) {
+            XCTAssertEqual(arguments[colorIndex + 1], "never")
+        } else {
+            XCTFail("Missing --color argument")
+        }
+        XCTAssertFalse(arguments.contains("--ask-for-approval"))
+        XCTAssertFalse(arguments.contains("--full-auto"))
+        XCTAssertFalse(arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
+        XCTAssertFalse(arguments.contains("workspace-write"))
+        XCTAssertFalse(arguments.contains("danger-full-access"))
+        XCTAssertFalse(arguments.contains("--add-dir"))
+        XCTAssertFalse(arguments.contains("apply"))
+        XCTAssertFalse(arguments.contains("resume"))
+    }
+
+    func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {
+        let groups = CanvasCodexPromptTemplateLibrary.defaultGroups
+
+        XCTAssertGreaterThanOrEqual(groups.count, 3)
+        XCTAssertTrue(groups.allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        XCTAssertTrue(groups.allSatisfy { !$0.templates.isEmpty })
+        XCTAssertTrue(groups.flatMap(\.templates).allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        XCTAssertTrue(groups.flatMap(\.templates).allSatisfy { $0.body.contains("Proposal Review") })
+        XCTAssertTrue(groups.flatMap(\.templates).contains { $0.title.localizedCaseInsensitiveContains("organize") })
+
+        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
+        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
+        XCTAssertEqual(decoded, groups)
+    }
+
+    func testCanvasCodexPromptTemplateLibraryFallsBackToDefaultsForInvalidOrEmptyStorage() {
+        XCTAssertEqual(CanvasCodexPromptTemplateLibrary.decode(""), CanvasCodexPromptTemplateLibrary.defaultGroups)
+        XCTAssertEqual(CanvasCodexPromptTemplateLibrary.decode("{not json"), CanvasCodexPromptTemplateLibrary.defaultGroups)
+    }
+
+    func testCanvasCodexPromptTemplateLibraryPersistsEditedTemplateAndResolvesInstruction() {
+        var groups = CanvasCodexPromptTemplateLibrary.defaultGroups
+        groups[0].templates[0].title = "Canvas Triage"
+        groups[0].templates[0].body = "Group selected cards by owner.\nReturn proposal JSON only through Proposal Review."
+
+        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
+        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
+        let resolved = CanvasCodexPromptTemplateLibrary.resolvedInstruction(
+            groupID: groups[0].id,
+            templateID: groups[0].templates[0].id,
+            customInstruction: "Prioritize the selected cards.",
+            groups: decoded
+        )
+
+        XCTAssertEqual(decoded[0].templates[0].title, "Canvas Triage")
+        XCTAssertTrue(resolved.contains("Group selected cards by owner."))
+        XCTAssertTrue(resolved.contains("Additional user instruction"))
+        XCTAssertTrue(resolved.contains("Prioritize the selected cards."))
+        XCTAssertLessThanOrEqual(encoded.data(using: .utf8)?.count ?? 0, CanvasCodexPromptTemplateLibrary.maximumStoredJSONBytes)
+    }
+
+    func testCanvasCodexPromptTemplateLibraryStoresMaximumEditableTemplateSet() {
+        let body = String(repeating: "A", count: CanvasCodexPromptTemplateLibrary.maximumTemplateBodyCharacters)
+        let groups = (0..<CanvasCodexPromptTemplateLibrary.maximumGroupCount).map { groupIndex in
+            CanvasCodexPromptTemplateGroup(
+                id: "group-\(groupIndex)",
+                title: "Group \(groupIndex)",
+                templates: (0..<CanvasCodexPromptTemplateLibrary.maximumTemplatesPerGroup).map { templateIndex in
+                    CanvasCodexPromptTemplateOption(
+                        id: "template-\(templateIndex)",
+                        title: "Template \(templateIndex)",
+                        body: body
+                    )
+                }
+            )
+        }
+
+        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
+        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
+
+        XCTAssertFalse(encoded.isEmpty)
+        XCTAssertLessThanOrEqual(encoded.data(using: .utf8)?.count ?? 0, CanvasCodexPromptTemplateLibrary.maximumStoredJSONBytes)
+        XCTAssertEqual(decoded.count, CanvasCodexPromptTemplateLibrary.maximumGroupCount)
+        XCTAssertEqual(decoded.flatMap(\.templates).count, CanvasCodexPromptTemplateLibrary.maximumGroupCount * CanvasCodexPromptTemplateLibrary.maximumTemplatesPerGroup)
+        XCTAssertEqual(decoded[0].templates[0].body.count, CanvasCodexPromptTemplateLibrary.maximumTemplateBodyCharacters)
+    }
+
+    func testCanvasCodexPromptTemplateLibraryDeduplicatesDecodedIdentifiers() {
+        let duplicateGroups = [
+            CanvasCodexPromptTemplateGroup(
+                id: "duplicate",
+                title: "Duplicate",
+                templates: [
+                    CanvasCodexPromptTemplateOption(id: "same", title: "First", body: "First body"),
+                    CanvasCodexPromptTemplateOption(id: "same", title: "Second", body: "Second body")
+                ]
+            ),
+            CanvasCodexPromptTemplateGroup(
+                id: "duplicate",
+                title: "Duplicate Again",
+                templates: [
+                    CanvasCodexPromptTemplateOption(id: "same", title: "Third", body: "Third body")
+                ]
+            )
+        ]
+
+        let bounded = CanvasCodexPromptTemplateLibrary.bounded(duplicateGroups)
+
+        XCTAssertEqual(Set(bounded.map(\.id)).count, bounded.count)
+        XCTAssertEqual(Set(bounded[0].templates.map(\.id)).count, bounded[0].templates.count)
     }
 
     func testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode() throws {
@@ -910,6 +1027,9 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
         defaults.set(CanvasAnimationFrameRate.smooth.rawValue, forKey: AppPreferenceKeys.canvasAnimationFrameRate)
         defaults.set(CanvasZoomCommitCadence.responsive.rawValue, forKey: AppPreferenceKeys.canvasZoomCommitCadence)
+        defaults.set("edited templates", forKey: AppPreferenceKeys.canvasCodexPromptTemplateLibrary)
+        defaults.set("review", forKey: AppPreferenceKeys.canvasCodexPromptTemplateGroup)
+        defaults.set("review-links", forKey: AppPreferenceKeys.canvasCodexPromptTemplateOption)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen)
         defaults.set(0.7, forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio)
@@ -932,6 +1052,9 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.canvasConnectSingleShot))
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasAnimationFrameRate), CanvasAnimationFrameRate.balanced.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasZoomCommitCadence), CanvasZoomCommitCadence.balanced.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateLibrary), AppPreferenceDefaults.canvasCodexPromptTemplateLibrary)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateGroup), AppPreferenceDefaults.canvasCodexPromptTemplateGroup)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateOption), AppPreferenceDefaults.canvasCodexPromptTemplateOption)
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen))
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio), TodoBoardColumnSplit.defaultRatio, accuracy: 0.0001)
@@ -956,6 +1079,9 @@ final class CoreBehaviorTests: XCTestCase {
             AppPreferenceKeys.canvasConnectSingleShot,
             AppPreferenceKeys.canvasAnimationFrameRate,
             AppPreferenceKeys.canvasZoomCommitCadence,
+            AppPreferenceKeys.canvasCodexPromptTemplateLibrary,
+            AppPreferenceKeys.canvasCodexPromptTemplateGroup,
+            AppPreferenceKeys.canvasCodexPromptTemplateOption,
             AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen,
             AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen,
             AppPreferenceKeys.workspaceCanvasTodoColumnRatio

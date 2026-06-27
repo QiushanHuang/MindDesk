@@ -160,7 +160,7 @@ You can add:
 | Drag | Move cards or frames. |
 | Zoom | Zoom in/out, Fit All, or Fit Selected. |
 | Inspector | Edit title, notes, color, glow, and related metadata. |
-| Codex panel | Open a read-only Canvas prompt in Codex CLI through Terminal. |
+| Codex panel | Start a read-only Codex session in the Canvas sidebar using bounded Canvas context. |
 | Undo / recovery | Use the visible recovery flow after supported edits or deletes. |
 
 ### Links and Layout
@@ -181,12 +181,13 @@ Canvas diagnostics in Agent Review expose aggregate information only, such as co
 ### Canvas Codex Panel
 
 1. Open a workspace Canvas.
-2. Use the terminal button in the Canvas left rail to open the Codex panel.
-3. Enter instructions for how Codex should inspect or organize the current Canvas.
-4. Choose `Open Codex CLI`.
-5. MindDesk opens Terminal with a read-only Codex command prefilled. Press Return in Terminal when you are ready.
+2. Use the Codex button in the Canvas left rail to open the Codex panel.
+3. Choose a prompt group and preset, or edit the built-in templates.
+4. Add run-specific instructions for how Codex should inspect or propose organization changes for the current Canvas.
+5. Choose `Run`.
+6. Review the in-sidebar Codex output while it works from bounded read-only Canvas context.
 
-The Canvas Codex panel sends bounded read-only context and does not apply changes. Use Proposal Review for any proposed MindDesk changes.
+The Canvas Codex panel sends bounded read-only context through `codex exec --json` and does not apply MindDesk changes. Use Proposal Review for any proposed changes.
 
 ## 9. Tasks / Todo Board
 
@@ -352,6 +353,7 @@ Troubleshooting:
 | Missing or unauthorized resource | Reauthorize or re-add the resource. MindDesk does not move Finder files automatically. |
 | Import blocked | Check manifest format, size, version, and unsupported typed manifest version. |
 | Proposal blocked | Read sanitized diagnostics and confirm the proposal matches the original `.mip.json` and size limits. |
+| Codex session fails to start | Confirm the local `codex` CLI is installed, available on PATH, and logged in. MindDesk starts Codex with read-only Canvas context, an empty temporary session root, and a `service_tier="flex"` override so older `priority` config values do not block startup. |
 | Command run failure | Copy the command and run it manually in Terminal after checking working directory and permissions. |
 
 ## 14. Safety Boundary Quick Reference

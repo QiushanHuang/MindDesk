@@ -253,9 +253,16 @@ public enum CanvasSideRailLayout {
     public static let leftRailWidth: Double = 196
     public static let rightRailMinimumWidth: Double = 180
     public static let rightRailIdealWidth: Double = 244
+    public static let codexRailMinimumWidth: Double = 320
+    public static let codexRailIdealWidth: Double = 420
 
     public static func rightRailWidth(availableWidth: Double) -> Double {
         min(rightRailIdealWidth, max(rightRailMinimumWidth, floor(availableWidth * 0.22)))
+    }
+
+    public static func codexRailWidth(availableWidth: Double) -> Double {
+        guard availableWidth.isFinite else { return codexRailIdealWidth }
+        return min(codexRailIdealWidth, max(codexRailMinimumWidth, floor(availableWidth * 0.32)))
     }
 
     public static func rightRailScrollableContentWidth(railWidth: Double) -> Double {

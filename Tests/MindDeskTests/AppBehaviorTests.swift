@@ -5531,7 +5531,7 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(resourceViewsSource.contains("Terminal run failed; copied command. Could not open Terminal"))
     }
 
-    func testWorkspaceCanvasCodexPanelPrefillsTerminalWithoutRunningCodex() throws {
+    func testWorkspaceCanvasCodexPanelStartsInlineSessionWithoutOpeningTerminal() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -5540,15 +5540,69 @@ final class AppBehaviorTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
             encoding: .utf8
         )
+        let sidebarSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasCodexAgentSidebar.swift"),
+            encoding: .utf8
+        )
+        let sessionSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasCodexSessionController.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(canvasSource.contains("case codexAgent"))
         XCTAssertTrue(canvasSource.contains("Image(systemName: \"terminal\")"))
-        XCTAssertTrue(canvasSource.contains("Label(\"Open Codex CLI\", systemImage: \"terminal\")"))
-        XCTAssertTrue(canvasSource.contains("CanvasCodexCommandBuilder.command(prompt: prompt)"))
-        XCTAssertTrue(canvasSource.contains("try TerminalService().prefill(command: command, workingDirectory: codexWorkingDirectory)"))
-        XCTAssertFalse(canvasSource.contains("TerminalService().run(command: command"))
-        XCTAssertFalse(canvasSource.contains("codex exec"))
+        XCTAssertTrue(canvasSource.contains("@StateObject private var codexSession = CanvasCodexSessionController()"))
+        XCTAssertTrue(canvasSource.contains("startCodexSession()"))
+        XCTAssertTrue(canvasSource.contains("codexSession.reset()"))
+        XCTAssertTrue(sidebarSource.contains("CodexSessionOutputWindow("))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Run\", systemImage: \"play.fill\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Stop\", systemImage: \"stop.fill\")"))
+        XCTAssertTrue(sidebarSource.contains("Edit Templates"))
+        XCTAssertTrue(sidebarSource.contains("Reset Defaults"))
+        XCTAssertTrue(sessionSource.contains("maximumOutputCharacters"))
+        XCTAssertTrue(sessionSource.contains("[Earlier Codex output trimmed]"))
+        XCTAssertFalse(canvasSource.contains("Open Codex CLI"))
+        XCTAssertFalse(canvasSource.contains("Opened Terminal with Codex CLI prompt prefilled"))
+        XCTAssertFalse(canvasSource.contains("Could not open Terminal for Codex"))
+        XCTAssertFalse(canvasSource.contains("TerminalService().prefill(command: command"))
+        XCTAssertFalse(sidebarSource.contains("TerminalService"))
+        XCTAssertFalse(sessionSource.contains("TerminalService"))
+        XCTAssertFalse(sessionSource.contains("AppleScriptRunner"))
+        XCTAssertFalse(sessionSource.contains("NSAppleScript"))
         XCTAssertFalse(canvasSource.contains("codex apply"))
+    }
+
+    func testCodexProcessLaunchPlanUsesSafeExecStdinAndSessionDirectory() {
+        let plan = CodexProcessService.launchPlan(
+            prompt: "Review canvas",
+            sessionDirectoryPath: "/tmp/minddesk-codex-session-test"
+        )
+
+        XCTAssertEqual(plan.executablePath, "/usr/bin/env")
+        XCTAssertEqual(plan.arguments.first, CanvasCodexCommandBuilder.executableName)
+        XCTAssertTrue(plan.arguments.contains("-c"))
+        XCTAssertTrue(plan.arguments.contains("service_tier=\"flex\""))
+        XCTAssertTrue(plan.arguments.contains("exec"))
+        XCTAssertTrue(plan.arguments.contains("--json"))
+        XCTAssertTrue(plan.arguments.contains("--sandbox"))
+        XCTAssertTrue(plan.arguments.contains("read-only"))
+        XCTAssertTrue(plan.arguments.contains("--skip-git-repo-check"))
+        XCTAssertTrue(plan.arguments.contains("--ephemeral"))
+        XCTAssertTrue(plan.arguments.contains("--color"))
+        XCTAssertTrue(plan.arguments.contains("never"))
+        XCTAssertTrue(plan.arguments.contains("-C"))
+        XCTAssertTrue(plan.arguments.contains("/tmp/minddesk-codex-session-test"))
+        XCTAssertEqual(plan.arguments.last, "-")
+        XCTAssertEqual(plan.currentDirectoryPath, "/tmp/minddesk-codex-session-test")
+        XCTAssertEqual(plan.prompt, "Review canvas")
+        XCTAssertFalse(plan.usesShell)
+        XCTAssertFalse(plan.arguments.contains("--ask-for-approval"))
+        XCTAssertFalse(plan.arguments.contains("--full-auto"))
+        XCTAssertFalse(plan.arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
+        XCTAssertFalse(plan.arguments.contains("workspace-write"))
+        XCTAssertFalse(plan.arguments.contains("danger-full-access"))
+        XCTAssertFalse(plan.arguments.contains("--add-dir"))
+        XCTAssertFalse(plan.arguments.contains("apply"))
     }
 
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {
