@@ -358,7 +358,7 @@ public enum CanvasCardDetailInteractionPolicy {
         isEdgeControlDragging: Bool,
         visibleCardCount: Int = 0
     ) -> Bool {
-        if isZooming || isResizing || isEdgeControlDragging {
+        if isResizing || isEdgeControlDragging {
             return true
         }
         if isNodeDragging || isViewportMoving {

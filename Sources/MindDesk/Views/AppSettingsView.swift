@@ -120,6 +120,7 @@ struct AppSettingsView: View {
 
 private struct GeneralSettingsPane: View {
     @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppPreferenceDefaults.startupDestination
+    @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
 
     var body: some View {
         SettingsForm {
@@ -131,7 +132,14 @@ private struct GeneralSettingsPane: View {
                     }
                 }
 
-                SettingsHelpText("Choose the first product surface shown when the main window appears. Most Recent Workspace opens the latest opened or updated workspace; if no workspace exists, MindDesk opens Home.")
+                Picker("Open Workspaces To", selection: workspaceOpenDestinationSelection) {
+                    ForEach(AppWorkspaceOpenDestination.allCases) { destination in
+                        Text(destination.settingsTitle)
+                            .tag(destination.rawValue)
+                    }
+                }
+
+                SettingsHelpText("Choose the first product surface shown when the main window appears. Most Recent Workspace opens the latest opened or updated workspace; if no workspace exists, MindDesk opens Home. Open Workspaces To controls the first tab shown when a workspace is opened from the sidebar, Home, Quick Open, or startup.")
             } header: {
                 Text("Launch")
             }
@@ -157,6 +165,7 @@ private struct GeneralSettingsPane: View {
         }
         .onAppear {
             startupDestinationRaw = AppStartupDestination.resolved(startupDestinationRaw).rawValue
+            workspaceOpenDestinationRaw = AppWorkspaceOpenDestination.resolved(workspaceOpenDestinationRaw).rawValue
         }
     }
 
@@ -164,6 +173,13 @@ private struct GeneralSettingsPane: View {
         Binding(
             get: { AppStartupDestination.resolved(startupDestinationRaw).rawValue },
             set: { startupDestinationRaw = AppStartupDestination.resolved($0).rawValue }
+        )
+    }
+
+    private var workspaceOpenDestinationSelection: Binding<String> {
+        Binding(
+            get: { AppWorkspaceOpenDestination.resolved(workspaceOpenDestinationRaw).rawValue },
+            set: { workspaceOpenDestinationRaw = AppWorkspaceOpenDestination.resolved($0).rawValue }
         )
     }
 
@@ -781,6 +797,23 @@ private extension AppStartupDestination {
             "Pinned Files"
         case .snippets:
             "Snippet Library"
+        }
+    }
+}
+
+private extension AppWorkspaceOpenDestination {
+    var settingsTitle: String {
+        switch self {
+        case .overview:
+            "Overview"
+        case .tasks:
+            "Tasks"
+        case .canvas:
+            "Canvas"
+        case .resources:
+            "Resources"
+        case .snippets:
+            "Snippets"
         }
     }
 }

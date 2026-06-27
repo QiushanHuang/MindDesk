@@ -1,3 +1,5 @@
+import MindDeskCore
+
 enum WorkspaceDetailTab: String, CaseIterable, Identifiable {
     case overview
     case tasks
@@ -7,7 +9,22 @@ enum WorkspaceDetailTab: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    static var defaultTab: WorkspaceDetailTab { .overview }
+    static var defaultTab: WorkspaceDetailTab { .canvas }
+
+    static func defaultTab(for openDestinationRaw: String) -> WorkspaceDetailTab {
+        switch AppWorkspaceOpenDestination.resolved(openDestinationRaw) {
+        case .overview:
+            .overview
+        case .tasks:
+            .tasks
+        case .canvas:
+            .canvas
+        case .resources:
+            .resources
+        case .snippets:
+            .snippets
+        }
+    }
 
     var title: String {
         switch self {
@@ -23,7 +40,10 @@ enum WorkspaceDetailTab: String, CaseIterable, Identifiable {
         self == .canvas
     }
 
-    static func tabAfterWorkspaceChange(from _: WorkspaceDetailTab) -> WorkspaceDetailTab {
-        defaultTab
+    static func tabAfterWorkspaceChange(
+        from _: WorkspaceDetailTab,
+        openDestinationRaw: String = AppPreferenceDefaults.workspaceOpenDestination
+    ) -> WorkspaceDetailTab {
+        defaultTab(for: openDestinationRaw)
     }
 }

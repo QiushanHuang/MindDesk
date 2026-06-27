@@ -5287,10 +5287,17 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(canvases.map(\.id), ["canvas-requested"])
     }
 
-    func testWorkspaceDetailTabDefaultsToOverviewAndKeepsCanvasExplicit() {
-        XCTAssertEqual(WorkspaceDetailTab.defaultTab, .overview)
+    func testWorkspaceDetailTabDefaultsToCanvasAndFollowsWorkspaceOpenPreference() {
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab, .canvas)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: AppWorkspaceOpenDestination.canvas.rawValue), .canvas)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: AppWorkspaceOpenDestination.overview.rawValue), .overview)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: AppWorkspaceOpenDestination.tasks.rawValue), .tasks)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: AppWorkspaceOpenDestination.resources.rawValue), .resources)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: AppWorkspaceOpenDestination.snippets.rawValue), .snippets)
+        XCTAssertEqual(WorkspaceDetailTab.defaultTab(for: "missing"), .canvas)
         XCTAssertEqual(WorkspaceDetailTab.allCases.map(\.title), ["Overview", "Tasks", "Canvas", "Resources", "Snippets"])
-        XCTAssertEqual(WorkspaceDetailTab.tabAfterWorkspaceChange(from: .canvas), .overview)
+        XCTAssertEqual(WorkspaceDetailTab.tabAfterWorkspaceChange(from: .overview, openDestinationRaw: AppWorkspaceOpenDestination.canvas.rawValue), .canvas)
+        XCTAssertEqual(WorkspaceDetailTab.tabAfterWorkspaceChange(from: .canvas, openDestinationRaw: AppWorkspaceOpenDestination.overview.rawValue), .overview)
         XCTAssertFalse(WorkspaceDetailTab.overview.activatesCanvas)
         XCTAssertFalse(WorkspaceDetailTab.tasks.activatesCanvas)
         XCTAssertTrue(WorkspaceDetailTab.canvas.activatesCanvas)

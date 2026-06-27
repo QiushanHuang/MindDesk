@@ -3821,7 +3821,9 @@ struct WorkspaceDetailView: View {
     let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
+    @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
     @State private var tab = WorkspaceDetailTab.defaultTab
+    @State private var initializedWorkspaceTabForWorkspaceID: String?
     @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
     @State private var openTodoPanelRequest: WorkspaceTodoPanelOpenRequest?
     @State private var isTasksTabOpen = true
@@ -3976,6 +3978,7 @@ struct WorkspaceDetailView: View {
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
+            applyWorkspaceOpenDestinationIfNeeded()
             onCanvasTabActiveChange(tab.activatesCanvas)
             if tab.activatesCanvas {
                 ensureCanvas()
@@ -3984,8 +3987,15 @@ struct WorkspaceDetailView: View {
             handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: workspace.id) { _, _ in
-            tab = WorkspaceDetailTab.tabAfterWorkspaceChange(from: tab)
-            onCanvasTabActiveChange(false)
+            tab = WorkspaceDetailTab.tabAfterWorkspaceChange(
+                from: tab,
+                openDestinationRaw: workspaceOpenDestinationRaw
+            )
+            initializedWorkspaceTabForWorkspaceID = workspace.id
+            onCanvasTabActiveChange(tab.activatesCanvas)
+            if tab.activatesCanvas {
+                ensureCanvas()
+            }
             markWorkspaceOpened()
             handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
@@ -3998,6 +4008,12 @@ struct WorkspaceDetailView: View {
         .onChange(of: openCanvasNodeRequest) { _, request in
             handleOpenCanvasNodeRequest(request)
         }
+    }
+
+    private func applyWorkspaceOpenDestinationIfNeeded() {
+        guard initializedWorkspaceTabForWorkspaceID != workspace.id else { return }
+        tab = WorkspaceDetailTab.defaultTab(for: workspaceOpenDestinationRaw)
+        initializedWorkspaceTabForWorkspaceID = workspace.id
     }
 
     private var workspaceActionButtons: some View {

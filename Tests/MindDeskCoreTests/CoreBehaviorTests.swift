@@ -643,6 +643,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(AppPreferenceKeys.interfaceTextScale, "interfaceTextScale")
         XCTAssertEqual(AppPreferenceKeys.interfaceDensity, "interfaceDensity")
         XCTAssertEqual(AppPreferenceKeys.startupDestination, "startupDestination")
+        XCTAssertEqual(AppPreferenceKeys.workspaceOpenDestination, "workspaceOpenDestination")
         XCTAssertEqual(AppPreferenceKeys.manifestExportScope, "manifestExportScope")
         XCTAssertEqual(AppPreferenceKeys.manifestExportIncludesUsageDates, "manifestExportIncludesUsageDates")
         XCTAssertEqual(AppPreferenceKeys.agentReviewCustomPromptGuidance, "agentReviewCustomPromptGuidance")
@@ -722,6 +723,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(AppInterfaceTextScale.resolved("unknown"), .system)
         XCTAssertEqual(AppInterfaceDensity.resolved("unknown"), .balanced)
         XCTAssertEqual(AppStartupDestination.resolved("unknown"), .home)
+        XCTAssertEqual(AppWorkspaceOpenDestination.resolved("unknown"), .canvas)
         XCTAssertEqual(ManifestExportScope.resolved("unknown"), .completeWorkspaceMap)
         XCTAssertEqual(CanvasAnimationFrameRate.resolved("unknown"), .balanced)
         XCTAssertEqual(CanvasZoomCommitCadence.resolved("unknown"), .balanced)
@@ -831,6 +833,7 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(AppInterfaceTextScale.extraLarge.rawValue, forKey: AppPreferenceKeys.interfaceTextScale)
         defaults.set(AppInterfaceDensity.spacious.rawValue, forKey: AppPreferenceKeys.interfaceDensity)
         defaults.set(AppStartupDestination.snippets.rawValue, forKey: AppPreferenceKeys.startupDestination)
+        defaults.set(AppWorkspaceOpenDestination.overview.rawValue, forKey: AppPreferenceKeys.workspaceOpenDestination)
         defaults.set(ManifestExportScope.globalLibraryOnly.rawValue, forKey: AppPreferenceKeys.manifestExportScope)
         defaults.set(true, forKey: AppPreferenceKeys.manifestExportIncludesUsageDates)
         defaults.set("Prioritize validation issues.", forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance)
@@ -852,6 +855,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.interfaceTextScale), AppInterfaceTextScale.system.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.interfaceDensity), AppInterfaceDensity.balanced.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.startupDestination), AppStartupDestination.home.rawValue)
+        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.workspaceOpenDestination), AppWorkspaceOpenDestination.canvas.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.manifestExportScope), ManifestExportScope.completeWorkspaceMap.rawValue)
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.manifestExportIncludesUsageDates))
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance), AppPreferenceDefaults.agentReviewCustomPromptGuidance)
@@ -875,6 +879,7 @@ final class CoreBehaviorTests: XCTestCase {
             AppPreferenceKeys.interfaceTextScale,
             AppPreferenceKeys.interfaceDensity,
             AppPreferenceKeys.startupDestination,
+            AppPreferenceKeys.workspaceOpenDestination,
             AppPreferenceKeys.manifestExportScope,
             AppPreferenceKeys.manifestExportIncludesUsageDates,
             AppPreferenceKeys.agentReviewCustomPromptGuidance,
@@ -985,6 +990,7 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(AppInterfaceTextScale.extraLarge.rawValue, forKey: AppPreferenceKeys.interfaceTextScale)
         defaults.set(AppInterfaceDensity.spacious.rawValue, forKey: AppPreferenceKeys.interfaceDensity)
         defaults.set(AppStartupDestination.snippets.rawValue, forKey: AppPreferenceKeys.startupDestination)
+        defaults.set(AppWorkspaceOpenDestination.overview.rawValue, forKey: AppPreferenceKeys.workspaceOpenDestination)
         defaults.set(ManifestExportScope.globalLibraryOnly.rawValue, forKey: AppPreferenceKeys.manifestExportScope)
         defaults.set(true, forKey: AppPreferenceKeys.manifestExportIncludesUsageDates)
         defaults.set("Custom reset guidance", forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance)
@@ -4244,6 +4250,28 @@ final class CoreBehaviorTests: XCTestCase {
                 isEdgeControlDragging: false,
                 visibleCardCount: sparseVisibleCount
             ),
+            isSelected: false,
+            isEditing: false
+        ))
+    }
+
+    func testCanvasCardDetailInteractionPolicyKeepsPeerDetailsDuringZoomOnly() {
+        let sparseVisibleCount = 24
+        let shouldReduceDetails = CanvasCardDetailInteractionPolicy.shouldReducePeerDetails(
+            isNodeDragging: false,
+            isViewportMoving: false,
+            isZooming: true,
+            isResizing: false,
+            isEdgeControlDragging: false,
+            visibleCardCount: sparseVisibleCount
+        )
+
+        XCTAssertFalse(shouldReduceDetails)
+        XCTAssertTrue(CanvasCardRenderDetailPolicy.shouldRenderDetails(
+            zoom: 0.35,
+            baselineZoom: 0.35,
+            visibleCardCount: sparseVisibleCount,
+            isInteracting: shouldReduceDetails,
             isSelected: false,
             isEditing: false
         ))

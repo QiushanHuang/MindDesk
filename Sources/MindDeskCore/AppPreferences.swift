@@ -5,6 +5,7 @@ public enum AppPreferenceKeys {
     public static let interfaceTextScale = "interfaceTextScale"
     public static let interfaceDensity = "interfaceDensity"
     public static let startupDestination = "startupDestination"
+    public static let workspaceOpenDestination = "workspaceOpenDestination"
     public static let settingsSelectedPane = "settingsSelectedPane"
     public static let manifestExportScope = "manifestExportScope"
     public static let manifestExportIncludesUsageDates = "manifestExportIncludesUsageDates"
@@ -46,6 +47,7 @@ public enum AppPreferenceDefaults {
     public static let interfaceTextScale = AppInterfaceTextScale.system.rawValue
     public static let interfaceDensity = AppInterfaceDensity.balanced.rawValue
     public static let startupDestination = AppStartupDestination.home.rawValue
+    public static let workspaceOpenDestination = AppWorkspaceOpenDestination.canvas.rawValue
     public static let settingsSelectedPane = AppSettingsPaneSelection.general.rawValue
     public static let manifestExportScope = ManifestExportScope.completeWorkspaceMap.rawValue
     public static let manifestExportIncludesUsageDates = false
@@ -155,7 +157,7 @@ public enum AppSettingsResetDescriptor {
     public static let alertTitle = "Reset all MindDesk settings?"
     public static let confirmButtonTitle = "Reset Settings"
     public static let cancelButtonTitle = "Cancel"
-    public static let resetScopeSummary = "Reset All Settings restores launch destination, appearance, text scale, control density, Canvas interaction, workspace task defaults, portable JSON defaults, and Custom Agent Review Guidance to product defaults."
+    public static let resetScopeSummary = "Reset All Settings restores launch destination, workspace open destination, appearance, text scale, control density, Canvas interaction, workspace task defaults, portable JSON defaults, and Custom Agent Review Guidance to product defaults."
     public static let obsoleteKeySummary = "It also removes old preference entries left by previous versions, including obsolete settings keys."
     public static let protectedDataSummary = "It does not delete workspaces, resources, snippets, tasks, canvases, cards, exports, raw backups, quarantine, or local recovery data."
 
@@ -175,7 +177,7 @@ public enum AppSettingsResetDescriptor {
     }
 
     public static var alertInformativeText: String {
-        "\(resetScopeSummary) Custom Agent Review Guidance will be cleared. Defaults include Home launch, system appearance and text scale, balanced density, Complete Workspace Map export without usage dates, scroll-down-zooms-out Canvas behavior, 100% Canvas baseline, Single-use Connect on, balanced link animation and zoom save timing, Workspace Canvas task panel off, Done column off, and a 50/50 task split. \(obsoleteKeySummary) \(protectedDataSummary)"
+        "\(resetScopeSummary) Custom Agent Review Guidance will be cleared. Defaults include Home launch, Workspaces opening to Canvas, system appearance and text scale, balanced density, Complete Workspace Map export without usage dates, scroll-down-zooms-out Canvas behavior, 100% Canvas baseline, Single-use Connect on, balanced link animation and zoom save timing, Workspace Canvas task panel off, Done column off, and a 50/50 task split. \(obsoleteKeySummary) \(protectedDataSummary)"
     }
 
     public static let obsoleteKeysCleared = AppPreferenceDefaults.obsoleteKeys
@@ -208,6 +210,13 @@ public enum AppSettingsResetDescriptor {
             title: "Launch Destination",
             defaultStoredValue: .string(AppPreferenceDefaults.startupDestination),
             defaultValueDescription: "Home"
+        ),
+        AppSettingsResetItem(
+            key: AppPreferenceKeys.workspaceOpenDestination,
+            category: .general,
+            title: "Workspace Open Destination",
+            defaultStoredValue: .string(AppPreferenceDefaults.workspaceOpenDestination),
+            defaultValueDescription: "Canvas"
         ),
         AppSettingsResetItem(
             key: AppPreferenceKeys.manifestExportScope,
@@ -353,6 +362,20 @@ public enum AppStartupDestination: String, CaseIterable, Identifiable, Sendable 
 
     public static func resolved(_ rawValue: String) -> AppStartupDestination {
         AppStartupDestination(rawValue: rawValue) ?? .home
+    }
+}
+
+public enum AppWorkspaceOpenDestination: String, CaseIterable, Identifiable, Sendable {
+    case overview
+    case tasks
+    case canvas
+    case resources
+    case snippets
+
+    public var id: String { rawValue }
+
+    public static func resolved(_ rawValue: String) -> AppWorkspaceOpenDestination {
+        AppWorkspaceOpenDestination(rawValue: rawValue) ?? .canvas
     }
 }
 
