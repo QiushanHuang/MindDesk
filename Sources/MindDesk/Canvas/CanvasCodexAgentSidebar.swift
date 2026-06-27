@@ -19,8 +19,11 @@ struct CanvasCodexAgentSidebar: View {
 
     var prompt: CanvasCodexPrompt
     var contextSummary: CanvasCodexSidebarContextSummary
-    var onRun: () -> Void
-    var onStop: () -> Void
+    var onStartTerminal: () -> Void
+    var onOpenCodex: () -> Void
+    var onOpenCodexWithPrompt: () -> Void
+    var onInterrupt: () -> Void
+    var onCloseTerminal: () -> Void
     var onCopyPrompt: () -> Void
     var onResetTemplates: () -> Void
 
@@ -159,7 +162,7 @@ struct CanvasCodexAgentSidebar: View {
 
     private var boundarySection: some View {
         GroupBox("Boundary") {
-            Text("The embedded terminal starts Codex with the bounded Canvas prompt in a temporary session folder. MindDesk does not apply terminal output; use Proposal Review for any proposed changes.")
+            Text("The embedded terminal starts in a temporary session folder with a prompt file and helper scripts. MindDesk does not apply terminal output; use Proposal Review for any proposed changes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -169,21 +172,48 @@ struct CanvasCodexAgentSidebar: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Button(action: onRun) {
-                    Label("Start Codex", systemImage: "play.fill")
+                Button(action: onStartTerminal) {
+                    Label("Start Terminal", systemImage: "terminal")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(!session.canRun)
 
-                Button(action: onStop) {
+                Button(action: onInterrupt) {
                     Label("Interrupt", systemImage: "control")
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(!session.canStop)
+                .disabled(!session.canUseTerminal)
             }
-            .buttonStyle(.borderedProminent)
 
-            Text("Starts a real PTY shell, opens interactive Codex by default, and keeps the terminal available for account, model, and command changes.")
+            HStack(spacing: 8) {
+                Button(action: onOpenCodex) {
+                    Label("Open Codex", systemImage: "bolt")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!session.canUseTerminal)
+
+                Button(action: onOpenCodexWithPrompt) {
+                    Label("Codex + Prompt", systemImage: "text.bubble")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!session.canUseTerminal)
+            }
+
+            HStack(spacing: 8) {
+                Button(action: onCopyPrompt) {
+                    Label("Copy Prompt", systemImage: "doc.on.doc")
+                        .frame(maxWidth: .infinity)
+                }
+
+                Button(action: onCloseTerminal) {
+                    Label("Close", systemImage: "xmark")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!session.canUseTerminal)
+            }
+            .buttonStyle(.bordered)
+
+            Text("Click the terminal area and type directly. Use Open Codex for account or model changes, or Codex + Prompt to start with the current Canvas prompt.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

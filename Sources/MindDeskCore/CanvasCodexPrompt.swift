@@ -359,7 +359,7 @@ public enum CanvasCodexCommandBuilder {
     public static let interactiveDefaultModel = "gpt-5.4"
     public static let serviceTierOverride = "service_tier=\"fast\""
 
-    public static func interactiveTerminalCommand(promptFilePath: String, workingDirectory: String) -> String {
+    public static func interactiveCodexCommand(workingDirectory: String) -> String {
         [
             executableName,
             "-c \(ShellQuoter.singleQuote(serviceTierOverride))",
@@ -367,7 +367,13 @@ public enum CanvasCodexCommandBuilder {
             "--sandbox read-only",
             "--ask-for-approval on-request",
             "-m \(ShellQuoter.singleQuote(interactiveDefaultModel))",
-            "-C \(ShellQuoter.singleQuote(workingDirectory))",
+            "-C \(ShellQuoter.singleQuote(workingDirectory))"
+        ].joined(separator: " ")
+    }
+
+    public static func interactiveCodexPromptCommand(promptFilePath: String, workingDirectory: String) -> String {
+        [
+            interactiveCodexCommand(workingDirectory: workingDirectory),
             "\"$(cat -- \(ShellQuoter.singleQuote(promptFilePath)))\""
         ].joined(separator: " ")
     }

@@ -38,6 +38,9 @@ struct CodexTerminalScreen: NSViewRepresentable {
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
         return scrollView
     }
 
@@ -49,9 +52,6 @@ struct CodexTerminalScreen: NSViewRepresentable {
             textView.scrollToEndOfDocument(nil)
         }
         context.coordinator.textView = textView
-        DispatchQueue.main.async {
-            textView.window?.makeFirstResponder(textView)
-        }
     }
 
     final class Coordinator {
@@ -64,6 +64,11 @@ private final class TerminalTextView: NSTextView {
 
     override var acceptsFirstResponder: Bool {
         true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 
     override func paste(_ sender: Any?) {

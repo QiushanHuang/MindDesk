@@ -12,7 +12,8 @@ struct CodexTerminalLaunchPlan: Equatable, Sendable {
     var arguments: [String]
     var currentDirectoryPath: String
     var promptFilePath: String
-    var startupCommand: String
+    var openCodexCommand: String
+    var openCodexWithPromptCommand: String
     var usesPTY: Bool
 }
 
@@ -23,21 +24,27 @@ final class CodexTerminalSession {
     private let sessionDirectory: URL
 
     let sessionDirectoryPath: String
-    let startupCommand: String
+    let promptFilePath: String
+    let openCodexCommand: String
+    let openCodexWithPromptCommand: String
 
     init(
         process: Process,
         masterHandle: FileHandle,
         slaveHandle: FileHandle,
         sessionDirectory: URL,
-        startupCommand: String
+        promptFilePath: String,
+        openCodexCommand: String,
+        openCodexWithPromptCommand: String
     ) {
         self.process = process
         self.masterHandle = masterHandle
         self.slaveHandle = slaveHandle
         self.sessionDirectory = sessionDirectory
         self.sessionDirectoryPath = sessionDirectory.path
-        self.startupCommand = startupCommand
+        self.promptFilePath = promptFilePath
+        self.openCodexCommand = openCodexCommand
+        self.openCodexWithPromptCommand = openCodexWithPromptCommand
     }
 
     var isRunning: Bool {
@@ -79,6 +86,16 @@ struct CodexTerminalService {
         let launchPlan = Self.launchPlan(
             promptFilePath: promptFile.path,
             sessionDirectoryPath: sessionDirectory.path
+        )
+        try Self.writeExecutableScript(
+            named: "minddesk-open-codex.sh",
+            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexCommand(workingDirectory: sessionDirectory.path)),
+            in: sessionDirectory
+        )
+        try Self.writeExecutableScript(
+            named: "minddesk-open-codex-with-prompt.sh",
+            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexPromptCommand(promptFilePath: promptFile.path, workingDirectory: sessionDirectory.path)),
+            in: sessionDirectory
         )
         let outputSink = CodexTerminalOutputSink(handler: onOutput)
 
@@ -124,7 +141,9 @@ struct CodexTerminalService {
             masterHandle: masterHandle,
             slaveHandle: slaveHandle,
             sessionDirectory: sessionDirectory,
-            startupCommand: launchPlan.startupCommand
+            promptFilePath: launchPlan.promptFilePath,
+            openCodexCommand: launchPlan.openCodexCommand,
+            openCodexWithPromptCommand: launchPlan.openCodexWithPromptCommand
         )
         return session
     }
@@ -132,15 +151,26 @@ struct CodexTerminalService {
     static func launchPlan(promptFilePath: String, sessionDirectoryPath: String) -> CodexTerminalLaunchPlan {
         CodexTerminalLaunchPlan(
             executablePath: "/bin/zsh",
-            arguments: ["-l"],
+            arguments: ["-f"],
             currentDirectoryPath: sessionDirectoryPath,
             promptFilePath: promptFilePath,
-            startupCommand: CanvasCodexCommandBuilder.interactiveTerminalCommand(
-                promptFilePath: promptFilePath,
-                workingDirectory: sessionDirectoryPath
-            ),
+            openCodexCommand: "./minddesk-open-codex.sh",
+            openCodexWithPromptCommand: "./minddesk-open-codex-with-prompt.sh",
             usesPTY: true
         )
+    }
+
+    private static func shellScript(command: String) -> String {
+        """
+        #!/bin/zsh
+        \(command)
+        """
+    }
+
+    private static func writeExecutableScript(named name: String, contents: String, in directory: URL) throws {
+        let url = directory.appendingPathComponent(name, isDirectory: false)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: url.path)
     }
 
     private static func makeSessionDirectory() throws -> URL {
@@ -168,6 +198,10 @@ struct CodexTerminalService {
         environment["PATH"] = uniquePathItems.joined(separator: ":")
         environment["TERM"] = environment["TERM"] == "dumb" ? "xterm-256color" : (environment["TERM"] ?? "xterm-256color")
         environment["COLORTERM"] = environment["COLORTERM"] ?? "truecolor"
+        environment["PS1"] = "minddesk:%~ %# "
+        environment["PROMPT"] = "minddesk:%~ %# "
+        environment["RPROMPT"] = ""
+        environment["NO_COLOR"] = "1"
         return environment
     }
 }

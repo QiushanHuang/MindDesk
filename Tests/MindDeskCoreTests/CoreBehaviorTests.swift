@@ -99,7 +99,8 @@ final class CoreBehaviorTests: XCTestCase {
     }
 
     func testCanvasCodexCommandBuilderUsesSafeInteractiveTerminalCommand() {
-        let command = CanvasCodexCommandBuilder.interactiveTerminalCommand(
+        let command = CanvasCodexCommandBuilder.interactiveCodexCommand(workingDirectory: "/tmp/My Workspace")
+        let promptCommand = CanvasCodexCommandBuilder.interactiveCodexPromptCommand(
             promptFilePath: "/tmp/My Prompt.txt",
             workingDirectory: "/tmp/My Workspace"
         )
@@ -111,7 +112,9 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(command.contains("--ask-for-approval on-request"))
         XCTAssertTrue(command.contains("-m 'gpt-5.4'"))
         XCTAssertTrue(command.contains("-C '/tmp/My Workspace'"))
-        XCTAssertTrue(command.contains("\"$(cat -- '/tmp/My Prompt.txt')\""))
+        XCTAssertFalse(command.contains("$(cat"))
+        XCTAssertTrue(promptCommand.hasPrefix(command))
+        XCTAssertTrue(promptCommand.contains("\"$(cat -- '/tmp/My Prompt.txt')\""))
         XCTAssertFalse(command.contains(" exec "))
         XCTAssertFalse(command.contains("--json"))
         XCTAssertFalse(command.contains("--skip-git-repo-check"))
@@ -123,6 +126,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(command.contains("--add-dir"))
         XCTAssertFalse(command.contains(" apply"))
         XCTAssertFalse(command.contains(" resume"))
+        XCTAssertFalse(promptCommand.contains(" exec "))
     }
 
     func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {

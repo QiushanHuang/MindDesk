@@ -39,8 +39,12 @@ final class CanvasCodexSessionController: ObservableObject {
         status != .running
     }
 
-    var canStop: Bool {
+    var canUseTerminal: Bool {
         status == .running
+    }
+
+    var canStop: Bool {
+        canUseTerminal
     }
 
     func start(prompt: CanvasCodexPrompt, workingDirectory _: String) {
@@ -57,12 +61,11 @@ final class CanvasCodexSessionController: ObservableObject {
             }
             session = launchedSession
             output = """
-            Embedded terminal started in \(launchedSession.sessionDirectoryPath)
-            Default command:
-            \(launchedSession.startupCommand)
+            Embedded terminal started.
+            Session: \(launchedSession.sessionDirectoryPath)
+            Canvas prompt: \(launchedSession.promptFilePath)
 
             """
-            launchedSession.write("\(launchedSession.startupCommand)\n")
         } catch {
             currentRunID = nil
             status = .failed
@@ -72,6 +75,16 @@ final class CanvasCodexSessionController: ObservableObject {
 
     func sendInput(_ text: String) {
         session?.write(text)
+    }
+
+    func openCodex() {
+        guard let session, canUseTerminal else { return }
+        session.write("\(session.openCodexCommand)\n")
+    }
+
+    func openCodexWithCanvasPrompt() {
+        guard let session, canUseTerminal else { return }
+        session.write("\(session.openCodexWithPromptCommand)\n")
     }
 
     func interrupt() {
