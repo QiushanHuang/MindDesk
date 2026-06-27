@@ -13,12 +13,10 @@
 ![Swift](https://img.shields.io/badge/Swift-6.0-F05138)
 ![UI](https://img.shields.io/badge/UI-SwiftUI-0A84FF)
 ![Storage](https://img.shields.io/badge/storage-SwiftData-34C759)
-![License](https://img.shields.io/badge/license-MIT-22C55E)
-![Release](https://img.shields.io/badge/release-v3.0.0-0A84FF)
+![许可证](https://img.shields.io/badge/license-MIT-22C55E)
+![发行版](https://img.shields.io/badge/release-v3.0.0-0A84FF)
 
-Release status: `v3.0.0` is the current release metadata line in this checkout. The local `v3.0.0` ad-hoc package has been validated for internal testing, but public installation still requires a matching GitHub Release with Developer ID signed, notarized, and stapled artifacts.
 
-发布状态：`v3.0.0` 是当前 checkout 的版本元数据线。本地 `v3.0.0` ad-hoc 包已完成内部验证，但公开安装仍需要匹配的 GitHub Release，并附带 Developer ID signed、notarized、stapled 产物。
 
 ---
 
