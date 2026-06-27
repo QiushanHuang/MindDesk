@@ -299,16 +299,25 @@ public enum CanvasCodexPromptBuilder {
         - Treat this as read-only context.
         - Do not execute commands, open files, use Finder, edit files, or apply changes directly.
         - Do not claim approval or authorization.
-        - If you recommend changes, produce a minddesk.proposal.envelope for Proposal Review.
+        - Any Canvas organization, grouping, card, link, label, sequencing, path, or environment recommendation must be returned as Proposal Review JSON.
         - Any side effect must go through Proposal Review and explicit in-app confirmation.
 
         User instruction:
         \(bounded(context.userInstruction))
 
+        Proposal Preview output contract:
+        - Return exactly one complete minddesk.proposal.envelope JSON object when you recommend concrete MindDesk changes.
+        - Do not answer only in prose, and do not put the proposal JSON inside Markdown fences.
+        - Use at least one applyMindDeskChange operation; put the previewable Canvas plan in payload.proposedText.
+        - Keep the current Canvas structure unless the user explicitly asks to replace it; describe additions, regrouping, link labels, and sequencing in proposedText.
+        - Use only existing Canvas card/link ids from this prompt as evidenceReferences or affectedObjects; put new card/link ideas inside proposedText instead of inventing object ids.
+        - If filesystem inspection is unavailable, do not claim you inspected the filesystem. Propose a path/environment inventory expansion grounded in the visible Canvas context and clearly mark unknown values for human review.
+
         Proposal Review handoff:
         - The matching Agent Review source package is available in the Codex working directory as ./minddesk-agent-review-source.mip.json.
         - A proposal template is available as ./minddesk-proposal-template.json.
-        - If you propose concrete MindDesk changes, copy the proposal context exactly from the template below and return a complete minddesk.proposal.envelope JSON object.
+        - Start from the template below: keep format, formatVersion, proposedBy, createdAt, and context unchanged unless the template file says otherwise.
+        - Replace the empty proposals array with a non-empty proposal using this shape: proposals[].id/title/rationale/evidenceReferences/operations; operations[].id/kind/title/affectedObjects/payload; operation kind applyMindDeskChange only uses payload.proposedText.
         \(proposalTemplateText(context.proposalTemplateJSON))
 
         Workspace: \(bounded(context.workspaceTitle))

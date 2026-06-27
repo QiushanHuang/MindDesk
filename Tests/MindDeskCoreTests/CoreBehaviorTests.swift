@@ -74,6 +74,35 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(prompt.body.contains("node-a -> node-b"))
     }
 
+    func testCanvasCodexPromptBuilderForcesPreviewableProposalEnvelopeForCustomPromptRuns() {
+        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
+            workspaceTitle: "MD-Simulation",
+            canvasTitle: "Main Workflow",
+            userInstruction: """
+            Review the current Canvas structure. Suggest clearer card groups, better link labels, and sequencing improvements. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review.
+
+            Additional user instruction:
+            帮我整理整个MD文件夹的路径，包括环境等等，保留现有的canvas结构进行拓展
+            """,
+            nodes: [
+                CanvasCodexPromptNodeRecord(id: "md-folder", title: "MD", kind: "resource", body: "/Users/joshua/Desktop/MD"),
+                CanvasCodexPromptNodeRecord(id: "venv", title: "venv", kind: "resource", body: "/Users/joshua/Desktop/MD/venv/bin/activate")
+            ],
+            edges: [
+                CanvasCodexPromptEdgeRecord(sourceNodeID: "venv", targetNodeID: "md-folder", label: "")
+            ],
+            proposalTemplateJSON: #"{"format":"minddesk.proposal.envelope","formatVersion":1,"context":{"packageInstanceID":"package-a"},"proposals":[]}"#
+        ))
+
+        XCTAssertFalse(prompt.wasTruncated)
+        XCTAssertTrue(prompt.body.contains("Return exactly one complete minddesk.proposal.envelope JSON object"), prompt.body)
+        XCTAssertTrue(prompt.body.contains("Do not answer only in prose"), prompt.body)
+        XCTAssertTrue(prompt.body.contains("applyMindDeskChange"), prompt.body)
+        XCTAssertTrue(prompt.body.contains("payload.proposedText"), prompt.body)
+        XCTAssertTrue(prompt.body.contains(#""format":"minddesk.proposal.envelope""#), prompt.body)
+        XCTAssertTrue(prompt.body.contains("If filesystem inspection is unavailable"), prompt.body)
+    }
+
     func testCanvasCodexPromptBuilderBoundsOversizedCanvasContext() {
         let nodes = (0..<80).map { index in
             CanvasCodexPromptNodeRecord(

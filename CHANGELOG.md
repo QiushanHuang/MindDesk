@@ -19,6 +19,7 @@
 - Reworked the Canvas Codex sidebar controls around an embedded SwiftTerm-backed terminal, editable command field, and `Run` / `+ Prompt Run` actions so users can type directly or send prepared commands without Terminal.app.
 - Replaced the Canvas Codex text-log renderer with a real PTY terminal view so Codex TUI redraws, cursor movement, selection, and direct keyboard input behave like a terminal.
 - Added a Canvas Codex proposal loop: MindDesk writes a bound Agent Review source package and proposal template into the temporary session, captures Codex terminal output, previews the latest `minddesk.proposal.envelope`, lets users ask Codex for revisions, discard the draft, or open it in Proposal Review.
+- Strengthened `+ Prompt Run` proposal instructions so Canvas organization, path, and environment requests ask Codex for a complete previewable `minddesk.proposal.envelope` with `applyMindDeskChange.payload.proposedText` instead of prose-only replies.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.
