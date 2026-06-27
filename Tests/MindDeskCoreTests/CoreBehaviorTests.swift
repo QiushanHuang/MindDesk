@@ -104,6 +104,11 @@ final class CoreBehaviorTests: XCTestCase {
             promptFilePath: "/tmp/My Prompt.txt",
             workingDirectory: "/tmp/My Workspace"
         )
+        let currentDirectoryCommand = CanvasCodexCommandBuilder.interactiveCodexCommandForCurrentDirectory()
+        let promptAugmentedCommand = CanvasCodexCommandBuilder.promptAugmentedShellCommand(
+            "codex -m gpt-5.5",
+            promptFilePath: "/tmp/My Prompt.txt"
+        )
 
         XCTAssertTrue(command.hasPrefix("codex "))
         XCTAssertTrue(command.contains("-c 'service_tier=\"fast\"'"))
@@ -127,6 +132,9 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertFalse(command.contains(" apply"))
         XCTAssertFalse(command.contains(" resume"))
         XCTAssertFalse(promptCommand.contains(" exec "))
+        XCTAssertTrue(currentDirectoryCommand.contains("-c 'service_tier=\"fast\"'"))
+        XCTAssertFalse(currentDirectoryCommand.contains("-C "))
+        XCTAssertEqual(promptAugmentedCommand, "codex -m gpt-5.5 \"$(cat -- '/tmp/My Prompt.txt')\"")
     }
 
     func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {

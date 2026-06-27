@@ -369,11 +369,25 @@ public enum CanvasCodexCommandBuilder {
         ].joined(separator: " ")
     }
 
+    public static func interactiveCodexCommandForCurrentDirectory() -> String {
+        [
+            executableName,
+            "-c \(ShellQuoter.singleQuote(serviceTierOverride))",
+            "--no-alt-screen",
+            "--sandbox read-only",
+            "--ask-for-approval on-request"
+        ].joined(separator: " ")
+    }
+
     public static func interactiveCodexPromptCommand(promptFilePath: String, workingDirectory: String) -> String {
         [
             interactiveCodexCommand(workingDirectory: workingDirectory),
             "\"$(cat -- \(ShellQuoter.singleQuote(promptFilePath)))\""
         ].joined(separator: " ")
+    }
+
+    public static func promptAugmentedShellCommand(_ command: String, promptFilePath: String) -> String {
+        "\(command) \"$(cat -- \(ShellQuoter.singleQuote(promptFilePath)))\""
     }
 }
 

@@ -1247,14 +1247,21 @@ struct WorkspaceCanvasView: View {
         onStatus("Started embedded Codex terminal.")
     }
 
-    private func openCodexTerminalSession() {
-        codexSession.openCodex()
-        onStatus("Opened Codex in embedded terminal.")
+    private func ensureCodexSessionStarted() {
+        guard !codexSession.canUseTerminal else { return }
+        startCodexSession()
     }
 
-    private func openCodexTerminalSessionWithPrompt() {
-        codexSession.openCodexWithCanvasPrompt()
-        onStatus("Opened Codex with the current Canvas prompt.")
+    private func runCodexTerminalCommand(_ command: String) {
+        ensureCodexSessionStarted()
+        codexSession.runCommand(command)
+        onStatus("Sent command to embedded Codex terminal.")
+    }
+
+    private func runCodexTerminalCommandWithPrompt(_ command: String) {
+        ensureCodexSessionStarted()
+        codexSession.runCommandWithCanvasPrompt(command)
+        onStatus("Sent command with the current Canvas prompt.")
     }
 
     private func interruptCodexTerminalSession() {
@@ -1896,8 +1903,8 @@ struct WorkspaceCanvasView: View {
             prompt: currentCodexPrompt,
             contextSummary: codexSidebarContextSummary,
             onStartTerminal: startCodexSession,
-            onOpenCodex: openCodexTerminalSession,
-            onOpenCodexWithPrompt: openCodexTerminalSessionWithPrompt,
+            onRunCommand: runCodexTerminalCommand,
+            onRunCommandWithPrompt: runCodexTerminalCommandWithPrompt,
             onInterrupt: interruptCodexTerminalSession,
             onCloseTerminal: closeCodexTerminalSession,
             onCopyPrompt: copyCodexPrompt,

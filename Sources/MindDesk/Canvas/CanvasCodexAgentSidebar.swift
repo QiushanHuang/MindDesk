@@ -20,14 +20,15 @@ struct CanvasCodexAgentSidebar: View {
     var prompt: CanvasCodexPrompt
     var contextSummary: CanvasCodexSidebarContextSummary
     var onStartTerminal: () -> Void
-    var onOpenCodex: () -> Void
-    var onOpenCodexWithPrompt: () -> Void
+    var onRunCommand: (String) -> Void
+    var onRunCommandWithPrompt: (String) -> Void
     var onInterrupt: () -> Void
     var onCloseTerminal: () -> Void
     var onCopyPrompt: () -> Void
     var onResetTemplates: () -> Void
 
     @State private var isEditingTemplates = false
+    @State private var commandDraft = CanvasCodexCommandBuilder.interactiveCodexCommandForCurrentDirectory()
 
     private var selectedGroup: CanvasCodexPromptTemplateGroup? {
         templateGroups.first { $0.id == selectedGroupID } ?? templateGroups.first
@@ -56,10 +57,7 @@ struct CanvasCodexAgentSidebar: View {
 
             Divider()
 
-            CodexTerminalScreen(
-                output: session.output,
-                onInput: session.sendInput
-            )
+            CodexTerminalScreen(output: session.output)
                 .frame(minHeight: 180, maxHeight: .infinity)
 
             Divider()
@@ -173,7 +171,7 @@ struct CanvasCodexAgentSidebar: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Button(action: onStartTerminal) {
-                    Label("Start Terminal", systemImage: "terminal")
+                    Label("Start Shell", systemImage: "terminal")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(!session.canRun)
@@ -185,18 +183,27 @@ struct CanvasCodexAgentSidebar: View {
                 .disabled(!session.canUseTerminal)
             }
 
-            HStack(spacing: 8) {
-                Button(action: onOpenCodex) {
-                    Label("Open Codex", systemImage: "bolt")
-                        .frame(maxWidth: .infinity)
-                }
-                .disabled(!session.canUseTerminal)
+            TextField("Command or Codex input", text: $commandDraft, axis: .vertical)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(2...5)
+                .textFieldStyle(.roundedBorder)
 
-                Button(action: onOpenCodexWithPrompt) {
-                    Label("Codex + Prompt", systemImage: "text.bubble")
+            HStack(spacing: 8) {
+                Button {
+                    onRunCommand(commandDraft)
+                } label: {
+                    Label("Run", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
-                .disabled(!session.canUseTerminal)
+                .disabled(commandDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    onRunCommandWithPrompt(commandDraft)
+                } label: {
+                    Label("+ Prompt Run", systemImage: "text.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(commandDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
             HStack(spacing: 8) {
@@ -213,7 +220,7 @@ struct CanvasCodexAgentSidebar: View {
             }
             .buttonStyle(.bordered)
 
-            Text("Click the terminal area and type directly. Use Open Codex for account or model changes, or Codex + Prompt to start with the current Canvas prompt.")
+            Text("Edit the command, then use Run or + Prompt Run. After Codex opens, send slash commands such as /model from this field.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

@@ -5553,14 +5553,17 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(canvasSource.contains("Image(systemName: \"terminal\")"))
         XCTAssertTrue(canvasSource.contains("@StateObject private var codexSession = CanvasCodexSessionController()"))
         XCTAssertTrue(canvasSource.contains("startCodexSession()"))
-        XCTAssertTrue(canvasSource.contains("openCodexTerminalSession()"))
-        XCTAssertTrue(canvasSource.contains("openCodexTerminalSessionWithPrompt()"))
+        XCTAssertTrue(canvasSource.contains("runCodexTerminalCommand(_ command: String)"))
+        XCTAssertTrue(canvasSource.contains("runCodexTerminalCommandWithPrompt(_ command: String)"))
         XCTAssertTrue(canvasSource.contains("codexSession.reset()"))
-        XCTAssertTrue(sidebarSource.contains("CodexTerminalScreen("))
-        XCTAssertTrue(sidebarSource.contains("onInput: session.sendInput"))
-        XCTAssertTrue(sidebarSource.contains("Label(\"Start Terminal\", systemImage: \"terminal\")"))
-        XCTAssertTrue(sidebarSource.contains("Label(\"Open Codex\", systemImage: \"bolt\")"))
-        XCTAssertTrue(sidebarSource.contains("Label(\"Codex + Prompt\", systemImage: \"text.bubble\")"))
+        XCTAssertTrue(sidebarSource.contains("CodexTerminalScreen(output: session.output)"))
+        XCTAssertFalse(sidebarSource.contains("onInput: session.sendInput"))
+        XCTAssertTrue(sidebarSource.contains("commandDraft"))
+        XCTAssertTrue(sidebarSource.contains("onRunCommand(commandDraft)"))
+        XCTAssertTrue(sidebarSource.contains("onRunCommandWithPrompt(commandDraft)"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Start Shell\", systemImage: \"terminal\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Run\", systemImage: \"play.fill\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"+ Prompt Run\", systemImage: \"text.badge.plus\")"))
         XCTAssertTrue(sidebarSource.contains("Label(\"Interrupt\", systemImage: \"control\")"))
         XCTAssertTrue(sidebarSource.contains("Label(\"Close\", systemImage: \"xmark\")"))
         XCTAssertTrue(sidebarSource.contains("Edit Templates"))
@@ -5568,8 +5571,8 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(sessionSource.contains("maximumOutputCharacters"))
         XCTAssertTrue(sessionSource.contains("[Earlier terminal output trimmed]"))
         XCTAssertTrue(sessionSource.contains("sendInput"))
-        XCTAssertTrue(sessionSource.contains("openCodex()"))
-        XCTAssertTrue(sessionSource.contains("openCodexWithCanvasPrompt()"))
+        XCTAssertTrue(sessionSource.contains("runCommand("))
+        XCTAssertTrue(sessionSource.contains("runCommandWithCanvasPrompt("))
         XCTAssertTrue(sessionSource.contains("interrupt()"))
         XCTAssertFalse(canvasSource.contains("Open Codex CLI"))
         XCTAssertFalse(canvasSource.contains("Opened Terminal with Codex CLI prompt prefilled"))
@@ -5628,6 +5631,27 @@ final class AppBehaviorTests: XCTestCase {
 
         session.write("echo MINDDESK_PTY_OK\n")
         wait(for: [outputExpectation], timeout: 4.0)
+    }
+
+    @MainActor
+    func testCodexSessionControllerRunCommandWritesThroughEmbeddedTerminal() throws {
+        let controller = CanvasCodexSessionController()
+        controller.start(
+            prompt: CanvasCodexPrompt(body: "Controller prompt", wasTruncated: false),
+            workingDirectory: NSTemporaryDirectory()
+        )
+        defer {
+            controller.reset()
+        }
+
+        controller.runCommand("echo MINDDESK_COMMAND_RUN_OK")
+
+        let deadline = Date().addingTimeInterval(4)
+        while Date() < deadline, !controller.output.contains("MINDDESK_COMMAND_RUN_OK") {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        XCTAssertTrue(controller.output.contains("MINDDESK_COMMAND_RUN_OK"))
+        XCTAssertFalse(controller.output.contains("\n%\n"))
     }
 
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {

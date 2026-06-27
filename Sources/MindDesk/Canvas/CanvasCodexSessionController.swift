@@ -65,7 +65,7 @@ final class CanvasCodexSessionController: ObservableObject {
             Session: \(launchedSession.sessionDirectoryPath)
             Canvas prompt: \(launchedSession.promptFilePath)
 
-            Terminal is ready. Click here and type directly, or use Open Codex / Codex + Prompt.
+            Shell is ready. Edit the command field below, then use Run or + Prompt Run.
 
             """
         } catch {
@@ -79,14 +79,32 @@ final class CanvasCodexSessionController: ObservableObject {
         session?.write(text)
     }
 
+    func runCommand(_ command: String) {
+        guard let session, canUseTerminal else { return }
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedCommand.isEmpty else { return }
+        session.write("\(trimmedCommand)\n")
+    }
+
+    func runCommandWithCanvasPrompt(_ command: String) {
+        guard let session, canUseTerminal else { return }
+        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let commandLine = trimmedCommand.isEmpty
+            ? session.openCodexWithPromptCommand
+            : CanvasCodexCommandBuilder.promptAugmentedShellCommand(
+                trimmedCommand,
+                promptFilePath: session.promptFilePath
+            )
+        session.write("\(commandLine)\n")
+    }
+
     func openCodex() {
         guard let session, canUseTerminal else { return }
         session.write("\(session.openCodexCommand)\n")
     }
 
     func openCodexWithCanvasPrompt() {
-        guard let session, canUseTerminal else { return }
-        session.write("\(session.openCodexWithPromptCommand)\n")
+        runCommandWithCanvasPrompt("")
     }
 
     func interrupt() {
@@ -131,6 +149,7 @@ final class CanvasCodexSessionController: ObservableObject {
             .replacingOccurrences(of: "\u{1B}", with: "")
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: #"(?m)^%\s*$\n?"#, with: "", options: .regularExpression)
         while let backspaceIndex = cleaned.firstIndex(of: "\u{8}") {
             if backspaceIndex > cleaned.startIndex {
                 let previousIndex = cleaned.index(before: backspaceIndex)

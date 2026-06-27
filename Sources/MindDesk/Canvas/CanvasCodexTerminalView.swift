@@ -3,7 +3,6 @@ import SwiftUI
 
 struct CodexTerminalScreen: NSViewRepresentable {
     var output: String
-    var onInput: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -17,8 +16,7 @@ struct CodexTerminalScreen: NSViewRepresentable {
         scrollView.drawsBackground = true
         scrollView.backgroundColor = NSColor.black.withAlphaComponent(0.88)
 
-        let textView = TerminalTextView()
-        textView.onInput = onInput
+        let textView = NSTextView()
         textView.isEditable = false
         textView.isSelectable = true
         textView.allowsUndo = false
@@ -45,8 +43,7 @@ struct CodexTerminalScreen: NSViewRepresentable {
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? TerminalTextView else { return }
-        textView.onInput = onInput
+        guard let textView = scrollView.documentView as? NSTextView else { return }
         if textView.string != output {
             textView.string = output
             textView.scrollToEndOfDocument(nil)
@@ -55,75 +52,6 @@ struct CodexTerminalScreen: NSViewRepresentable {
     }
 
     final class Coordinator {
-        fileprivate weak var textView: TerminalTextView?
-    }
-}
-
-private final class TerminalTextView: NSTextView {
-    var onInput: ((String) -> Void)?
-
-    override var acceptsFirstResponder: Bool {
-        true
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        super.mouseDown(with: event)
-    }
-
-    override func paste(_ sender: Any?) {
-        if let pasted = NSPasteboard.general.string(forType: .string), !pasted.isEmpty {
-            onInput?(pasted)
-        } else {
-            super.paste(sender)
-        }
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.command),
-           let characters = event.charactersIgnoringModifiers?.lowercased() {
-            switch characters {
-            case "c":
-                copy(nil)
-                return
-            case "v":
-                paste(nil)
-                return
-            case "a":
-                selectAll(nil)
-                return
-            default:
-                break
-            }
-        }
-
-        switch event.keyCode {
-        case 36:
-            onInput?("\r")
-        case 48:
-            onInput?("\t")
-        case 51:
-            onInput?("\u{7F}")
-        case 53:
-            onInput?("\u{1B}")
-        case 115:
-            onInput?("\u{1B}[H")
-        case 119:
-            onInput?("\u{1B}[F")
-        case 123:
-            onInput?("\u{1B}[D")
-        case 124:
-            onInput?("\u{1B}[C")
-        case 125:
-            onInput?("\u{1B}[B")
-        case 126:
-            onInput?("\u{1B}[A")
-        default:
-            if let characters = event.characters, !characters.isEmpty {
-                onInput?(characters)
-            } else {
-                super.keyDown(with: event)
-            }
-        }
+        fileprivate weak var textView: NSTextView?
     }
 }
