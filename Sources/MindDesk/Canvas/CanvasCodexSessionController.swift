@@ -125,7 +125,7 @@ final class CanvasCodexSessionController: ObservableObject {
         guard currentRunID == runID else { return }
         switch event {
         case .text(let text):
-            appendOutput(Self.cleanedTerminalOutput(text))
+            appendOutput(Self.normalizedTerminalOutput(text))
         case .finished(let statusCode):
             session = nil
             currentRunID = nil
@@ -141,15 +141,12 @@ final class CanvasCodexSessionController: ObservableObject {
         output = "[Earlier terminal output trimmed]\n" + String(output.suffix(Self.maximumOutputCharacters))
     }
 
-    private static func cleanedTerminalOutput(_ text: String) -> String {
-        var cleaned = text
-            .replacingOccurrences(of: "\u{1B}\\][^\u{7}]*(\u{7}|\u{1B}\\\\)", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\u{1B}\\[[0-?]*[ -/]*[@-~]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\u{1B}[()][A-Za-z0-9]", with: "", options: .regularExpression)
-            .replacingOccurrences(of: "\u{1B}", with: "")
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-            .replacingOccurrences(of: #"(?m)^%\s*$\n?"#, with: "", options: .regularExpression)
+    private static func normalizedTerminalOutput(_ text: String) -> String {
+        var cleaned = text.replacingOccurrences(
+            of: #"(?m)^%\s*$\n?"#,
+            with: "",
+            options: .regularExpression
+        )
         while let backspaceIndex = cleaned.firstIndex(of: "\u{8}") {
             if backspaceIndex > cleaned.startIndex {
                 let previousIndex = cleaned.index(before: backspaceIndex)

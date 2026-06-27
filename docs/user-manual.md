@@ -354,7 +354,7 @@ Troubleshooting:
 | Missing or unauthorized resource | Reauthorize or re-add the resource. MindDesk does not move Finder files automatically. |
 | Import blocked | Check manifest format, size, version, and unsupported typed manifest version. |
 | Proposal blocked | Read sanitized diagnostics and confirm the proposal matches the original `.mip.json` and size limits. |
-| Codex session fails to start | Confirm the local `codex` CLI is installed, available on PATH, and logged in. MindDesk starts an embedded PTY terminal with a temporary session root, short helper scripts, and a `service_tier="fast"` override so older `priority` config values do not block startup. The embedded terminal does not pin a model; edit the command field before using `Run`, or send `/model` after Codex opens. Use `+ Prompt Run` when the current Canvas prompt should be passed as an argument. |
+| Codex session fails to start | Confirm the local `codex` CLI is installed, available on PATH, and logged in. MindDesk starts an embedded PTY terminal with a temporary session root, short helper scripts, and a `service_tier="fast"` override so older `priority` config values do not block startup. The embedded terminal does not pin a model; edit the command field before using `Run`, or send `/model` after Codex opens. Use `+ Prompt Run` when the current Canvas prompt should be passed as an argument. The black output area renders ANSI/VT terminal screen controls, so Codex TUI redraws should appear as a terminal screen rather than raw escape text. |
 | Command run failure | Copy the command and run it manually in Terminal after checking working directory and permissions. |
 
 ## 14. Safety Boundary Quick Reference

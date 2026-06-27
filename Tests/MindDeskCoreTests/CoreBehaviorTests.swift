@@ -137,6 +137,24 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(promptAugmentedCommand, "codex -m gpt-5.5 \"$(cat -- '/tmp/My Prompt.txt')\"")
     }
 
+    func testTerminalScreenRendererAppliesAnsiScreenAndCursorControls() {
+        let stream = """
+        boot log
+        \u{1B}[2J\u{1B}[1;1H\u{1B}[1mOpenAI Codex\u{1B}[0m
+        \u{1B}[3;1H› Run /model
+        \u{1B}[3;7H/help
+        \u{1B}[4;1H\u{1B}[Kstatus: ready
+        """
+
+        let rendered = TerminalScreenRenderer.render(stream, rows: 6, columns: 32).displayText
+
+        XCTAssertTrue(rendered.contains("OpenAI Codex"))
+        XCTAssertTrue(rendered.contains("› Run /help"))
+        XCTAssertTrue(rendered.contains("status: ready"))
+        XCTAssertFalse(rendered.contains("[2J"))
+        XCTAssertFalse(rendered.contains("[1m"))
+    }
+
     func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {
         let groups = CanvasCodexPromptTemplateLibrary.defaultGroups
 

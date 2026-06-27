@@ -1,4 +1,5 @@
 import AppKit
+import MindDeskCore
 import SwiftUI
 
 struct CodexTerminalScreen: NSViewRepresentable {
@@ -32,7 +33,7 @@ struct CodexTerminalScreen: NSViewRepresentable {
         textView.textColor = NSColor.white
         textView.insertionPointColor = NSColor.white
         textView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        textView.string = output
+        textView.string = renderedOutput
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -44,11 +45,16 @@ struct CodexTerminalScreen: NSViewRepresentable {
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != output {
-            textView.string = output
+        let renderedOutput = renderedOutput
+        if textView.string != renderedOutput {
+            textView.string = renderedOutput
             textView.scrollToEndOfDocument(nil)
         }
         context.coordinator.textView = textView
+    }
+
+    private var renderedOutput: String {
+        TerminalScreenRenderer.render(output, rows: 36, columns: 110).displayText
     }
 
     final class Coordinator {

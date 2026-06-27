@@ -5548,6 +5548,10 @@ final class AppBehaviorTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasCodexSessionController.swift"),
             encoding: .utf8
         )
+        let terminalSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasCodexTerminalView.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(canvasSource.contains("case codexAgent"))
         XCTAssertTrue(canvasSource.contains("Image(systemName: \"terminal\")"))
@@ -5558,6 +5562,8 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(canvasSource.contains("codexSession.reset()"))
         XCTAssertTrue(sidebarSource.contains("CodexTerminalScreen(output: session.output)"))
         XCTAssertFalse(sidebarSource.contains("onInput: session.sendInput"))
+        XCTAssertTrue(terminalSource.contains("TerminalScreenRenderer.render(output"))
+        XCTAssertTrue(terminalSource.contains("renderedOutput"))
         XCTAssertTrue(sidebarSource.contains("commandDraft"))
         XCTAssertTrue(sidebarSource.contains("onRunCommand(commandDraft)"))
         XCTAssertTrue(sidebarSource.contains("onRunCommandWithPrompt(commandDraft)"))

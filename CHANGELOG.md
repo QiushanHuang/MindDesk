@@ -17,6 +17,7 @@
 - Hardened the Canvas Codex launch path with an empty temporary session root, short helper scripts for Open Codex and Codex + Prompt, a clean embedded shell prompt, a `service_tier="fast"` CLI override, bounded terminal output retention, and stable prompt-template storage.
 - Removed the fixed Canvas Codex startup model so the embedded Codex terminal can use the user's active Codex account and model selection.
 - Reworked the Canvas Codex sidebar controls around a read-only terminal log, editable command field, and `Run` / `+ Prompt Run` actions so users no longer need to type helper script names into the output area.
+- Added ANSI/VT screen rendering for the Canvas Codex output area so Codex TUI clear-screen, cursor movement, and line rewrite sequences display like a terminal instead of raw log text.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.
