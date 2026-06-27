@@ -225,13 +225,13 @@
 - [x] `swift build`
 - [x] `swift build -c release`
 - [x] `git diff --check`
-- [ ] `./script/verify_release_worktree.sh`
+- [x] `./script/verify_release_worktree.sh`
 - [x] Release worktree guard 会阻止 tracked、untracked 或 ignored 的 release-critical Swift/source tests、release scripts、workflow YAML 和 release docs 混入本地发布。
 - [x] Release worktree guard 不会因 `.build/`、`.swiftpm/`、`DerivedData/` 或 `dist/release/` 等普通构建/分发产物失败；同版本 release 目录覆盖保护由 `package_release.sh` 单独处理。
 - [x] `./script/build_and_run.sh --verify`
 - [x] `./script/build_and_run.sh --verify-bundle`
 - [x] `./script/verify_release_metadata.sh`
-- [ ] `./script/package_release.sh --mode adhoc --allow-adhoc`
+- [x] `./script/package_release.sh --mode adhoc --allow-adhoc`
 - [x] ad-hoc release artifacts 通过 `bash script/verify_release_artifacts.sh --artifact-dir ... --version ... --suffix ... --mode adhoc` 校验 ZIP、DMG 和 `SHA256SUMS.txt`。
 - [x] `bash -n script/build_and_run.sh`
 - [x] `bash -n script/package_release.sh`
