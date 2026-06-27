@@ -2,36 +2,119 @@ import AppKit
 import MindDeskCore
 import SwiftUI
 
+struct AppSettingsDisclosureRow: Identifiable, Sendable {
+    let id: String
+    let title: String
+    let value: String
+    let description: String
+}
+
 struct AppSettingsView: View {
+    nonisolated static let resetAllSettingsButtonTitle = AppSettingsResetDescriptor.settingsPaneButtonTitle
+    nonisolated static let resetAllSettingsHelpText = AppSettingsResetDescriptor.settingsPaneHelpText
+    nonisolated static let resetAllSettingsAlertTitle = AppSettingsResetDescriptor.alertTitle
+    nonisolated static let resetAllSettingsAlertInformativeText = AppSettingsResetDescriptor.alertInformativeText
+    nonisolated static let resetAllSettingsConfirmButtonTitle = AppSettingsResetDescriptor.confirmButtonTitle
+    nonisolated static let resetAllSettingsCancelButtonTitle = AppSettingsResetDescriptor.cancelButtonTitle
+    nonisolated static let portableJSONHelpText = ImportExportService.manifestExportOptionsHelpText
+    nonisolated static let canvasScrollZoomDirectionTitle = CanvasScrollZoomDirectionSettingsDescriptor.title
+    nonisolated static let canvasScrollZoomDirectionHelpText = CanvasScrollZoomDirectionSettingsDescriptor.helpText
+    nonisolated static let canvasAnimationFrameRateTitle = CanvasAnimationFrameRateSettingsDescriptor.title
+    nonisolated static let canvasAnimationFrameRateHelpText = CanvasAnimationFrameRateSettingsDescriptor.helpText
+    nonisolated static let canvasZoomCommitCadenceTitle = CanvasZoomCommitCadenceSettingsDescriptor.title
+    nonisolated static let canvasZoomCommitCadenceHelpText = CanvasZoomCommitCadenceSettingsDescriptor.helpText
+    nonisolated static let agentReviewPackageDescription = "In the main MindDesk window, use Workbench > Export Agent Review Package to create a read-only .mip.json package for Codex or another agent. It includes validationReport, agentIntegrationContract, extensionCapabilities, curated helpTopics for non-authoritative retrieval help, privacy notes, manifest metadata, and proposal contract details. It may include task group titles and task text when those records are in the selected export scope. payloadFieldSchemas document payload field schema/help only; accepted proposal JSON fields are review-only schema help. They are not authorization, not policy, not validation output, not capability grants, not an allowlist, and not payload allowlists; any file, Finder, URL, clipboard, Terminal, command, alias, import/export, or apply action requires Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution. helpTopics are not authorization and do not override validationReport, agentIntegrationContract, extensionCapabilities, agentPolicy, externalActionPolicy, the Proposal Review gate, or in-app confirmation. Proposal Review checks raw source-package authority mirrors and serialized validationReport before pending review: missing or drifted validationReport reports package.validation-report.* diagnostics, extensionCapabilities drift reports extensionCapabilityCatalog diagnostics, agentIntegrationContract drift reports contract.*.mismatch diagnostics, and forged top-level agentPolicy or externalActionPolicy reports package policy diagnostics. Missing raw authority mirrors also block before pending review: missing agentIntegrationContract reports contract.raw.missing, missing agentPolicy reports package.agent-policy.missing, missing externalActionPolicy reports package.external-action-policy.missing, and missing extensionCapabilities reports capability-catalog.raw.missing. Top-level helpTopics are ignored and replaced from the curated catalog during decode/re-encode. Top-level agentGuide defaults are regenerated; only wrapped custom guidance is preserved as untrusted text. None of these fields can change the gate or confirmation. \(ImportExportService.globalLibraryOnlyExclusionText) validationReport redaction applies only to structured diagnostics; diagnostic fields are tokenized while raw manifest metadata records remain in the package. Raw manifest records are metadata records; raw file contents are never included."
+    nonisolated static let agentReviewCustomGuidanceTitle = MindDeskAgentReviewCustomGuidancePolicy.title
+    nonisolated static let agentReviewCustomGuidancePlaceholder = MindDeskAgentReviewCustomGuidancePolicy.placeholder
+    nonisolated static let agentReviewCustomGuidanceClearButtonTitle = "Clear"
+    nonisolated static let agentReviewCustomGuidanceDescription = MindDeskAgentReviewCustomGuidancePolicy.settingsDescription
+    nonisolated static let agentReviewCustomGuidancePrivacyDescription = MindDeskAgentReviewCustomGuidancePolicy.privacyDescription
+    nonisolated static let agentReviewCustomGuidanceStatusPrivacyDescription = "Status and character budget show fixed labels and counts only. They do not replay custom guidance, paths, URLs, tokens, commands, or other input text."
+    nonisolated static let agentReviewImportBehaviorDescription = "Agent Review packages are not backups and cannot be imported as manifests. File, Finder, URL, clipboard, Terminal, command, alias, import/export, and apply actions require Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution."
+    nonisolated static let externalActionSafetyDescription = "Agents can read context and propose actions only. File, Finder, URL, clipboard, Terminal, command, alias, import/export, and apply actions require Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution."
+    nonisolated static let agentReviewPackageBoundaryRows: [AppSettingsDisclosureRow] = [
+        AppSettingsDisclosureRow(
+            id: "agent-review-package-read-only",
+            title: "Agent Review Package",
+            value: "Read-only .mip.json",
+            description: "Use Workbench > Export Agent Review Package to create a read-only .mip.json package for Codex or another agent."
+        ),
+        AppSettingsDisclosureRow(
+            id: "agent-review-package-not-backup",
+            title: "Backup behavior",
+            value: "Not a backup",
+            description: "Agent Review packages are not backups and do not replace Complete Workspace Map JSON exports or local raw SQLite backups."
+        ),
+        AppSettingsDisclosureRow(
+            id: "agent-review-package-not-importable",
+            title: "Import behavior",
+            value: "Not importable",
+            description: "Agent Review packages cannot be imported as manifests and do not create SwiftData objects."
+        )
+    ]
+
+    nonisolated static func agentReviewCustomGuidancePresentation(
+        for guidance: String
+    ) -> MindDeskAgentReviewCustomGuidancePresentation {
+        MindDeskAgentReviewCustomGuidancePresentationPolicy.presentation(for: guidance)
+    }
+
+    nonisolated static var agentFacingSideEffectSafetyDescriptions: [(label: String, text: String)] {
+        [
+            ("Agent Review Package settings disclosure", agentReviewPackageDescription),
+            ("Custom Agent Review Guidance settings disclosure", agentReviewCustomGuidanceDescription),
+            ("Agent Review import behavior settings disclosure", agentReviewImportBehaviorDescription),
+            ("External action safety settings disclosure", externalActionSafetyDescription)
+        ]
+    }
+
+    @AppStorage(AppSettingsPaneSelectionDescriptor.preferenceKey) private var selectedPaneRaw = AppSettingsPaneSelectionDescriptor.defaultRawValue
+
     var body: some View {
-        TabView {
+        TabView(selection: selectedPaneSelection) {
             GeneralSettingsPane()
                 .tabItem {
                     Label("General", systemImage: "gearshape")
                 }
+                .tag(AppSettingsPaneSelection.general.rawValue)
             AppearanceSettingsPane()
                 .tabItem {
                     Label("Appearance", systemImage: "textformat.size")
                 }
+                .tag(AppSettingsPaneSelection.appearance.rawValue)
             CanvasSettingsPane()
                 .tabItem {
                     Label("Canvas", systemImage: "point.3.connected.trianglepath.dotted")
                 }
+                .tag(AppSettingsPaneSelection.canvas.rawValue)
             WorkspaceTaskSettingsPane()
                 .tabItem {
                     Label("Tasks", systemImage: "checklist")
                 }
+                .tag(AppSettingsPaneSelection.tasks.rawValue)
             DataSettingsPane()
                 .tabItem {
                     Label("Data", systemImage: "externaldrive")
                 }
-            SettingsManualPane()
+                .tag(AppSettingsPaneSelection.data.rawValue)
+            MindDeskHelpCenterView()
                 .tabItem {
-                    Label("Manual", systemImage: "book")
+                    Label("Help", systemImage: "questionmark.circle")
                 }
+                .tag(AppSettingsPaneSelection.help.rawValue)
         }
         .padding(20)
         .frame(minWidth: 620, idealWidth: 720, minHeight: 560, idealHeight: 640)
+        .onAppear {
+            selectedPaneRaw = AppSettingsPaneSelection.resolved(selectedPaneRaw).rawValue
+        }
+    }
+
+    private var selectedPaneSelection: Binding<String> {
+        Binding(
+            get: { AppSettingsPaneSelection.resolved(selectedPaneRaw).rawValue },
+            set: { selectedPaneRaw = AppSettingsPaneSelection.resolved($0).rawValue }
+        )
     }
 }
 
@@ -48,7 +131,7 @@ private struct GeneralSettingsPane: View {
                     }
                 }
 
-                SettingsHelpText("Choose the first product surface shown when the main window appears. Most recent workspace falls back to Home when there is no workspace history.")
+                SettingsHelpText("Choose the first product surface shown when the main window appears. Most Recent Workspace opens the latest opened or updated workspace; if no workspace exists, MindDesk opens Home.")
             } header: {
                 Text("Launch")
             }
@@ -64,10 +147,10 @@ private struct GeneralSettingsPane: View {
             }
 
             Section {
-                Button("Reset All Settings...") {
+                Button(AppSettingsView.resetAllSettingsButtonTitle) {
                     resetAllSettings()
                 }
-                SettingsHelpText("Restores global preferences and layout memory to product defaults. This does not delete workspaces, resources, snippets, tasks, canvases, exports, raw backups, or quarantined data.")
+                SettingsHelpText(AppSettingsView.resetAllSettingsHelpText)
             } header: {
                 Text("Reset")
             }
@@ -87,13 +170,14 @@ private struct GeneralSettingsPane: View {
     private func resetAllSettings() {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Reset all MindDesk settings?"
-        alert.informativeText = "This restores global preferences and layout memory to product defaults. Your MindDesk data and local recovery files are not deleted."
-        alert.addButton(withTitle: "Reset Settings")
-        alert.addButton(withTitle: "Cancel")
+        alert.messageText = AppSettingsView.resetAllSettingsAlertTitle
+        alert.informativeText = AppSettingsView.resetAllSettingsAlertInformativeText
+        alert.addButton(withTitle: AppSettingsView.resetAllSettingsConfirmButtonTitle)
+        alert.addButton(withTitle: AppSettingsView.resetAllSettingsCancelButtonTitle)
 
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        AppPreferenceDefaults.restore()
+        AppSettingsResetFlow.resetAllSettings { _ in
+            alert.runModal() == .alertFirstButtonReturn
+        }
     }
 }
 
@@ -162,14 +246,16 @@ private struct AppearanceSettingsPane: View {
 }
 
 private struct CanvasSettingsPane: View {
-    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
+    @AppStorage(CanvasScrollZoomDirectionSettingsDescriptor.preferenceKey) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var canvasConnectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
+    @AppStorage(CanvasAnimationFrameRateSettingsDescriptor.preferenceKey) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
+    @AppStorage(CanvasZoomCommitCadenceSettingsDescriptor.preferenceKey) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
 
     var body: some View {
         SettingsForm {
             Section {
-                Picker("Scroll Zoom Direction", selection: scrollZoomDirectionSelection) {
+                Picker(AppSettingsView.canvasScrollZoomDirectionTitle, selection: scrollZoomDirectionSelection) {
                     ForEach(CanvasScrollZoomDirection.allCases) { direction in
                         Text(direction.title)
                             .tag(direction.rawValue)
@@ -177,7 +263,7 @@ private struct CanvasSettingsPane: View {
                 }
                 .pickerStyle(.radioGroup)
 
-                SettingsHelpText("Controls canvas zoom direction for mouse wheels and vertical trackpad scrolling. Pinch zoom keeps the system gesture behavior.")
+                SettingsHelpText(AppSettingsView.canvasScrollZoomDirectionHelpText)
 
                 Stepper(value: $canvasDefaultZoomPercent, in: 35...500, step: 25) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -190,13 +276,33 @@ private struct CanvasSettingsPane: View {
 
                 Toggle("Single-use Connect", isOn: $canvasConnectSingleShot)
 
+                Picker(AppSettingsView.canvasAnimationFrameRateTitle, selection: animationFrameRateSelection) {
+                    ForEach(CanvasAnimationFrameRate.allCases) { frameRate in
+                        Text(frameRate.settingsTitle)
+                            .tag(frameRate.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker(AppSettingsView.canvasZoomCommitCadenceTitle, selection: zoomCommitCadenceSelection) {
+                    ForEach(CanvasZoomCommitCadence.allCases) { cadence in
+                        Text(cadence.settingsTitle)
+                            .tag(cadence.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
                 SettingsHelpText("The Canvas baseline applies to every scale label, Reset to 100%, new Canvas initial zoom, and density-aware rendering thresholds. Single-use Connect returns to Select after one link; turn it off to keep building links.")
+                SettingsHelpText(AppSettingsView.canvasAnimationFrameRateHelpText)
+                SettingsHelpText(AppSettingsView.canvasZoomCommitCadenceHelpText)
             } header: {
                 Text("Canvas Interaction")
             }
         }
         .onAppear {
             scrollZoomDirectionRaw = CanvasScrollZoomDirection.resolved(scrollZoomDirectionRaw).rawValue
+            canvasAnimationFrameRateRaw = CanvasAnimationFrameRate.resolved(canvasAnimationFrameRateRaw).rawValue
+            canvasZoomCommitCadenceRaw = CanvasZoomCommitCadence.resolved(canvasZoomCommitCadenceRaw).rawValue
             canvasDefaultZoomPercent = canvasDefaultZoomPercent.isFinite
                 ? min(max(canvasDefaultZoomPercent, 35), 500)
                 : AppPreferenceDefaults.canvasDefaultZoomPercent
@@ -207,6 +313,20 @@ private struct CanvasSettingsPane: View {
         Binding(
             get: { CanvasScrollZoomDirection.resolved(scrollZoomDirectionRaw).rawValue },
             set: { scrollZoomDirectionRaw = CanvasScrollZoomDirection.resolved($0).rawValue }
+        )
+    }
+
+    private var animationFrameRateSelection: Binding<String> {
+        Binding(
+            get: { CanvasAnimationFrameRate.resolved(canvasAnimationFrameRateRaw).rawValue },
+            set: { canvasAnimationFrameRateRaw = CanvasAnimationFrameRate.resolved($0).rawValue }
+        )
+    }
+
+    private var zoomCommitCadenceSelection: Binding<String> {
+        Binding(
+            get: { CanvasZoomCommitCadence.resolved(canvasZoomCommitCadenceRaw).rawValue },
+            set: { canvasZoomCommitCadenceRaw = CanvasZoomCommitCadence.resolved($0).rawValue }
         )
     }
 }
@@ -232,12 +352,11 @@ private struct WorkspaceTaskSettingsPane: View {
 private struct DataSettingsPane: View {
     @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
+    @AppStorage(AppPreferenceKeys.agentReviewCustomPromptGuidance) private var agentReviewCustomPromptGuidance = AppPreferenceDefaults.agentReviewCustomPromptGuidance
 
-    private let layout = MindDeskStoreLayout(
-        applicationSupportDirectory: FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support", isDirectory: true)
+    private let layout = (try? PersistentStoreBootstrap.resolvedLayout()) ?? MindDeskStoreLayout(
+        applicationSupportDirectory: URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
     )
 
     var body: some View {
@@ -252,9 +371,57 @@ private struct DataSettingsPane: View {
 
                 Toggle("Include usage dates in JSON export", isOn: $manifestExportIncludesUsageDates)
 
-                SettingsHelpText("The Export command confirms these options before writing. Complete Workspace Map is the only backup-style JSON export; Global Library Only excludes workspaces, canvases, cards, links, and aliases. Usage dates only cover behavior dates such as last opened or last run.")
+                SettingsHelpText("The Export command confirms these options before writing. Complete Workspace Map is the only backup-style JSON export; \(AppSettingsView.portableJSONHelpText) Usage dates only cover behavior dates such as last opened or last run.")
             } header: {
                 Text("Portable JSON")
+            }
+
+            Section {
+                ForEach(AppSettingsView.agentReviewPackageBoundaryRows) { row in
+                    SettingsInfoRow(
+                        title: row.title,
+                        value: row.value,
+                        description: row.description
+                    )
+                }
+
+                SettingsHelpText(AppSettingsView.agentReviewPackageDescription)
+                SettingsHelpText(AppSettingsView.agentReviewImportBehaviorDescription)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text(AppSettingsView.agentReviewCustomGuidanceTitle)
+                        Spacer()
+                        Button(AppSettingsView.agentReviewCustomGuidanceClearButtonTitle) {
+                            agentReviewCustomPromptGuidance = ""
+                        }
+                        .disabled(!customGuidancePresentation.isClearEnabled)
+                    }
+
+                    TextField(
+                        AppSettingsView.agentReviewCustomGuidancePlaceholder,
+                        text: boundedAgentReviewCustomPromptGuidance,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...6)
+
+                    SettingsInfoRow(
+                        title: customGuidancePresentation.statusTitle,
+                        value: customGuidancePresentation.statusValue,
+                        description: AppSettingsView.agentReviewCustomGuidanceStatusPrivacyDescription
+                    )
+
+                    SettingsInfoRow(
+                        title: "Custom guidance budget",
+                        value: customGuidancePresentation.characterBudgetText,
+                        description: customGuidancePresentation.statusDescription
+                    )
+
+                    SettingsHelpText(AppSettingsView.agentReviewCustomGuidanceDescription)
+                    SettingsHelpText(AppSettingsView.agentReviewCustomGuidancePrivacyDescription)
+                }
+            } header: {
+                Text("Agent Review")
             }
 
             Section {
@@ -270,7 +437,7 @@ private struct DataSettingsPane: View {
             Section {
                 SettingsInfoRow(title: "Raw backup retention", value: "\(MindDeskStoreLayout.backupRetentionCount) newest folders", description: "Older raw backup folders are pruned after successful startup or migration backup housekeeping.")
                 SettingsInfoRow(title: "Startup backup throttle", value: "30 minutes", description: "MindDesk avoids copying the raw store on every launch.")
-                SettingsInfoRow(title: "Command safety", value: "Always confirm", description: "Command snippets remain confirmation-gated. Settings does not expose a switch to run shell commands silently.")
+                SettingsInfoRow(title: "External action safety", value: "Confirm side effects", description: AppSettingsView.externalActionSafetyDescription)
             } header: {
                 Text("Safety Policy")
             }
@@ -286,36 +453,124 @@ private struct DataSettingsPane: View {
             set: { manifestExportScopeRaw = ManifestExportScope.resolved($0).rawValue }
         )
     }
+
+    private var customGuidancePresentation: MindDeskAgentReviewCustomGuidancePresentation {
+        AppSettingsView.agentReviewCustomGuidancePresentation(for: agentReviewCustomPromptGuidance)
+    }
+
+    private var boundedAgentReviewCustomPromptGuidance: Binding<String> {
+        Binding(
+            get: { agentReviewCustomPromptGuidance },
+            set: { newValue in
+                agentReviewCustomPromptGuidance = MindDeskAgentReviewCustomGuidancePolicy.boundedForStorage(newValue)
+            }
+        )
+    }
 }
 
-private struct SettingsManualPane: View {
-    var body: some View {
-        SettingsForm {
-            ManualSection(
-                title: "What Belongs In Settings",
-                text: "Use Settings for defaults that affect every workspace or canvas: launch destination, interface scale, canvas zoom behavior, task panel defaults, and export privacy. Edit individual workspaces, snippets, resources, and canvas cards in their own views."
-            )
-            ManualSection(
-                title: "Canvas Defaults",
-                text: "Scroll zoom direction changes the wheel or vertical trackpad zoom feel. Canvas 100% Baseline changes the scale label, Reset to 100%, new Canvas initial zoom, and density-aware Canvas rendering thresholds without rewriting canvas data. Single-use Connect decides whether linking stops after one edge or continues from the target card."
-            )
-            ManualSection(
-                title: "Canvas Tasks",
-                text: "Canvas Task settings define the initial panel, Done-column state, and the remembered task board split used across Workspace Canvas windows."
-            )
-            ManualSection(
-                title: "Import And Export",
-                text: "Export creates a portable metadata JSON file and asks you to confirm scope and usage-date options each time. Complete Workspace Map keeps workspaces, resources, snippets, canvases, cards, links, and aliases. Global Library Only is not a complete backup; it exports reusable global resources and snippets without workspace maps. Import adds new MindDesk metadata and marks imported resources for reauthorization."
-            )
-            ManualSection(
-                title: "Reset Settings",
-                text: "Reset All Settings restores global preferences and layout memory to product defaults. It does not delete workspaces, resources, snippets, tasks, canvases, portable exports, raw backups, or quarantined files."
-            )
-            ManualSection(
-                title: "Local Recovery Data",
-                text: "The Store, Raw Backups, and Quarantine folders are local application support data. Use portable JSON for migration or sharing. Do not treat raw SQLite backups as share-safe files."
-            )
+enum MindDeskHelpCenterWindow {
+    nonisolated static let windowID = "minddesk-help"
+    nonisolated static let commandTitle = "MindDesk Help"
+    nonisolated static let searchPlaceholder = "Search Help"
+    nonisolated static let defaultTopicID = MindDeskHelpCatalog.defaultTopics.first?.id ?? ""
+    nonisolated static let topicIDs = MindDeskHelpCatalog.defaultTopics.map(\.id)
+
+    nonisolated static func readerSections(for topic: MindDeskHelpTopic) -> [MindDeskHelpTopicReaderSection] {
+        MindDeskHelpTopicReaderPolicy.sections(for: topic)
+    }
+}
+
+enum MindDeskHelpCenterSelectionPolicy {
+    nonisolated static func normalizedSelection(
+        _ selectedTopicID: String,
+        visibleTopics: [MindDeskHelpTopic]
+    ) -> String {
+        guard !visibleTopics.isEmpty else {
+            return ""
         }
+        if visibleTopics.contains(where: { $0.id == selectedTopicID }) {
+            return selectedTopicID
+        }
+        return visibleTopics[0].id
+    }
+
+    nonisolated static func selectedTopic(
+        selectedTopicID: String,
+        visibleTopics: [MindDeskHelpTopic]
+    ) -> MindDeskHelpTopic? {
+        let normalizedTopicID = normalizedSelection(selectedTopicID, visibleTopics: visibleTopics)
+        return visibleTopics.first { $0.id == normalizedTopicID }
+    }
+
+    nonisolated static func rowSelectionTag(for topic: MindDeskHelpTopic) -> String {
+        topic.id
+    }
+}
+
+struct MindDeskHelpCenterView: View {
+    @SceneStorage("minddesk.help.searchText") private var searchText = ""
+    @SceneStorage("minddesk.help.selectedTopicID") private var selectedTopicID = MindDeskHelpCenterWindow.defaultTopicID
+
+    private var topics: [MindDeskHelpTopic] {
+        MindDeskHelpSearch.results(for: searchText, in: MindDeskHelpCatalog.defaultTopics, limit: 24)
+    }
+
+    private var selectedTopic: MindDeskHelpTopic? {
+        MindDeskHelpCenterSelectionPolicy.selectedTopic(
+            selectedTopicID: selectedTopicID,
+            visibleTopics: topics
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField(MindDeskHelpCenterWindow.searchPlaceholder, text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel(MindDeskHelpCenterWindow.searchPlaceholder)
+
+            HStack(spacing: 12) {
+                List(selection: $selectedTopicID) {
+                    ForEach(topics) { topic in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(topic.title)
+                                .font(.body)
+                            Text(topic.summary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.vertical, 3)
+                        .tag(MindDeskHelpCenterSelectionPolicy.rowSelectionTag(for: topic))
+                    }
+                }
+                .frame(minWidth: 230, idealWidth: 260, maxWidth: 300)
+
+                Divider()
+
+                ScrollView {
+                    if let selectedTopic {
+                        HelpTopicDetail(topic: selectedTopic)
+                    } else {
+                        Text("No help topics match this search.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .onAppear(perform: normalizeSelection)
+        .onChange(of: searchText) { _, _ in
+            normalizeSelection()
+        }
+    }
+
+    private func normalizeSelection() {
+        selectedTopicID = MindDeskHelpCenterSelectionPolicy.normalizedSelection(
+            selectedTopicID,
+            visibleTopics: topics
+        )
     }
 }
 
@@ -327,10 +582,13 @@ private struct SettingsForm<Content: View>: View {
     }
 
     var body: some View {
-        Form {
-            content
+        ScrollView {
+            Form {
+                content
+            }
+            .formStyle(.grouped)
+            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .formStyle(.grouped)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 }
@@ -407,17 +665,60 @@ private struct SettingsPathRow: View {
     }
 }
 
-private struct ManualSection: View {
-    let title: String
-    let text: String
+private struct HelpTopicDetail: View {
+    let topic: MindDeskHelpTopic
+    let readerSections: [MindDeskHelpTopicReaderSection]
+
+    init(topic: MindDeskHelpTopic) {
+        self.topic = topic
+        readerSections = MindDeskHelpCenterWindow.readerSections(for: topic)
+    }
 
     var body: some View {
-        Section {
-            Text(text)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(topic.title)
+                .font(.title3.weight(.semibold))
+                .accessibilityAddTraits(.isHeader)
+
+            Text(topic.category.settingsTitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text(topic.summary)
+                .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-        } header: {
-            Text(title)
+
+            ForEach(readerSections) { section in
+                VStack(alignment: .leading, spacing: 4) {
+                    if readerSections.count > 1 {
+                        Text(section.title)
+                            .font(.headline)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+
+                    Text(verbatim: section.bodyMarkdown)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, 8)
+    }
+}
+
+private extension MindDeskHelpCategory {
+    var settingsTitle: String {
+        switch self {
+        case .settings:
+            "Settings"
+        case .canvas:
+            "Canvas"
+        case .data:
+            "Data"
+        case .agent:
+            "Agent"
         }
     }
 }
@@ -491,6 +792,32 @@ private extension ManifestExportScope {
             "Complete Workspace Map"
         case .globalLibraryOnly:
             "Global Library Only"
+        }
+    }
+}
+
+private extension CanvasAnimationFrameRate {
+    var settingsTitle: String {
+        switch self {
+        case .reduced:
+            "Reduced"
+        case .balanced:
+            "Balanced"
+        case .smooth:
+            "Smooth"
+        }
+    }
+}
+
+private extension CanvasZoomCommitCadence {
+    var settingsTitle: String {
+        switch self {
+        case .responsive:
+            "Responsive"
+        case .balanced:
+            "Balanced"
+        case .relaxed:
+            "Relaxed"
         }
     }
 }

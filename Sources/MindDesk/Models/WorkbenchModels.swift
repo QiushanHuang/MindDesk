@@ -497,6 +497,17 @@ final class FinderAliasRecordModel {
 }
 
 enum SeedData {
+    static func seedIfNeeded(context: ModelContext) throws {
+        try seedIfNeeded(
+            context: context,
+            workspaces: context.fetch(FetchDescriptor<WorkspaceModel>()),
+            resources: context.fetch(FetchDescriptor<ResourcePinModel>()),
+            snippets: context.fetch(FetchDescriptor<SnippetModel>()),
+            canvases: context.fetch(FetchDescriptor<CanvasModel>()),
+            nodes: context.fetch(FetchDescriptor<CanvasNodeModel>())
+        )
+    }
+
     static func seedIfNeeded(
         context: ModelContext,
         workspaces: [WorkspaceModel],

@@ -24,6 +24,7 @@ jobs:
           persist-credentials: false
 
       - name: Validate release ref
+        shell: bash
         env:
           PUBLISH_GITHUB_RELEASE: ${{ inputs.publish_github_release }}
         run: |
@@ -43,12 +44,16 @@ jobs:
           fi
 
       - name: Set release artifact suffix
+        id: release_suffix
+        shell: bash
         run: |
           set -euo pipefail
           ARCH="$(printf '%s' "${RUNNER_ARCH:-unknown}" | tr '[:upper:]' '[:lower:]')"
           echo "RELEASE_PLATFORM_SUFFIX=macOS-${ARCH}" >>"$GITHUB_ENV"
+          echo "release_platform_suffix=macOS-${ARCH}" >>"$GITHUB_OUTPUT"
 
       - name: Verify release inputs before signing
+        shell: bash
         run: |
           set -euo pipefail
           VERSION="$(tr -d '[:space:]' <VERSION)"
@@ -56,12 +61,29 @@ jobs:
           swift test --scratch-path /tmp/minddesk-release-tests
           bash -n script/build_and_run.sh
           bash -n script/package_release.sh
+          bash -n script/preserve_release_failure_artifacts.sh
+          bash -n script/verify_release_artifacts.sh
           bash -n script/verify_release_metadata.sh
+          bash -n script/verify_release_worktree.sh
+          bash -n script/test_build_and_run_ui_smoke_guard.sh
+          bash -n script/test_release_artifact_verifier.sh
+          bash -n script/test_release_failure_artifact_preserver.sh
+          bash -n script/test_release_package_failure_diagnostics.sh
+          bash -n script/test_release_workflow_guards.sh
+          bash -n script/test_release_worktree_guard.sh
+          ./script/verify_release_worktree.sh
           ./script/verify_release_metadata.sh
+          bash script/test_release_artifact_verifier.sh
+          bash script/test_release_failure_artifact_preserver.sh
+          bash script/test_release_package_failure_diagnostics.sh
+          bash script/test_build_and_run_ui_smoke_guard.sh
+          bash script/test_release_workflow_guards.sh
+          bash script/test_release_worktree_guard.sh
           plutil -lint script/release.entitlements
           git diff --check
 
       - name: Validate signing and notarization secrets
+        shell: bash
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -111,6 +133,7 @@ jobs:
           PY
 
       - name: Import Developer ID certificate
+        shell: bash
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -152,6 +175,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN_PATH"
 
       - name: Decode App Store Connect API key
+        shell: bash
         env:
           API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
         run: |
@@ -170,6 +194,7 @@ jobs:
           echo "API_KEY_PATH=$API_KEY_PATH" >>"$GITHUB_ENV"
 
       - name: Build, sign, notarize, and staple release artifacts
+        shell: bash
         env:
           CODESIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -186,23 +211,33 @@ jobs:
             --notary-key-id "$NOTARY_KEY_ID" \
             --notary-issuer "$NOTARY_ISSUER"
 
+      - name: Verify notarized release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '[:space:]' <VERSION)"
+          bash script/verify_release_artifacts.sh \
+            --artifact-dir "dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}/artifacts" \
+            --version "$VERSION" \
+            --suffix "$RELEASE_PLATFORM_SUFFIX" \
+            --mode notarized
+
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: minddesk-macos-${{ runner.arch }}-release
+          name: minddesk-${{ steps.release_suffix.outputs.release_platform_suffix }}-release
           path: |
             dist/release/*/artifacts/*.zip
             dist/release/*/artifacts/*.dmg
-            dist/release/*/artifacts/*.txt
-            dist/release/*/artifacts/*.md
-            dist/release/*/artifacts/*.json
-            dist/release/*/artifacts/*.plist
+            dist/release/*/artifacts/SHA256SUMS.txt
+            dist/release/*/artifacts/INSTALL.txt
+            dist/release/*/artifacts/RELEASE-NOTES.md
 
       - name: Upload release diagnostics
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: minddesk-macos-${{ runner.arch }}-release-diagnostics
+          name: minddesk-${{ steps.release_suffix.outputs.release_platform_suffix }}-release-diagnostics
           if-no-files-found: ignore
           path: |
             dist/release/*/artifacts/notary-*.json
@@ -211,6 +246,7 @@ jobs:
             dist/release/*/artifacts/codesign-*.plist
 
       - name: Create draft GitHub Release
+        shell: bash
         if: ${{ inputs.publish_github_release }}
         env:
           GH_TOKEN: ${{ github.token }}

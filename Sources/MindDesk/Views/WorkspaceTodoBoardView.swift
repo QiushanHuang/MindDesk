@@ -100,6 +100,10 @@ private struct TodoGroupMembershipSnapshot {
         groupId = todo.groupId
         updatedAt = todo.updatedAt
     }
+
+    func undoRecord() -> TodoGroupMembershipUndoRecord {
+        TodoGroupMembershipUndoRecord(todoId: todoId, groupId: groupId)
+    }
 }
 
 private func fetchTodoForUndo(id: String, in context: ModelContext) -> WorkspaceTodoModel? {
@@ -553,10 +557,16 @@ struct WorkspaceTodoBoardView: View {
     }
 
     @discardableResult
-    private func ensureDefaultGroup() -> WorkspaceTodoGroupModel? {
+    private func ensureDefaultGroup(trigger: TodoBoardDefaultGroupCreationTrigger) -> WorkspaceTodoGroupModel? {
         if let existing = defaultGroup {
             defaultGroupId = existing.id
             return existing
+        }
+        guard TodoBoardDefaultGroupCreationPolicy.shouldCreateDefaultGroup(
+            trigger: trigger,
+            hasUsableGroup: false
+        ) else {
+            return nil
         }
         let group = WorkspaceTodoGroupModel(workspaceId: workspaceId, title: defaultTodoGroupTitle, sortIndex: nextGroupSortIndex())
         modelContext.insert(group)
@@ -581,7 +591,7 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func addTodo() {
-        guard let group = selectedGroup ?? ensureDefaultGroup() else { return }
+        guard let group = selectedGroup ?? ensureDefaultGroup(trigger: .addTask) else { return }
         let todo = WorkspaceTodoModel(
             workspaceId: workspaceId,
             groupId: group.id,
@@ -611,7 +621,7 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func deleteGroup(_ group: WorkspaceTodoGroupModel) {
-        guard let fallback = ensureDefaultGroup() else { return }
+        guard let fallback = ensureDefaultGroup(trigger: .deleteGroupFallback) else { return }
         let orderedIds = orderedGroups.map(\.id)
         let plan = TodoGroupDeletionPolicy.plan(
             deletingGroupId: group.id,
@@ -643,46 +653,63 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func registerTodoDeletionUndo(_ snapshot: TodoDeletionSnapshot) {
+        let restorePlan = TodoDeletionUndoPolicy.restorePlan(deletedTodoId: snapshot.id)
         let undoContext = MainActorUndoContext(context: modelContext)
         undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
                 let context = undoContext.context
-                context.insert(snapshot.makeModel())
+                for step in restorePlan.steps {
+                    switch step {
+                    case .restoreTask(let id):
+                        guard id == snapshot.id else { continue }
+                        context.insert(snapshot.makeModel())
+                    }
+                }
                 do {
                     try context.save()
-                    onStatus("Restored task")
+                    onStatus(restorePlan.successStatus)
                 } catch {
                     context.rollback()
                     onStatus("Could not undo task deletion: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName("Delete Task")
+        undoManager?.setActionName(TodoDeletionUndoPolicy.actionName)
     }
 
     private func registerTodoGroupDeletionUndo(group: TodoGroupDeletionSnapshot, memberships: [TodoGroupMembershipSnapshot]) {
+        let restorePlan = TodoGroupDeletionUndoPolicy.restorePlan(
+            deletedGroupId: group.id,
+            memberships: memberships.map { $0.undoRecord() }
+        )
+        let membershipsByTodoID = Dictionary(uniqueKeysWithValues: memberships.map { ($0.todoId, $0) })
         let undoContext = MainActorUndoContext(context: modelContext)
         undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
                 let context = undoContext.context
-                context.insert(group.makeModel())
-                for snapshot in memberships {
-                    if let todo = fetchTodoForUndo(id: snapshot.todoId, in: context) {
-                        todo.groupId = snapshot.groupId
+                for step in restorePlan.steps {
+                    switch step {
+                    case .restoreGroup(let id):
+                        guard id == group.id else { continue }
+                        context.insert(group.makeModel())
+                    case .restoreTaskMembership(let todoId, let groupId):
+                        guard let snapshot = membershipsByTodoID[todoId],
+                              let todo = fetchTodoForUndo(id: todoId, in: context) else { continue }
+                        todo.groupId = groupId
                         todo.updatedAt = snapshot.updatedAt
                     }
                 }
                 do {
                     try context.save()
                     selectedGroupId = group.id
-                    onStatus("Restored group")
+                    onStatus(restorePlan.successStatus)
                 } catch {
                     context.rollback()
                     onStatus("Could not undo group deletion: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName("Delete Group")
+        undoManager?.setActionName(TodoGroupDeletionUndoPolicy.actionName)
     }
 
     private func moveGroup(id movingID: String, to targetID: String) {

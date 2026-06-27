@@ -10,6 +10,106 @@ struct ResourceWorkspaceUsage: Identifiable, Hashable {
     let title: String
 }
 
+enum ResourceListOrderingPolicy {
+    static func ordered(_ resources: [ResourcePinModel]) -> [ResourcePinModel] {
+        resources.sorted {
+            if $0.sortIndex != $1.sortIndex {
+                return $0.sortIndex < $1.sortIndex
+            }
+            if $0.updatedAt != $1.updatedAt {
+                return $0.updatedAt > $1.updatedAt
+            }
+            let displayComparison = $0.displayName.localizedCaseInsensitiveCompare($1.displayName)
+            if displayComparison != .orderedSame {
+                return displayComparison == .orderedAscending
+            }
+            return $0.id < $1.id
+        }
+    }
+}
+
+enum ResourceRowActionID: String, Equatable, Sendable {
+    case open
+    case reveal
+    case copyPath
+    case pinToggle
+    case details
+    case rename
+    case createAlias
+    case reauthorize
+    case remove
+}
+
+struct ResourceRowActionPresentation: Equatable, Identifiable, Sendable {
+    let id: ResourceRowActionID
+    let title: String
+    let systemImage: String?
+    let helpText: String
+}
+
+enum ResourceRowActionPresentationPolicy {
+    static let renameTitle = "Rename in MindDesk"
+    static let createAliasTitle = "Create Finder Alias"
+    static let reauthorizeTitle = "Reauthorize"
+    static let removeTitle = "Remove from MindDesk"
+
+    static func primaryActions(isPinned: Bool) -> [ResourceRowActionPresentation] {
+        [
+            ResourceRowActionPresentation(id: .open, title: "Open", systemImage: "arrow.up.forward.app", helpText: "Open"),
+            ResourceRowActionPresentation(id: .reveal, title: "Reveal", systemImage: "arrow.right.square", helpText: "Reveal"),
+            ResourceRowActionPresentation(id: .copyPath, title: "Copy Full Path", systemImage: "doc.on.doc", helpText: "Copy full path"),
+            ResourceRowActionPresentation(
+                id: .pinToggle,
+                title: isPinned ? "Unpin" : "Pin",
+                systemImage: isPinned ? "pin.slash" : "pin",
+                helpText: isPinned ? "Unpin" : "Pin"
+            ),
+            ResourceRowActionPresentation(id: .details, title: "Details", systemImage: "info.circle", helpText: "Details")
+        ]
+    }
+
+    static func moreMenuActions(canRemove: Bool) -> [ResourceRowActionPresentation] {
+        var actions = [
+            ResourceRowActionPresentation(id: .rename, title: renameTitle, systemImage: nil, helpText: renameTitle),
+            ResourceRowActionPresentation(id: .createAlias, title: createAliasTitle, systemImage: nil, helpText: createAliasTitle),
+            ResourceRowActionPresentation(id: .reauthorize, title: reauthorizeTitle, systemImage: nil, helpText: reauthorizeTitle)
+        ]
+        if canRemove {
+            actions.append(ResourceRowActionPresentation(id: .remove, title: removeTitle, systemImage: nil, helpText: removeTitle))
+        }
+        return actions
+    }
+
+    static func moreMenuTitles(canRemove: Bool) -> [String] {
+        moreMenuActions(canRemove: canRemove).map(\.title)
+    }
+
+    static func contextMenuActions(isPinned: Bool, canRemove: Bool) -> [ResourceRowActionPresentation] {
+        var actions = [
+            ResourceRowActionPresentation(id: .open, title: "Open in Finder", systemImage: nil, helpText: "Open"),
+            ResourceRowActionPresentation(id: .reveal, title: "Reveal in Finder", systemImage: nil, helpText: "Reveal"),
+            ResourceRowActionPresentation(id: .copyPath, title: "Copy Full Path", systemImage: nil, helpText: "Copy full path"),
+            ResourceRowActionPresentation(id: .pinToggle, title: isPinned ? "Unpin" : "Pin", systemImage: nil, helpText: isPinned ? "Unpin" : "Pin"),
+            ResourceRowActionPresentation(id: .details, title: "Details", systemImage: nil, helpText: "Details"),
+            ResourceRowActionPresentation(id: .rename, title: renameTitle, systemImage: nil, helpText: renameTitle),
+            ResourceRowActionPresentation(id: .createAlias, title: createAliasTitle, systemImage: nil, helpText: createAliasTitle),
+            ResourceRowActionPresentation(id: .reauthorize, title: reauthorizeTitle, systemImage: nil, helpText: reauthorizeTitle)
+        ]
+        if canRemove {
+            actions.append(ResourceRowActionPresentation(id: .remove, title: removeTitle, systemImage: nil, helpText: removeTitle))
+        }
+        return actions
+    }
+
+    static func contextMenuTitles(isPinned: Bool, canRemove: Bool) -> [String] {
+        contextMenuActions(isPinned: isPinned, canRemove: canRemove).map(\.title)
+    }
+}
+
+enum ResourceRowGestureActionPolicy {
+    static let doubleClickActionID: ResourceRowActionID = .open
+}
+
 struct ResourceListView: View {
     @Environment(\.modelContext) private var modelContext
     let title: String
@@ -23,6 +123,7 @@ struct ResourceListView: View {
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onRemove: (ResourcePinModel) -> Void
+    var canRemove: (ResourcePinModel) -> Bool = { _ in true }
     var workspaceUsageByResourceID: [String: [ResourceWorkspaceUsage]] = [:]
     var onSelectWorkspace: ((String) -> Void)?
     var listMinHeight: CGFloat = 220
@@ -37,15 +138,7 @@ struct ResourceListView: View {
             guard let targetFilter else { return true }
             return resource.targetType == targetFilter
         }
-        let ordered = typed.sorted {
-            if $0.sortIndex != $1.sortIndex {
-                return $0.sortIndex < $1.sortIndex
-            }
-            if $0.updatedAt != $1.updatedAt {
-                return $0.updatedAt > $1.updatedAt
-            }
-            return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
+        let ordered = ResourceListOrderingPolicy.ordered(typed)
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !query.isEmpty else { return ordered }
         return ordered.filter {
@@ -103,6 +196,7 @@ struct ResourceListView: View {
                                     },
                                     onRename: { renamingResource = resource },
                                     onTogglePin: { togglePin(resource) },
+                                    canRemove: canRemove(resource),
                                     onRemove: { onRemove(resource) },
                                     onSelectWorkspace: onSelectWorkspace
                                 )
@@ -292,12 +386,24 @@ struct ResourceListView: View {
             )
             modelContext.insert(aliasRecord)
             try modelContext.save()
+            MindDeskHiddenMaintenanceLogger.log(.finderAliasCreateResult(
+                sourceObjectType: aliasRecord.sourceObjectType,
+                status: aliasRecord.statusRaw,
+                hasAliasBookmark: aliasRecord.aliasFileBookmarkData != nil,
+                hasTargetBookmark: aliasRecord.aliasTargetBookmarkData != nil
+            ))
             onStatus("Created Finder alias: \(aliasURL.path)")
         } catch {
             let failed = FinderAliasRecordModel(sourceObjectType: "resourcePin", sourceObjectId: resource.id, aliasDisplayPath: requestedAliasURL.path, status: .failed)
             modelContext.insert(failed)
             do {
                 try modelContext.save()
+                MindDeskHiddenMaintenanceLogger.log(.finderAliasCreateResult(
+                    sourceObjectType: failed.sourceObjectType,
+                    status: failed.statusRaw,
+                    hasAliasBookmark: failed.aliasFileBookmarkData != nil,
+                    hasTargetBookmark: failed.aliasTargetBookmarkData != nil
+                ))
             } catch {
                 modelContext.rollback()
             }
@@ -904,6 +1010,7 @@ private struct ResourceRowView: View {
     let onSelect: () -> Void
     let onRename: () -> Void
     let onTogglePin: () -> Void
+    let canRemove: Bool
     let onRemove: () -> Void
     let onSelectWorkspace: ((String) -> Void)?
 
@@ -944,17 +1051,24 @@ private struct ResourceRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 5) {
-                iconButton("arrow.up.forward.app", "Open", onOpen)
-                iconButton("arrow.right.square", "Reveal", onReveal)
-                iconButton("doc.on.doc", "Copy full path", onCopy)
-                iconButton(resource.isPinned ? "pin.slash" : "pin", resource.isPinned ? "Unpin" : "Pin", onTogglePin)
-                iconButton("info.circle", "Details", onInspect)
+                ForEach(ResourceRowActionPresentationPolicy.primaryActions(isPinned: resource.isPinned)) { action in
+                    iconButton(action.systemImage ?? "circle", action.helpText) {
+                        perform(action.id)
+                    }
+                }
                 Menu {
-                    Button("Rename in MindDesk", action: onRename)
-                    Button("Create Finder Alias", action: onAlias)
-                    Button("Reauthorize", action: onReauthorize)
-                    Divider()
-                    Button("Remove from MindDesk", role: .destructive, action: onRemove)
+                    ForEach(ResourceRowActionPresentationPolicy.moreMenuActions(canRemove: canRemove)) { action in
+                        if action.id == .remove {
+                            Divider()
+                            Button(action.title, role: .destructive) {
+                                perform(action.id)
+                            }
+                        } else {
+                            Button(action.title) {
+                                perform(action.id)
+                            }
+                        }
+                    }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                         .frame(width: 24, height: 24)
@@ -968,19 +1082,47 @@ private struct ResourceRowView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        .simultaneousGesture(TapGesture(count: 2).onEnded { _ in
+            perform(ResourceRowGestureActionPolicy.doubleClickActionID)
+        })
         .contextMenu {
-            Button("Open in Finder", action: onOpen)
-            Button("Reveal in Finder", action: onReveal)
-            Button("Copy Full Path", action: onCopy)
-            Button(resource.isPinned ? "Unpin" : "Pin", action: onTogglePin)
-            Button("Details", action: onInspect)
-            Button("Rename in MindDesk", action: onRename)
-            Button("Create Finder Alias", action: onAlias)
-            Button("Reauthorize", action: onReauthorize)
-            Divider()
-            Button("Remove from MindDesk", role: .destructive, action: onRemove)
+            ForEach(ResourceRowActionPresentationPolicy.contextMenuActions(isPinned: resource.isPinned, canRemove: canRemove)) { action in
+                if action.id == .remove {
+                    Divider()
+                    Button(action.title, role: .destructive) {
+                        perform(action.id)
+                    }
+                } else {
+                    Button(action.title) {
+                        perform(action.id)
+                    }
+                }
+            }
         }
         Divider()
+    }
+
+    private func perform(_ actionID: ResourceRowActionID) {
+        switch actionID {
+        case .open:
+            onOpen()
+        case .reveal:
+            onReveal()
+        case .copyPath:
+            onCopy()
+        case .pinToggle:
+            onTogglePin()
+        case .details:
+            onInspect()
+        case .rename:
+            onRename()
+        case .createAlias:
+            onAlias()
+        case .reauthorize:
+            onReauthorize()
+        case .remove:
+            onRemove()
+        }
     }
 
     private func iconButton(_ systemImage: String, _ help: String, _ action: @escaping () -> Void) -> some View {
@@ -1098,6 +1240,110 @@ private final class DropURLStore: @unchecked Sendable {
     }
 }
 
+enum SnippetCreationActionID: String, Equatable, Sendable {
+    case prompt
+    case command
+}
+
+struct SnippetCreationActionPresentation: Equatable, Identifiable, Sendable {
+    let id: SnippetCreationActionID
+    let title: String
+    let systemImage: String
+    let helpText: String
+}
+
+enum SnippetCreationPresentationPolicy {
+    static let creationActions = [
+        SnippetCreationActionPresentation(
+            id: .prompt,
+            title: "New Prompt",
+            systemImage: "text.quote",
+            helpText: "Create prompt snippet"
+        ),
+        SnippetCreationActionPresentation(
+            id: .command,
+            title: "New Command",
+            systemImage: "terminal",
+            helpText: "Create command snippet"
+        )
+    ]
+
+    static func initialKind(for actionID: SnippetCreationActionID) -> SnippetKind {
+        switch actionID {
+        case .prompt:
+            .prompt
+        case .command:
+            .command
+        }
+    }
+}
+
+enum SnippetActionID: String, Equatable, Sendable {
+    case copy
+    case edit
+    case delete
+}
+
+struct SnippetActionPresentation: Equatable, Identifiable, Sendable {
+    let id: SnippetActionID
+    let title: String
+    let systemImage: String
+    let helpText: String
+}
+
+enum SnippetActionPresentationPolicy {
+    static let managementActions = [
+        SnippetActionPresentation(id: .copy, title: "Copy", systemImage: "doc.on.doc", helpText: "Copy snippet"),
+        SnippetActionPresentation(id: .edit, title: "Edit", systemImage: "pencil", helpText: "Edit snippet"),
+        SnippetActionPresentation(id: .delete, title: "Delete Snippet", systemImage: "trash", helpText: "Delete snippet")
+    ]
+
+    static var nonDestructiveManagementActions: [SnippetActionPresentation] {
+        managementActions.filter { $0.id != .delete }
+    }
+
+    static var destructiveManagementActions: [SnippetActionPresentation] {
+        managementActions.filter { $0.id == .delete }
+    }
+}
+
+enum SnippetExpansionActionID: String, Equatable, Sendable {
+    case toggleExpanded
+}
+
+enum SnippetExpansionPresentationPolicy {
+    static let doubleClickActionID: SnippetExpansionActionID = .toggleExpanded
+    static let expandedEditAction = SnippetActionPresentation(
+        id: .edit,
+        title: "Edit",
+        systemImage: "pencil",
+        helpText: "Edit full snippet"
+    )
+
+    static func bodyText(for body: String) -> String {
+        body.isEmpty ? "No snippet body." : body
+    }
+}
+
+enum SnippetActionCardReadabilityPolicy {
+    nonisolated static func titleLineLimit(compact: Bool) -> Int {
+        compact ? 3 : 1
+    }
+
+    nonisolated static func subtitleLineLimit(compact: Bool) -> Int {
+        compact ? 2 : 2
+    }
+
+    nonisolated static func expandedBodyLineLimit(compact _: Bool) -> Int? {
+        nil
+    }
+
+    nonisolated static func minimumHeight(compact: Bool, isExpanded: Bool) -> CGFloat {
+        guard compact else { return 96 }
+        return isExpanded ? 176 : 128
+    }
+}
+
 struct SnippetLibraryView: View {
     @Environment(\.modelContext) private var modelContext
     let snippets: [SnippetModel]
@@ -1112,7 +1358,7 @@ struct SnippetLibraryView: View {
     var listMaxHeight: CGFloat?
     var compactEmptyState = false
     @State private var searchText = ""
-    @State private var showingEditor = false
+    @State private var creatingSnippetKind: SnippetKind?
     @State private var pendingRun: CommandRunRequest?
     @State private var expandedSnippetIDs: Set<String> = []
 
@@ -1138,10 +1384,13 @@ struct SnippetLibraryView: View {
                 Text("Snippets")
                     .font(.headline)
                 Spacer()
-                Button {
-                    showingEditor = true
-                } label: {
-                    Label("Add Snippet", systemImage: "plus")
+                ForEach(SnippetCreationPresentationPolicy.creationActions) { action in
+                    Button {
+                        creatingSnippetKind = SnippetCreationPresentationPolicy.initialKind(for: action.id)
+                    } label: {
+                        Label(action.title, systemImage: action.systemImage)
+                    }
+                    .help(action.helpText)
                 }
             }
             TextField("Search snippets", text: $searchText)
@@ -1172,8 +1421,8 @@ struct SnippetLibraryView: View {
             }
             .frame(minHeight: effectiveListMinHeight, maxHeight: listMaxHeight)
         }
-        .sheet(isPresented: $showingEditor) {
-            SnippetEditor(scope: scope ?? .global, workspaceId: workspaceId, resources: resources) { draft in
+        .sheet(item: $creatingSnippetKind) { kind in
+            SnippetEditor(initialKind: kind, scope: scope ?? .global, workspaceId: workspaceId, resources: resources) { draft in
                 let snippet = draft.makeSnippet()
                 modelContext.insert(snippet)
                 do {
@@ -1235,14 +1484,14 @@ struct SnippetLibraryView: View {
     private func openTerminal(_ snippet: SnippetModel) {
         do {
             let directory = try resolvedWorkingDirectory(for: snippet)
-            try TerminalService().open(at: directory)
+            try TerminalService().prefill(command: snippet.body, workingDirectory: directory)
             snippet.lastUsedAt = .now
             do {
                 try modelContext.save()
-                onStatus("Opened Terminal at \(directory)")
+                onStatus("Opened Terminal with command prefilled at \(directory)")
             } catch {
                 modelContext.rollback()
-                onStatus("Opened Terminal, but could not update metadata. \(error.localizedDescription)")
+                onStatus("Opened Terminal with command prefilled, but could not update metadata. \(error.localizedDescription)")
             }
         } catch {
             onStatus("Terminal automation failed. \(error.localizedDescription)")
@@ -1280,17 +1529,29 @@ struct SnippetLibraryView: View {
             snippet.lastCopiedAt = .now
             snippet.updatedAt = .now
             do {
-                try TerminalService().open(at: request.workingDirectory)
+                try TerminalService().prefill(command: snippet.body, workingDirectory: request.workingDirectory)
                 do {
                     try modelContext.save()
-                    onStatus("Terminal run failed; copied command and opened Terminal at \(request.workingDirectory). \(runError.localizedDescription)")
+                    onStatus("Terminal run failed; copied command and opened Terminal with command prefilled at \(request.workingDirectory). \(runError.localizedDescription)")
                 } catch {
                     modelContext.rollback()
-                    onStatus("Terminal run failed; copied command and opened Terminal, but could not update metadata. \(error.localizedDescription)")
+                    onStatus("Terminal run failed; copied command and opened Terminal with command prefilled, but could not update metadata. \(error.localizedDescription)")
                 }
             } catch {
-                modelContext.rollback()
-                onStatus("Terminal run failed; copied command. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
+                let prefillError = error
+                do {
+                    try TerminalService().open(at: request.workingDirectory)
+                    do {
+                        try modelContext.save()
+                        onStatus("Terminal run failed; copied command and opened Terminal at \(request.workingDirectory). Could not prefill command: \(prefillError.localizedDescription). \(runError.localizedDescription)")
+                    } catch {
+                        modelContext.rollback()
+                        onStatus("Terminal run failed; copied command and opened Terminal, but could not update metadata. \(error.localizedDescription)")
+                    }
+                } catch {
+                    modelContext.rollback()
+                    onStatus("Terminal run failed; copied command. Could not open Terminal at \(request.workingDirectory): \(error.localizedDescription)")
+                }
             }
         }
     }
@@ -1371,12 +1632,12 @@ struct SnippetActionCard: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(snippet.title)
                             .font(.headline)
-                            .lineLimit(compact ? 2 : 1)
+                            .lineLimit(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: compact))
                             .minimumScaleFactor(0.8)
                         Text(snippetSubtitle)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(compact ? 1 : 2)
+                            .lineLimit(SnippetActionCardReadabilityPolicy.subtitleLineLimit(compact: compact))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1397,11 +1658,17 @@ struct SnippetActionCard: View {
                 }
             }
             .padding(12)
-            .frame(maxWidth: .infinity, minHeight: compact ? 108 : 96, alignment: .topLeading)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: SnippetActionCardReadabilityPolicy.minimumHeight(compact: compact, isExpanded: isExpanded),
+                alignment: .topLeading
+            )
             .background(.thinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
-            .simultaneousGesture(TapGesture(count: 2).onEnded(onToggleExpanded))
+            .simultaneousGesture(TapGesture(count: 2).onEnded {
+                performExpansionGestureAction(SnippetExpansionPresentationPolicy.doubleClickActionID)
+            })
 
             if let feedback {
                 Text(feedback)
@@ -1417,11 +1684,17 @@ struct SnippetActionCard: View {
             }
         }
         .contextMenu {
-            Button("Copy") {
-                onCopy()
-                showFeedback("Copied")
+            ForEach(SnippetActionPresentationPolicy.managementActions) { action in
+                if action.id == .delete {
+                    Button(action.title, role: .destructive) {
+                        performSnippetManagementAction(action.id)
+                    }
+                } else {
+                    Button(action.title) {
+                        performSnippetManagementAction(action.id)
+                    }
+                }
             }
-            Button("Edit", action: onEdit)
             Button(isExpanded ? "Collapse" : "Expand", action: onToggleExpanded)
             Button("Details", action: onInspect)
             if let onOpenTerminal {
@@ -1430,7 +1703,6 @@ struct SnippetActionCard: View {
             if let onRun {
                 Button("Run Command", action: onRun)
             }
-            Button("Delete Snippet", role: .destructive, action: onDelete)
         }
     }
 
@@ -1442,20 +1714,15 @@ struct SnippetActionCard: View {
             .buttonStyle(CardIconButtonStyle())
             .help(isExpanded ? "Collapse snippet" : "Expand snippet")
 
-            Button {
-                onCopy()
-                showFeedback("Copied")
-            } label: {
-                Image(systemName: "doc.on.doc")
+            ForEach(SnippetActionPresentationPolicy.nonDestructiveManagementActions) { action in
+                Button {
+                    performSnippetManagementAction(action.id)
+                } label: {
+                    Image(systemName: action.systemImage)
+                }
+                .buttonStyle(CardIconButtonStyle())
+                .help(action.helpText)
             }
-            .buttonStyle(CardIconButtonStyle())
-            .help("Copy snippet")
-
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
-            }
-            .buttonStyle(CardIconButtonStyle())
-            .help("Edit snippet")
 
             Button(action: onInspect) {
                 Image(systemName: "info.circle")
@@ -1468,7 +1735,7 @@ struct SnippetActionCard: View {
                     Image(systemName: "terminal")
                 }
                 .buttonStyle(CardIconButtonStyle())
-                .help("Open Terminal")
+                .help("Open Terminal with command prefilled")
             }
 
             if let onRun {
@@ -1479,11 +1746,15 @@ struct SnippetActionCard: View {
                 .help("Run command")
             }
 
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
+            ForEach(SnippetActionPresentationPolicy.destructiveManagementActions) { action in
+                Button(role: .destructive) {
+                    performSnippetManagementAction(action.id)
+                } label: {
+                    Image(systemName: action.systemImage)
+                }
+                .buttonStyle(CardIconButtonStyle())
+                .help(action.helpText)
             }
-            .buttonStyle(CardIconButtonStyle())
-            .help("Delete snippet")
         }
     }
 
@@ -1495,11 +1766,21 @@ struct SnippetActionCard: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text(snippet.body.isEmpty ? "No snippet body." : snippet.body)
+            Text(SnippetExpansionPresentationPolicy.bodyText(for: snippet.body))
                 .font(.system(.caption, design: snippet.kind == .command ? .monospaced : .default))
+                .lineLimit(SnippetActionCardReadabilityPolicy.expandedBodyLineLimit(compact: compact))
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+            let editAction = SnippetExpansionPresentationPolicy.expandedEditAction
+            Button {
+                performSnippetManagementAction(editAction.id)
+            } label: {
+                Label(editAction.title, systemImage: editAction.systemImage)
+            }
+            .help(editAction.helpText)
+            .buttonStyle(.borderless)
         }
         .padding(.top, 2)
     }
@@ -1521,6 +1802,25 @@ struct SnippetActionCard: View {
             withAnimation(.easeIn(duration: 0.16)) {
                 feedback = nil
             }
+        }
+    }
+
+    private func performSnippetManagementAction(_ actionID: SnippetActionID) {
+        switch actionID {
+        case .copy:
+            onCopy()
+            showFeedback("Copied")
+        case .edit:
+            onEdit()
+        case .delete:
+            onDelete()
+        }
+    }
+
+    private func performExpansionGestureAction(_ actionID: SnippetExpansionActionID) {
+        switch actionID {
+        case .toggleExpanded:
+            onToggleExpanded()
         }
     }
 }
@@ -1568,6 +1868,7 @@ struct SnippetEditor: View {
 
     init(
         snippet: SnippetModel? = nil,
+        initialKind: SnippetKind = .prompt,
         scope: WorkbenchScope,
         workspaceId: String?,
         resources: [ResourcePinModel],
@@ -1579,7 +1880,7 @@ struct SnippetEditor: View {
         self.resources = resources
         self.onSave = onSave
         _title = State(initialValue: snippet?.title ?? "")
-        _kind = State(initialValue: snippet?.kind ?? .prompt)
+        _kind = State(initialValue: snippet?.kind ?? initialKind)
         _snippetBody = State(initialValue: snippet?.body ?? "")
         _details = State(initialValue: snippet?.details ?? "")
         _tags = State(initialValue: snippet?.tags.joined(separator: ", ") ?? "")

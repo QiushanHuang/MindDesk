@@ -40,6 +40,69 @@ private enum CanvasInteractionMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum WorkspaceCanvasFinalEdgeRenderFilters {
+    static func shouldIncludeCandidateEdge(
+        edgeID: String,
+        selectedEdgeIDs: Set<String>,
+        forceRetainedEdgeIDs: Set<String>,
+        isPotentiallyVisible: Bool
+    ) -> Bool {
+        CanvasFinalEdgeRenderPolicy.shouldIncludeCandidateEdge(
+            edgeID: edgeID,
+            selectedEdgeIDs: selectedEdgeIDs,
+            forceRetainedEdgeIDs: forceRetainedEdgeIDs,
+            isPotentiallyVisible: isPotentiallyVisible
+        )
+    }
+
+    static func shouldKeepSegment(
+        edgeID: String,
+        selectedEdgeIDs: Set<String>,
+        forceRetainedEdgeIDs: Set<String>,
+        isSegmentVisible: Bool
+    ) -> Bool {
+        CanvasFinalEdgeRenderPolicy.shouldKeepSegment(
+            edgeID: edgeID,
+            selectedEdgeIDs: selectedEdgeIDs,
+            forceRetainedEdgeIDs: forceRetainedEdgeIDs,
+            isSegmentVisible: isSegmentVisible
+        )
+    }
+}
+
+enum WorkspaceCanvasForceRetention {
+    static func retainedEdges(
+        in edgeIndex: CanvasEdgeViewportIndex,
+        selectedEdgeIDs: Set<String>,
+        transientControlEdgeIDs: Set<String>,
+        movedControlEdgeIDs: Set<String>,
+        movingNodeIDs: Set<String>
+    ) -> CanvasEdgeForceRetentionResult {
+        edgeIndex.forceRetainedEdgeIDs(
+            selectedEdgeIDs: selectedEdgeIDs,
+            transientControlEdgeIDs: transientControlEdgeIDs,
+            movedControlEdgeIDs: movedControlEdgeIDs,
+            movingNodeIDs: movingNodeIDs
+        )
+    }
+
+    static func retainedEdges(
+        in edges: [CanvasEdgeViewportRecord],
+        selectedEdgeIDs: Set<String>,
+        transientControlEdgeIDs: Set<String>,
+        movedControlEdgeIDs: Set<String>,
+        movingNodeIDs: Set<String>
+    ) -> CanvasEdgeForceRetentionResult {
+        CanvasEdgeForceRetentionPolicy.forceRetainedEdgeIDs(
+            in: edges,
+            selectedEdgeIDs: selectedEdgeIDs,
+            transientControlEdgeIDs: transientControlEdgeIDs,
+            movedControlEdgeIDs: movedControlEdgeIDs,
+            movingNodeIDs: movingNodeIDs
+        )
+    }
+}
+
 private struct CanvasEdgeSegment: Identifiable {
     let id: String
     let start: CGPoint
@@ -172,6 +235,515 @@ private struct CanvasEdgeDeletionSnapshot {
             updatedAt: updatedAt
         )
     }
+
+    func restoreRecord() -> CanvasEdgeDeletionUndoRecord {
+        CanvasEdgeDeletionUndoRecord(
+            id: id,
+            controlPointX: controlPointX,
+            controlPointY: controlPointY
+        )
+    }
+}
+
+struct CanvasNodeTapSelectionResult: Equatable {
+    var selectedNodeIDs: Set<String>
+    var selectedEdgeIDs: Set<String>
+    var connectionSourceNodeID: String?
+}
+
+enum CanvasNodeTapSelectionPolicy {
+    static func result(
+        tappingNodeID nodeID: String,
+        selectedNodeIDs: Set<String>,
+        selectedEdgeIDs _: Set<String>,
+        connectionSourceNodeID _: String?
+    ) -> CanvasNodeTapSelectionResult {
+        let nextSelectedNodeIDs: Set<String>
+        if selectedNodeIDs.contains(nodeID), selectedNodeIDs.count > 1 {
+            nextSelectedNodeIDs = selectedNodeIDs.subtracting([nodeID])
+        } else {
+            nextSelectedNodeIDs = [nodeID]
+        }
+        return CanvasNodeTapSelectionResult(
+            selectedNodeIDs: nextSelectedNodeIDs,
+            selectedEdgeIDs: [],
+            connectionSourceNodeID: nil
+        )
+    }
+}
+
+enum CanvasEdgeTapSelectionPolicy {
+    static func result(tappingEdgeID edgeID: String) -> CanvasNodeTapSelectionResult {
+        CanvasNodeTapSelectionResult(
+            selectedNodeIDs: [],
+            selectedEdgeIDs: [edgeID],
+            connectionSourceNodeID: nil
+        )
+    }
+}
+
+enum CanvasNodeSelectionFrameTone: Equatable {
+    case accent
+    case inactive
+}
+
+struct CanvasNodeSelectionFrameStyle: Equatable {
+    var tone: CanvasNodeSelectionFrameTone
+    var lineWidth: CGFloat
+}
+
+enum CanvasNodeSelectionFramePolicy {
+    static func style(
+        isSelected: Bool,
+        isConnectionSource: Bool,
+        inactiveLineWidth: CGFloat
+    ) -> CanvasNodeSelectionFrameStyle {
+        if isSelected || isConnectionSource {
+            return CanvasNodeSelectionFrameStyle(tone: .accent, lineWidth: 2)
+        }
+        return CanvasNodeSelectionFrameStyle(tone: .inactive, lineWidth: inactiveLineWidth)
+    }
+}
+
+enum CanvasNodeDragCommitPolicy {
+    static func committedPositions(
+        dragStarts: [CanvasFramePosition],
+        deltaX: Double,
+        deltaY: Double
+    ) -> [CanvasFramePosition] {
+        dragStarts.map { start in
+            CanvasFramePosition(
+                id: start.id,
+                x: start.x + deltaX,
+                y: start.y + deltaY
+            )
+        }
+    }
+}
+
+enum CanvasNodeDragPersistencePhase {
+    case changed
+    case ended
+}
+
+enum CanvasNodeDragPersistenceAction: Equatable {
+    case ignore
+    case updateTransientOffset
+    case commitModelAndSave
+}
+
+enum CanvasNodeDragPersistencePolicy {
+    static func action(
+        for phase: CanvasNodeDragPersistencePhase,
+        hasActiveDrag: Bool
+    ) -> CanvasNodeDragPersistenceAction {
+        guard hasActiveDrag else { return .ignore }
+        switch phase {
+        case .changed:
+            return .updateTransientOffset
+        case .ended:
+            return .commitModelAndSave
+        }
+    }
+}
+
+struct CanvasBackgroundPanCommit: Equatable {
+    var viewportX: Double
+    var viewportY: Double
+}
+
+struct CanvasViewportPersistenceCommit: Equatable {
+    var zoom: Double
+    var viewportX: Double
+    var viewportY: Double
+}
+
+enum CanvasViewportPersistencePolicy {
+    static func commit(
+        zoom: Double,
+        viewportX: Double,
+        viewportY: Double,
+        minimumZoom: Double,
+        maximumZoom: Double
+    ) -> CanvasViewportPersistenceCommit? {
+        guard zoom.isFinite, viewportX.isFinite, viewportY.isFinite else { return nil }
+        let clampedZoom = CanvasZoomScale.clamped(
+            zoom,
+            minimum: minimumZoom,
+            maximum: maximumZoom
+        )
+        guard clampedZoom.isFinite else { return nil }
+        return CanvasViewportPersistenceCommit(
+            zoom: clampedZoom,
+            viewportX: viewportX,
+            viewportY: viewportY
+        )
+    }
+}
+
+enum CanvasBackgroundPanCommitPolicy {
+    static func commit(
+        viewportX: Double,
+        viewportY: Double,
+        transientOffset: CGSize,
+        startsOnNode: Bool
+    ) -> CanvasBackgroundPanCommit? {
+        guard !startsOnNode, transientOffset != .zero else { return nil }
+        return CanvasBackgroundPanCommit(
+            viewportX: viewportX + Double(transientOffset.width),
+            viewportY: viewportY + Double(transientOffset.height)
+        )
+    }
+}
+
+enum CanvasBoxSelectionPolicy {
+    static func selectedNodeIDs(
+        selectionRect: CGRect,
+        nodeRects: [CanvasFrameRect],
+        hitSlop: CGFloat
+    ) -> Set<String> {
+        let safeHitSlop = max(0, hitSlop)
+        return Set(nodeRects.compactMap { nodeRect in
+            let expandedRect = CGRect(
+                x: CGFloat(nodeRect.x) - safeHitSlop,
+                y: CGFloat(nodeRect.y) - safeHitSlop,
+                width: CGFloat(nodeRect.width) + safeHitSlop * 2,
+                height: CGFloat(nodeRect.height) + safeHitSlop * 2
+            )
+            return selectionRect.intersects(expandedRect) ? nodeRect.id : nil
+        })
+    }
+}
+
+enum CanvasNodeDragDeltaPolicy {
+    static func canvasDelta(screenTranslation: CGSize, zoom: CGFloat) -> CGSize {
+        let safeZoom = CGFloat(CanvasZoomScale.safeZoom(Double(zoom), minimum: 0.01))
+        return CGSize(
+            width: screenTranslation.width / safeZoom,
+            height: screenTranslation.height / safeZoom
+        )
+    }
+}
+
+enum CanvasNodeInteractionHitPolicy {
+    static func backgroundDragTarget(
+        at point: CanvasEdgePoint,
+        nodeRects: [CanvasFrameRect],
+        hitSlop: Double
+    ) -> CanvasHitTarget {
+        CanvasHitTesting.target(
+            at: point,
+            nodes: nodeRects,
+            hitSlop: max(0, hitSlop)
+        )
+    }
+
+    static func contentShapePadding(hitSlop _: Double) -> CGFloat {
+        0
+    }
+}
+
+enum CanvasNodeDragHitRectPolicy {
+    static func hitRect(forVisualRect visualRect: CanvasFrameRect) -> CanvasFrameRect {
+        visualRect
+    }
+}
+
+enum CanvasOrganizationFrameDragPolicy {
+    static func draggedNodeIDs(
+        baseNodeIDs: Set<String>,
+        frameRectsByID: [String: CanvasFrameRect],
+        cardRects: [CanvasFrameRect],
+        parentNodeIDsByCardID: [String: String?]
+    ) -> Set<String> {
+        var draggedIDs = baseNodeIDs
+        for frameID in baseNodeIDs {
+            guard let frameRect = frameRectsByID[frameID] else { continue }
+            let containedIDs = Set(CanvasFrameGeometry.childNodeIDs(inside: frameRect, candidates: cardRects))
+            for cardRect in cardRects where containedIDs.contains(cardRect.id) || parentNodeIDsByCardID[cardRect.id] == frameID {
+                draggedIDs.insert(cardRect.id)
+            }
+        }
+        return draggedIDs
+    }
+}
+
+enum CanvasNodeResizeCommitPolicy {
+    static func resizedFrame(
+        startFrame: CanvasFrameRect,
+        screenDeltaWidth: Double,
+        screenDeltaHeight: Double,
+        zoom: Double,
+        minimumWidth: Double,
+        minimumHeight: Double
+    ) -> CanvasFrameRect {
+        let safeZoom = zoom.isFinite ? max(zoom, 0.01) : 1
+        return CanvasFrameGeometry.resizedFrame(
+            startFrame,
+            deltaWidth: screenDeltaWidth / safeZoom,
+            deltaHeight: screenDeltaHeight / safeZoom,
+            minimumWidth: minimumWidth,
+            minimumHeight: minimumHeight
+        )
+    }
+
+    static func shouldCommitSizeChange(
+        oldWidth: Double,
+        oldHeight: Double,
+        newWidth: Double,
+        newHeight: Double,
+        threshold: Double = 0.5
+    ) -> Bool {
+        let safeThreshold = max(0, threshold)
+        return abs(newWidth - oldWidth) >= safeThreshold ||
+            abs(newHeight - oldHeight) >= safeThreshold
+    }
+}
+
+enum CanvasLockedNodeMutationPolicy {
+    static func allowsSelection(isLocked _: Bool) -> Bool {
+        true
+    }
+
+    static func allowsInspection(isLocked _: Bool) -> Bool {
+        true
+    }
+
+    static func canMutateNode(isLocked: Bool) -> Bool {
+        !isLocked
+    }
+
+    static func canMutateSelection(
+        selectedNodeIDs: Set<String>,
+        lockedNodeIDs: Set<String>
+    ) -> Bool {
+        !selectedNodeIDs.isEmpty && selectedNodeIDs.isDisjoint(with: lockedNodeIDs)
+    }
+
+    static func mutableNodeIDs(
+        from nodeIDs: Set<String>,
+        lockedNodeIDs: Set<String>
+    ) -> Set<String> {
+        nodeIDs.subtracting(lockedNodeIDs)
+    }
+
+    static func shouldExposeResizeHandle(isSelected: Bool, isLocked: Bool) -> Bool {
+        isSelected && canMutateNode(isLocked: isLocked)
+    }
+}
+
+enum CanvasCardChromeButtonKind: CaseIterable {
+    case copy
+    case details
+    case delete
+}
+
+enum CanvasCardChromeButtonInteractionPolicy {
+    static var parentDragShouldIncludeSubviewControls: Bool {
+        false
+    }
+
+    static var parentDragGestureMask: GestureMask {
+        parentDragShouldIncludeSubviewControls ? .all : .gesture
+    }
+
+    static func feedbackMessage(for kind: CanvasCardChromeButtonKind) -> String {
+        switch kind {
+        case .copy:
+            "Copied"
+        case .details:
+            "Details"
+        case .delete:
+            "Deleted"
+        }
+    }
+
+    static func visualScale(isPressed: Bool) -> Double {
+        isPressed ? 0.92 : 1
+    }
+
+    static func backgroundOpacity(isActive: Bool, isPressed: Bool) -> Double {
+        if isActive {
+            return isPressed ? 0.34 : 0.22
+        }
+        return isPressed ? 0.22 : 0.1
+    }
+
+    static func shadowOpacity(isPressed: Bool) -> Double {
+        isPressed ? 0.22 : 0.08
+    }
+}
+
+enum CanvasInspectorOpenSource: CaseIterable {
+    case cardInfoButton
+    case cardTap
+    case contextMenu
+}
+
+enum CanvasInspectorOpenPolicy {
+    static func shouldOpenInspector(source: CanvasInspectorOpenSource) -> Bool {
+        source == .cardInfoButton
+    }
+}
+
+enum CanvasInspectorVisibilityPolicy {
+    static let defaultVisibility = false
+
+    static func toggled(from isVisible: Bool) -> Bool {
+        !isVisible
+    }
+}
+
+enum CanvasStartLinkContextMenuTarget: CaseIterable {
+    case card
+    case frame
+}
+
+enum CanvasStartLinkContextMenuPolicy {
+    static func shouldExposeStartLink(for target: CanvasStartLinkContextMenuTarget) -> Bool {
+        switch target {
+        case .card, .frame:
+            true
+        }
+    }
+
+    static func title(for target: CanvasStartLinkContextMenuTarget) -> String {
+        switch target {
+        case .card:
+            "Start Link From This Card"
+        case .frame:
+            "Start Link From This Frame"
+        }
+    }
+}
+
+enum CanvasStartLinkKeyboardCommandPolicy {
+    static let title = "Start Link From Selected Card"
+    static let shortcutKey = "l"
+    static let shortcutModifiers = "command"
+
+    static func canStartLink(selectedNodeCount: Int) -> Bool {
+        selectedNodeCount == 1
+    }
+}
+
+enum CanvasConnectSelectedKeyboardCommandPolicy {
+    static let title = "Connect Selected Cards"
+    static let shortcutKey = "l"
+    static let shortcutModifiers = "shift+command"
+
+    static func canConnectSelected(selectedNodeCount: Int) -> Bool {
+        selectedNodeCount == 2
+    }
+}
+
+enum CanvasResourceCardDoubleClickPolicy {
+    static func shouldOpenFinder(nodeObjectType: String?, hasResolvedResource: Bool) -> Bool {
+        nodeObjectType == "resourcePin" && hasResolvedResource
+    }
+}
+
+enum CanvasResourceDropStatusPolicy {
+    static func statusText(
+        baseStatusText: String,
+        skippedIssues: [ResourceImportItemIssue]
+    ) -> String {
+        let prefix = "Canvas drop: \(baseStatusText)"
+        let reasons = uniqueNonEmptyReasons(from: skippedIssues)
+        guard !reasons.isEmpty else { return prefix }
+        return "\(prefix) Skipped: \(reasons.joined(separator: "; "))."
+    }
+
+    private static func uniqueNonEmptyReasons(from issues: [ResourceImportItemIssue]) -> [String] {
+        var seen: Set<String> = []
+        var reasons: [String] = []
+        for issue in issues {
+            let reason = issue.reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !reason.isEmpty, seen.insert(reason).inserted else { continue }
+            reasons.append(reason)
+        }
+        return reasons
+    }
+}
+
+enum CanvasNoteCardEditingPolicy {
+    static func canRenameTitle(nodeType: CanvasNodeKind) -> Bool {
+        nodeType == .note
+    }
+
+    static func shouldStartTitleEditing(nodeType: CanvasNodeKind, clickCount: Int) -> Bool {
+        canRenameTitle(nodeType: nodeType) && clickCount == 2
+    }
+
+    static func canEditBody(nodeType: CanvasNodeKind, rendersDetails: Bool) -> Bool {
+        nodeType == .note && rendersDetails
+    }
+}
+
+enum CanvasResourceCardNotePolicy {
+    static func noteText(nodeType: CanvasNodeKind, nodeBody: String, resourceNote: String?) -> String {
+        if nodeType == .resource, let resourceNote {
+            return resourceNote
+        }
+        return nodeBody
+    }
+
+    static func previewText(for note: String) -> String {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "No description yet." : trimmed
+    }
+
+    static func usesEditableScrollableEditor(
+        nodeType: CanvasNodeKind,
+        isCollapsed: Bool,
+        rendersDetails: Bool
+    ) -> Bool {
+        nodeType == .resource && !isCollapsed && rendersDetails
+    }
+
+    @discardableResult
+    static func applyNoteChange(
+        _ note: String,
+        node: CanvasNodeModel,
+        resource: ResourcePinModel?,
+        now: Date = .now
+    ) -> Bool {
+        var didChange = false
+        if node.body != note {
+            node.body = note
+            didChange = true
+        }
+        if node.nodeType == .resource, let resource, resource.note != note {
+            resource.note = note
+            resource.updatedAt = now
+            resource.refreshSearchText()
+            didChange = true
+        }
+        if didChange {
+            node.updatedAt = now
+        }
+        return didChange
+    }
+}
+
+enum CanvasConnectionModeTransition: Equatable {
+    case keepCurrentMode
+    case select
+}
+
+struct CanvasConnectionCompletionApplicationState: Equatable {
+    var nextSourceNodeId: String?
+    var modeTransition: CanvasConnectionModeTransition
+}
+
+enum CanvasConnectionCompletionApplicationPolicy {
+    static func state(targetNodeId: String, singleShot: Bool) -> CanvasConnectionCompletionApplicationState {
+        let completion = CanvasConnectionPolicy.completion(targetNodeId: targetNodeId, singleShot: singleShot)
+        return CanvasConnectionCompletionApplicationState(
+            nextSourceNodeId: completion.nextSourceNodeId,
+            modeTransition: completion.returnsToSelectMode ? .select : .keepCurrentMode
+        )
+    }
 }
 
 private struct CanvasChildParentSnapshot {
@@ -243,7 +815,6 @@ private enum CanvasNodeMetrics {
     static let viewportOverscan = 160.0
     static let viewportFitPadding = 72.0
     static let denseEdgeHandleLimit = 48
-    static let scrollZoomCommitDelayNanos: UInt64 = 450_000_000
     static let scrollZoomCommitZoomEpsilon = 0.001
     static let scrollZoomCommitViewportEpsilon = 0.5
     static let textEditCommitDelayNanos: UInt64 = 350_000_000
@@ -255,6 +826,7 @@ private struct CanvasRenderSnapshot {
     let resourcesById: [String: ResourcePinModel]
     let snippetsById: [String: SnippetModel]
     let visibleEdges: [CanvasEdgeModel]
+    let edgeById: [String: CanvasEdgeModel]
     let frameNodes: [CanvasNodeModel]
     let cardNodes: [CanvasNodeModel]
 
@@ -265,10 +837,12 @@ private struct CanvasRenderSnapshot {
         nodeById = nodeLookup
         resourcesById = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         snippetsById = Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        visibleEdges = Self.uniqueByID(
+        let validEdges = Self.uniqueByID(
             edges.filter { nodeLookup[$0.sourceNodeId] != nil && nodeLookup[$0.targetNodeId] != nil },
             id: \.id
         )
+        visibleEdges = validEdges
+        edgeById = Dictionary(validEdges.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         frameNodes = uniqueNodes.filter { $0.nodeType == .groupFrame }.sorted { $0.updatedAt < $1.updatedAt }
         cardNodes = uniqueNodes.filter { $0.nodeType != .groupFrame }.sorted { $0.zIndex < $1.zIndex }
     }
@@ -295,6 +869,7 @@ private struct CanvasRenderSnapshot {
         routingObstacleNodes: [CanvasNodeModel]? = nil,
         rectFor: (CanvasNodeModel) -> CanvasFrameRect,
         controlPointFor: (CanvasEdgeModel) -> CGPoint?,
+        candidateEdgeIDs: [String]? = nil,
         shouldVisitEdge: ((CanvasEdgeModel) -> Bool)? = nil,
         shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
     ) -> [CanvasEdgeSegment] {
@@ -314,7 +889,10 @@ private struct CanvasRenderSnapshot {
                 return (id: node.id, rect: cachedRect(for: node))
             }
             : []
-        return visibleEdges.compactMap { edge -> CanvasEdgeSegment? in
+        let segmentEdges = candidateEdgeIDs.map { ids in
+            ids.compactMap { edgeById[$0] }
+        } ?? visibleEdges
+        return segmentEdges.compactMap { edge -> CanvasEdgeSegment? in
             if let shouldVisitEdge, !shouldVisitEdge(edge) {
                 return nil
             }
@@ -400,11 +978,13 @@ private struct CanvasEdgeControlPointSnapshot {
 struct WorkspaceCanvasView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage(AppPreferenceKeys.canvasScrollZoomDirection) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
+    @AppStorage(CanvasScrollZoomDirectionSettingsDescriptor.preferenceKey) private var scrollZoomDirectionRaw = AppPreferenceDefaults.canvasScrollZoomDirection
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen) private var todoPanelDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
     @AppStorage(AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen) private var todoDoneColumnDefaultOpen = AppPreferenceDefaults.workspaceCanvasTodoDoneColumnDefaultOpen
     @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
+    @AppStorage(AppPreferenceKeys.canvasAnimationFrameRate) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
+    @AppStorage(AppPreferenceKeys.canvasZoomCommitCadence) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
     let canvas: CanvasModel
     let resources: [ResourcePinModel]
     let allResources: [ResourcePinModel]
@@ -414,6 +994,10 @@ struct WorkspaceCanvasView: View {
     let todoGroups: [WorkspaceTodoGroupModel]
     let nodes: [CanvasNodeModel]
     let edges: [CanvasEdgeModel]
+    let openTodoPanelRequest: WorkspaceTodoPanelOpenRequest?
+    let onOpenTodoPanelRequestHandled: (WorkspaceTodoPanelOpenRequest) -> Void
+    let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
+    let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onOpenWorkspace: (String) -> Void
@@ -439,16 +1023,19 @@ struct WorkspaceCanvasView: View {
     @State private var resizeStartSizes: [String: CGSize] = [:]
     @State private var transientNodeSizes: [String: CGSize] = [:]
     @State private var resizingNodeId: String?
-    @State private var isCanvasInspectorVisible = false
+    @State private var isCanvasInspectorVisible = CanvasInspectorVisibilityPolicy.defaultVisibility
     @State private var isTodoPanelOpen = AppPreferenceDefaults.workspaceCanvasTodoPanelDefaultOpen
     @State private var isTodoDoneColumnOpen = false
     @State private var isTodoPanelInitialized = false
+    @State private var handledOpenTodoPanelRequestID = 0
+    @State private var handledOpenCanvasNodeRequestID = 0
     @State private var didAlignLeftRailScroll = false
     @State private var edgeControlDragStart: [String: CGPoint] = [:]
     @State private var transientEdgeControlPoints: [String: CGPoint] = [:]
     @State private var frameDragControlPointEdgeIDs: Set<String> = []
     @State private var frameDragControlPointSnapshotsByID: [String: CanvasEdgeControlPointSnapshot] = [:]
     @State private var canvasSurfaceSize: CGSize = .zero
+    @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
     @State private var webCardDraft = ""
     @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
@@ -546,6 +1133,10 @@ struct WorkspaceCanvasView: View {
         CanvasRenderSnapshot(nodes: workflowNodes, resources: allResources, snippets: snippets, edges: edges)
     }
 
+    private var nodeInteractionHitPadding: CGFloat {
+        CanvasNodeInteractionHitPolicy.contentShapePadding(hitSlop: CanvasNodeMetrics.interactionHitSlop)
+    }
+
     private var globalResources: [ResourcePinModel] {
         orderedResourceMenuItems(allResources.filter { $0.scope == .global })
     }
@@ -577,6 +1168,40 @@ struct WorkspaceCanvasView: View {
             onStatus("\(failurePrefix): \(error.localizedDescription)")
             return false
         }
+    }
+
+    @discardableResult
+    private func persistCanvasViewport(
+        zoom: Double,
+        viewportX: Double,
+        viewportY: Double,
+        failurePrefix: String,
+        successStatus: String? = nil
+    ) -> Bool {
+        guard let commit = CanvasViewportPersistencePolicy.commit(
+            zoom: zoom,
+            viewportX: viewportX,
+            viewportY: viewportY,
+            minimumZoom: CanvasNodeMetrics.zoomMinimum,
+            maximumZoom: CanvasNodeMetrics.zoomMaximum
+        ) else {
+            onStatus("\(failurePrefix): ignored invalid canvas viewport")
+            return false
+        }
+        return persistCanvasViewport(commit, failurePrefix: failurePrefix, successStatus: successStatus)
+    }
+
+    @discardableResult
+    private func persistCanvasViewport(
+        _ commit: CanvasViewportPersistenceCommit,
+        failurePrefix: String,
+        successStatus: String? = nil
+    ) -> Bool {
+        canvas.zoom = commit.zoom
+        canvas.viewportX = commit.viewportX
+        canvas.viewportY = commit.viewportY
+        canvas.updatedAt = .now
+        return saveModelChanges(failurePrefix: failurePrefix, successStatus: successStatus)
     }
 
     var body: some View {
@@ -617,6 +1242,8 @@ struct WorkspaceCanvasView: View {
             if !isTodoPanelInitialized {
                 initializeTodoPanelDefaults()
             }
+            handleOpenTodoPanelRequest(openTodoPanelRequest)
+            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
             .onDisappear {
                 flushPendingScrollZoomCommit()
@@ -634,14 +1261,72 @@ struct WorkspaceCanvasView: View {
             .onChange(of: canvas.id) { _, _ in
                 initializeTodoPanelDefaults()
                 resetTransientCanvasInteractionState()
+                handledOpenCanvasNodeRequestID = 0
+            }
+            .onChange(of: openTodoPanelRequest) { _, request in
+                handleOpenTodoPanelRequest(request)
+            }
+            .onChange(of: openCanvasNodeRequest) { _, request in
+                handleOpenCanvasNodeRequest(request)
             }
             .background(canvasCommandShortcuts.frame(width: 0, height: 0).opacity(0))
     }
 
     private func initializeTodoPanelDefaults() {
-        isTodoPanelOpen = todoPanelDefaultOpen
-        isTodoDoneColumnOpen = todoDoneColumnDefaultOpen
+        let state = TodoBoardStartupPolicy.initialState(
+            defaultPanelOpen: todoPanelDefaultOpen,
+            defaultDoneColumnOpen: todoDoneColumnDefaultOpen
+        )
+        isTodoPanelOpen = state.isPanelOpen
+        isTodoDoneColumnOpen = state.isDoneColumnOpen
         isTodoPanelInitialized = true
+    }
+
+    private func handleOpenTodoPanelRequest(_ request: WorkspaceTodoPanelOpenRequest?) {
+        guard WorkspaceTodoPanelOpenRequestPolicy.shouldHandle(
+            request,
+            forWorkspaceID: canvas.workspaceId,
+            handledRequestID: handledOpenTodoPanelRequestID
+        ) else {
+            return
+        }
+        guard let request else { return }
+        if !isTodoPanelInitialized {
+            initializeTodoPanelDefaults()
+        }
+        isTodoPanelOpen = true
+        handledOpenTodoPanelRequestID = request.id
+        onOpenTodoPanelRequestHandled(request)
+    }
+
+    private func handleOpenCanvasNodeRequest(_ request: WorkspaceCanvasNodeOpenRequest?) {
+        guard WorkspaceCanvasNodeOpenRequestPolicy.shouldHandle(
+            request,
+            forCanvasID: canvas.id,
+            handledRequestID: handledOpenCanvasNodeRequestID
+        ) else {
+            return
+        }
+        guard let request, request.target.workspaceID == canvas.workspaceId else { return }
+        guard let node = workflowNodeById[request.target.nodeID] else {
+            handledOpenCanvasNodeRequestID = request.id
+            onOpenCanvasNodeRequestHandled(request)
+            onStatus("Web page card is no longer available")
+            return
+        }
+
+        selectedNodeIDs = [node.id]
+        selectedEdgeIDs = []
+        editingNodeIDs.removeAll()
+        mode = .select
+        connectionSourceNodeId = nil
+
+        guard canvasSurfaceSize.width > 0, canvasSurfaceSize.height > 0 else {
+            return
+        }
+        fitViewport(to: [node], status: "Showing web page card: \(node.title)")
+        handledOpenCanvasNodeRequestID = request.id
+        onOpenCanvasNodeRequestHandled(request)
     }
 
     private func resetTransientCanvasInteractionState() {
@@ -677,17 +1362,17 @@ struct WorkspaceCanvasView: View {
 
     private var canvasCommandShortcuts: some View {
         Group {
-            Button("Start Link From Selected Card") {
+            Button(CanvasStartLinkKeyboardCommandPolicy.title) {
                 startLinkCommand()
             }
-            .keyboardShortcut("l", modifiers: .command)
-            .disabled(selectedNode == nil)
+            .keyboardShortcut(KeyEquivalent(Character(CanvasStartLinkKeyboardCommandPolicy.shortcutKey)), modifiers: .command)
+            .disabled(!CanvasStartLinkKeyboardCommandPolicy.canStartLink(selectedNodeCount: selectedNodeIDs.count))
 
-            Button("Connect Selected Cards") {
+            Button(CanvasConnectSelectedKeyboardCommandPolicy.title) {
                 connectSelected()
             }
-            .keyboardShortcut("l", modifiers: [.command, .shift])
-            .disabled(selectedNodeIDs.count != 2)
+            .keyboardShortcut(KeyEquivalent(Character(CanvasConnectSelectedKeyboardCommandPolicy.shortcutKey)), modifiers: [.command, .shift])
+            .disabled(!CanvasConnectSelectedKeyboardCommandPolicy.canConnectSelected(selectedNodeCount: selectedNodeIDs.count))
 
             Button("Reverse Selected Link") {
                 reverseSelectedLink()
@@ -722,7 +1407,7 @@ struct WorkspaceCanvasView: View {
                     }
                     Spacer(minLength: 4)
                     Button {
-                        isCanvasInspectorVisible.toggle()
+                        isCanvasInspectorVisible = CanvasInspectorVisibilityPolicy.toggled(from: isCanvasInspectorVisible)
                     } label: {
                         Image(systemName: "sidebar.right")
                             .frame(width: 24, height: 24)
@@ -919,116 +1604,122 @@ struct WorkspaceCanvasView: View {
     }
 
     private var canvasRightRail: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                GroupBox("Selection") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(selectionSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button { openSelectedNode() } label: {
-                            Label("Open", systemImage: "arrow.up.forward.app")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNode == nil)
-
-                        Button { copySelectedNode() } label: {
-                            Label("Copy", systemImage: "doc.on.doc")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNode == nil)
-
-                        Button { createAliasForSelectedNode() } label: {
-                            Label("Alias", systemImage: "arrowshape.turn.up.right")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedResource == nil)
-
-                        Button(role: .destructive) { deleteSelectedNodes() } label: {
-                            Label("Delete Card", systemImage: "trash")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNodeIDs.isEmpty || selectedNodeIDsContainLockedNode)
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                GroupBox("Connections") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(connectionSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Button { connectSelected() } label: {
-                            Label("Connect Selected", systemImage: "link")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNodeIDs.count != 2)
-
-                        Button { startLinkCommand() } label: {
-                            Label("Start Link From Card", systemImage: "arrowshape.turn.up.right")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNode == nil)
-
-                        Button { reverseSelectedLink() } label: {
-                            Label("Reverse Selected Link", systemImage: "arrow.left.arrow.right")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedEdgeIDs.count != 1)
-
-                        Button(role: .destructive) { deleteSelectedConnections() } label: {
-                            Label(selectedEdgeIDs.isEmpty ? "Delete Link Between Cards" : "Delete Selected Link", systemImage: "link.badge.minus")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedEdgeIDs.isEmpty && selectedNodeIDs.count != 2)
-                    }
-                    .buttonStyle(.bordered)
-                }
-
-                GroupBox("Card Color") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let selectedNode {
-                            CanvasCardColorEditor(
-                                styleRaw: selectedNode.accentColorRaw,
-                                onStyleChange: { updateNodeColor(selectedNode, to: $0) }
-                            )
-                        } else {
-                            Text("Select one card to edit its color.")
+        GeometryReader { proxy in
+            ScrollView([.vertical, .horizontal]) {
+                VStack(alignment: .leading, spacing: 14) {
+                    GroupBox("Selection") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(selectionSummary)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
+
+                            Button { openSelectedNode() } label: {
+                                Label("Open", systemImage: "arrow.up.forward.app")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedNode == nil)
+
+                            Button { copySelectedNode() } label: {
+                                Label("Copy", systemImage: "doc.on.doc")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedNode == nil)
+
+                            Button { createAliasForSelectedNode() } label: {
+                                Label("Alias", systemImage: "arrowshape.turn.up.right")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedResource == nil)
+
+                            Button(role: .destructive) { deleteSelectedNodes() } label: {
+                                Label("Delete Card", systemImage: "trash")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedNodeIDs.isEmpty || selectedNodeIDsContainLockedNode)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    GroupBox("Connections") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(connectionSummary)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                            Button { connectSelected() } label: {
+                                Label("Connect Selected", systemImage: "link")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(!CanvasConnectSelectedKeyboardCommandPolicy.canConnectSelected(selectedNodeCount: selectedNodeIDs.count))
+
+                            Button { startLinkCommand() } label: {
+                                Label("Start Link From Card", systemImage: "arrowshape.turn.up.right")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(!CanvasStartLinkKeyboardCommandPolicy.canStartLink(selectedNodeCount: selectedNodeIDs.count))
+
+                            Button { reverseSelectedLink() } label: {
+                                Label("Reverse Selected Link", systemImage: "arrow.left.arrow.right")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedEdgeIDs.count != 1)
+
+                            Button(role: .destructive) { deleteSelectedConnections() } label: {
+                                Label(selectedEdgeIDs.isEmpty ? "Delete Link Between Cards" : "Delete Selected Link", systemImage: "link.badge.minus")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedEdgeIDs.isEmpty && selectedNodeIDs.count != 2)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    GroupBox("Card Color") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if let selectedNode {
+                                CanvasCardColorEditor(
+                                    styleRaw: selectedNode.accentColorRaw,
+                                    onStyleChange: { updateNodeColor(selectedNode, to: $0) }
+                                )
+                            } else {
+                                Text("Select one card to edit its color.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                     }
-                }
 
-                GroupBox("Layout") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Button { alignLeft() } label: {
-                            Label("Align Left", systemImage: "align.horizontal.left")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNodeIDs.count < 2)
+                    GroupBox("Layout") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Button { alignLeft() } label: {
+                                Label("Align Left", systemImage: "align.horizontal.left")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedNodeIDs.count < 2 || selectedNodeIDsContainLockedNode)
 
-                        Button { alignTop() } label: {
-                            Label("Align Top", systemImage: "align.vertical.top")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .disabled(selectedNodeIDs.count < 2)
+                            Button { alignTop() } label: {
+                                Label("Align Top", systemImage: "align.vertical.top")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(selectedNodeIDs.count < 2 || selectedNodeIDsContainLockedNode)
 
-                        Button { autoArrange() } label: {
-                            Label("Auto Arrange", systemImage: "square.grid.3x3")
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button { autoArrange() } label: {
+                                Label("Auto Arrange", systemImage: "square.grid.3x3")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .disabled(!hasMutableCanvasNodes)
                         }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
                 }
+                .padding(12)
+                .frame(
+                    width: CanvasSideRailLayout.rightRailScrollableContentWidth(railWidth: proxy.size.width),
+                    alignment: .topLeading
+                )
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -1043,13 +1734,38 @@ struct WorkspaceCanvasView: View {
             let visibleCardNodes = snapshot.cardNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
             let visibleNodeCount = visibleFrameNodes.count + visibleCardNodes.count
             let workspaceLookup = Dictionary(workspaces.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-            let visibleEdgeCandidateCount = visibleCanvasEdgeCandidateCount(snapshot: snapshot, in: edgeVisibleRect)
             let movingNodeIDs = Set(nodeDragStart.keys)
                 .union(resizingNodeId.map { [$0] } ?? [])
             let transientControlEdgeIDs = Set(transientEdgeControlPoints.keys).union(edgeControlDragStart.keys)
             let isGeometryEdgeCulled = !movingNodeIDs.isEmpty || !edgeControlDragStart.isEmpty
+            let edgeIndexRecords = snapshot.visibleEdges.map(canvasEdgeIndexRecord(for:))
+            let edgeIndex = edgeViewportIndexCache.index(
+                nodes: snapshot.workflowNodes.map(canvasEdgeIndexRect(for:)),
+                edges: edgeIndexRecords
+            )
+            let edgeVisibilityPlan = CanvasEdgeVisibilityPlanner.plan(
+                edgeIndex: edgeIndex,
+                cacheDiagnostics: edgeViewportIndexCache.diagnostics,
+                viewport: canvasViewportRectRecord(for: edgeVisibleRect),
+                overscan: canvasEdgeVisibilityOverscan,
+                selectedEdgeIDs: selectedEdgeIDs,
+                transientControlEdgeIDs: transientControlEdgeIDs,
+                movedControlEdgeIDs: frameDragControlPointEdgeIDs,
+                movingNodeIDs: movingNodeIDs,
+                visibleObstacleCount: visibleCardNodes.count,
+                visibleCardCount: visibleCardNodes.count,
+                routedPointCount: 0,
+                zoom: effectiveZoom,
+                baselineZoom: zoomBaseline,
+                isInteracting: isCanvasInteracting
+            )
+            let visibleEdgeCandidateCount = edgeVisibilityPlan.visibleCandidateCount
+            let candidateEdgeIDs = edgeVisibilityPlan.renderEdgeIDs
             let visibleResizeNodes = (visibleFrameNodes + visibleCardNodes).filter { node in
-                let isSelectedForHandle = selectedNodeIDs.contains(node.id) &&
+                let isSelectedForHandle = CanvasLockedNodeMutationPolicy.shouldExposeResizeHandle(
+                    isSelected: selectedNodeIDs.contains(node.id),
+                    isLocked: node.locked
+                ) &&
                     (!isCanvasInteracting || primaryDraggedNodeId == node.id || resizingNodeId == node.id)
                 return CanvasResizeHandleVisibilityPolicy.shouldShow(
                     isSelected: isSelectedForHandle,
@@ -1073,8 +1789,20 @@ struct WorkspaceCanvasView: View {
                 )
             }
             let shouldIncludeCanvasEdge: (CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool = { edge, sourceRect, targetRect, control in
-                selectedEdgeIDs.contains(edge.id) ||
-                    isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: edgeVisibleRect)
+                WorkspaceCanvasFinalEdgeRenderFilters.shouldIncludeCandidateEdge(
+                    edgeID: edge.id,
+                    selectedEdgeIDs: selectedEdgeIDs,
+                    forceRetainedEdgeIDs: edgeVisibilityPlan.forceRetainedEdgeIDs,
+                    isPotentiallyVisible: isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: edgeVisibleRect)
+                )
+            }
+            let shouldKeepEdgeSegment: (CanvasEdgeSegment) -> Bool = { segment in
+                WorkspaceCanvasFinalEdgeRenderFilters.shouldKeepSegment(
+                    edgeID: segment.id,
+                    selectedEdgeIDs: selectedEdgeIDs,
+                    forceRetainedEdgeIDs: edgeVisibilityPlan.forceRetainedEdgeIDs,
+                    isSegmentVisible: isEdgeSegmentVisible(segment, in: edgeVisibleRect)
+                )
             }
             let unroutedEdgeSegments = snapshot.edgeSegments(
                 targetClearance: currentEdgeTargetClearance,
@@ -1082,10 +1810,11 @@ struct WorkspaceCanvasView: View {
                 usesObstacleRouting: false,
                 rectFor: screenRect(for:),
                 controlPointFor: resolvedScreenControlPoint(for:),
+                candidateEdgeIDs: candidateEdgeIDs,
                 shouldVisitEdge: shouldVisitCanvasEdge,
                 shouldIncludeEdge: shouldIncludeCanvasEdge
             )
-            .filter { isEdgeSegmentVisible($0, in: edgeVisibleRect) || selectedEdgeIDs.contains($0.id) }
+            .filter(shouldKeepEdgeSegment)
             let usesObstacleRouting =
                 effectiveZoom >= zoomBaseline &&
                 CanvasPerformancePolicy.usesObstacleRouting(
@@ -1100,12 +1829,14 @@ struct WorkspaceCanvasView: View {
                 routingObstacleNodes: visibleCardNodes,
                 rectFor: screenRect(for:),
                 controlPointFor: resolvedScreenControlPoint(for:),
+                candidateEdgeIDs: candidateEdgeIDs,
                 shouldVisitEdge: shouldVisitCanvasEdge,
                 shouldIncludeEdge: shouldIncludeCanvasEdge
             )
-            .filter { isEdgeSegmentVisible($0, in: edgeVisibleRect) || selectedEdgeIDs.contains($0.id) } : unroutedEdgeSegments
+            .filter(shouldKeepEdgeSegment) : unroutedEdgeSegments
             let routedPointCount = edgeSegments.reduce(0) { $0 + $1.routePoints.count }
-            let animateVisibleEdges = CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+            let edgeAnimationTimelinePlan = CanvasEdgeAnimationPolicy.effectiveTimelinePlan(
+                preferredFrameRate: CanvasAnimationFrameRate.resolved(canvasAnimationFrameRateRaw),
                 theme: canvas.linkAnimationThemeRaw,
                 animationsEnabled: canvas.animationsEnabled,
                 reduceMotion: reduceMotion,
@@ -1116,6 +1847,8 @@ struct WorkspaceCanvasView: View {
                 baselineZoom: zoomBaseline,
                 isInteracting: isCanvasInteracting
             )
+            let edgeAnimationMinimumInterval = edgeAnimationTimelinePlan.minimumInterval
+            let animateVisibleEdges = edgeAnimationTimelinePlan.shouldAnimate
             ZStack(alignment: .topLeading) {
                     canvasBackground
 
@@ -1126,8 +1859,12 @@ struct WorkspaceCanvasView: View {
                         )
                     }
 
-                edgeStrokeLayer(edgeSegments, animateVisibleEdges: animateVisibleEdges, canvasSize: proxy.size)
-                    .zIndex(1.2)
+                edgeStrokeLayer(
+                    edgeSegments,
+                    animationMinimumInterval: edgeAnimationMinimumInterval,
+                    canvasSize: proxy.size
+                )
+                    .zIndex(CanvasEdgeLayerZIndexPolicy.strokeLayer)
 
                 ForEach(visibleCardNodes) { node in
                     cardNodeView(
@@ -1148,7 +1885,7 @@ struct WorkspaceCanvasView: View {
                     arrowScale: zoom,
                     canvasSize: proxy.size
                 )
-                    .zIndex(1.25)
+                    .zIndex(CanvasEdgeLayerZIndexPolicy.arrowHeadLayer)
 
                 ForEach(visibleResizeNodes) { node in
                     resizeHandle(for: node)
@@ -1253,32 +1990,31 @@ struct WorkspaceCanvasView: View {
                         viewportY: effectiveViewportY
                     )
                 }
-                let newZoom = CanvasZoomScale.clamped(
-                    start * Double(value.magnification),
-                    minimum: CanvasNodeMetrics.zoomMinimum,
-                    maximum: CanvasNodeMetrics.zoomMaximum
-                )
-                transientZoom = newZoom
                 if let magnifyAnchor {
-                    let viewport = CanvasZoomScale.viewport(
-                        keepingScreenX: Double(screenAnchor.x),
+                    let update = CanvasPinchZoomPolicy.update(
+                        startZoom: start,
+                        magnification: Double(value.magnification),
+                        screenX: Double(screenAnchor.x),
                         screenY: Double(screenAnchor.y),
-                        canvasX: magnifyAnchor.x,
-                        canvasY: magnifyAnchor.y,
-                        zoom: newZoom
+                        anchorCanvasX: magnifyAnchor.x,
+                        anchorCanvasY: magnifyAnchor.y,
+                        minimumZoom: CanvasNodeMetrics.zoomMinimum,
+                        maximumZoom: CanvasNodeMetrics.zoomMaximum
                     )
+                    transientZoom = update.zoom
                     transientZoomViewportOffset = CGSize(
-                        width: viewport.x - canvas.viewportX,
-                        height: viewport.y - canvas.viewportY
+                        width: update.viewportX - canvas.viewportX,
+                        height: update.viewportY - canvas.viewportY
                     )
                 }
             }.onEnded { _ in
                 if let transientZoom {
-                    canvas.zoom = transientZoom
-                    canvas.viewportX += Double(transientZoomViewportOffset.width)
-                    canvas.viewportY += Double(transientZoomViewportOffset.height)
-                    canvas.updatedAt = .now
-                    saveModelChanges(failurePrefix: "Could not save canvas zoom")
+                    persistCanvasViewport(
+                        zoom: transientZoom,
+                        viewportX: canvas.viewportX + Double(transientZoomViewportOffset.width),
+                        viewportY: canvas.viewportY + Double(transientZoomViewportOffset.height),
+                        failurePrefix: "Could not save canvas zoom"
+                    )
                 }
                 zoomStart = nil
                 magnifyAnchor = nil
@@ -1295,9 +2031,11 @@ struct WorkspaceCanvasView: View {
             )
             .onAppear {
                 canvasSurfaceSize = proxy.size
+                handleOpenCanvasNodeRequest(openCanvasNodeRequest)
             }
             .onChange(of: proxy.size) { _, newSize in
                 canvasSurfaceSize = newSize
+                handleOpenCanvasNodeRequest(openCanvasNodeRequest)
             }
         }
         .background(.quaternary.opacity(0.25))
@@ -1347,6 +2085,11 @@ struct WorkspaceCanvasView: View {
             isEditing: isEditing
         )
         let size = nodeSize(for: node)
+        let scaledLayout = CanvasNodeScaledContentLayoutPolicy.layout(
+            width: size.width,
+            height: size.height,
+            zoom: effectiveZoom
+        )
 
         return CanvasFrameCard(
             node: node,
@@ -1354,7 +2097,7 @@ struct WorkspaceCanvasView: View {
             isConnectionSource: isConnectionSource,
             rendersDetails: rendersDetails,
             onEditingChange: { updateEditingState(for: node.id, isEditing: $0) },
-            onInfo: { performCardButtonAction(node) { inspect(node) } },
+            onInfo: { source in performCardButtonAction(node) { inspect(node, source: source) } },
             onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
             onStartLink: { performCardButtonAction(node) { startConnection(from: node) } },
             onConnect: { performCardButtonAction(node) { connectButtonTapped(node) } },
@@ -1362,13 +2105,16 @@ struct WorkspaceCanvasView: View {
             onTitleChange: { updateNodeTitle(node, to: $0) },
             onNoteChange: { updateNodeBody(node, to: $0) }
         )
-        .frame(width: size.width, height: size.height)
-        .scaleEffect(zoom)
-        .frame(width: size.width * Double(zoom), height: size.height * Double(zoom))
-        .padding(CanvasNodeMetrics.interactionHitSlop)
+        .frame(width: scaledLayout.contentWidth, height: scaledLayout.contentHeight)
+        .scaleEffect(CGFloat(scaledLayout.zoom))
+        .frame(width: scaledLayout.layoutWidth, height: scaledLayout.layoutHeight)
+        .padding(nodeInteractionHitPadding)
         .contentShape(.interaction, Rectangle())
         .position(screenPoint(for: node))
-        .highPriorityGesture(dragGesture(for: node))
+        .highPriorityGesture(
+            dragGesture(for: node),
+            including: CanvasCardChromeButtonInteractionPolicy.parentDragGestureMask
+        )
         .simultaneousGesture(TapGesture(count: 1).onEnded {
             handleNodeTap(node)
         })
@@ -1388,6 +2134,7 @@ struct WorkspaceCanvasView: View {
         let isResizing = resizingNodeId == node.id || transientNodeSizes[node.id] != nil
         let isEditing = editingNodeIDs.contains(node.id)
         let isActiveNode = isSelected || isConnectionSource || isDragging || isResizing || isEditing
+        let resource = snapshot.resource(for: node)
         let rendersDetails = CanvasCardRenderDetailPolicy.shouldRenderDetails(
             zoom: effectiveZoom,
             baselineZoom: zoomBaseline,
@@ -1397,10 +2144,15 @@ struct WorkspaceCanvasView: View {
             isEditing: isEditing
         )
         let size = nodeSize(for: node)
+        let scaledLayout = CanvasNodeScaledContentLayoutPolicy.layout(
+            width: size.width,
+            height: size.height,
+            zoom: effectiveZoom
+        )
 
         return CanvasNodeCard(
             node: node,
-            resource: snapshot.resource(for: node),
+            resource: resource,
             snippet: snapshot.snippet(for: node),
             workspace: node.objectType == "workspace" ? node.objectId.flatMap { workspaceLookup[$0] } : nil,
             webURL: webURL(for: node),
@@ -1409,35 +2161,42 @@ struct WorkspaceCanvasView: View {
             rendersDetails: rendersDetails,
             onEditingChange: { updateEditingState(for: node.id, isEditing: $0) },
             onOpen: { open(node) },
-            onInfo: { performCardButtonAction(node) { inspect(node) } },
+            onInfo: { source in performCardButtonAction(node) { inspect(node, source: source) } },
             onCopy: { performCardButtonAction(node) { copyNodePayload(node) } },
             onStartLink: { performCardButtonAction(node) { startConnection(from: node) } },
             onConnect: { performCardButtonAction(node) { connectButtonTapped(node) } },
             onToggleNote: { performCardButtonAction(node) { toggleNote(for: node) } },
             onDelete: { performCardButtonAction(node) { delete(node) } },
             onTitleChange: { updateNodeTitle(node, to: $0) },
-            onNoteChange: { updateNodeBody(node, to: $0) }
+            onNoteChange: { updateCardNote(node, resource: resource, to: $0) }
         )
-        .frame(width: size.width, height: size.height)
-        .scaleEffect(zoom)
-        .frame(width: size.width * Double(zoom), height: size.height * Double(zoom))
-        .padding(CanvasNodeMetrics.interactionHitSlop)
-        .contentShape(.interaction, Rectangle())
-        .position(screenPoint(for: node))
-        .highPriorityGesture(dragGesture(for: node))
-        .onTapGesture(count: 2) {
-            open(node)
-        }
-        .simultaneousGesture(TapGesture(count: 1).onEnded {
-            handleNodeTap(node)
-        })
-        .zIndex(visualZIndex(for: node))
+            .frame(width: scaledLayout.contentWidth, height: scaledLayout.contentHeight)
+            .scaleEffect(CGFloat(scaledLayout.zoom))
+            .frame(width: scaledLayout.layoutWidth, height: scaledLayout.layoutHeight)
+            .padding(nodeInteractionHitPadding)
+            .contentShape(.interaction, Rectangle())
+            .position(screenPoint(for: node))
+            .highPriorityGesture(
+                dragGesture(for: node),
+                including: CanvasCardChromeButtonInteractionPolicy.parentDragGestureMask
+            )
+            .onTapGesture(count: 2) {
+                openResourceCardFromDoubleClick(node, hasResolvedResource: resource != nil)
+            }
+            .simultaneousGesture(TapGesture(count: 1).onEnded {
+                handleNodeTap(node)
+            })
+            .zIndex(visualZIndex(for: node))
     }
 
     @ViewBuilder
-    private func edgeStrokeLayer(_ segments: [CanvasEdgeSegment], animateVisibleEdges: Bool, canvasSize: CGSize) -> some View {
-        if animateVisibleEdges {
-            TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { timeline in
+    private func edgeStrokeLayer(
+        _ segments: [CanvasEdgeSegment],
+        animationMinimumInterval: Double?,
+        canvasSize: CGSize
+    ) -> some View {
+        if let animationMinimumInterval {
+            TimelineView(.animation(minimumInterval: animationMinimumInterval)) { timeline in
                 CanvasEdgeStrokeLayer(
                     segments: segments,
                     transientControlPoints: transientEdgeControlPoints,
@@ -1463,6 +2222,12 @@ struct WorkspaceCanvasView: View {
                 canvasSize: canvasSize
             )
         }
+    }
+
+    private var scrollZoomCommitDelayNanos: UInt64 {
+        CanvasZoomCommitPolicy.commitDelayNanos(
+            cadence: CanvasZoomCommitCadence.resolved(canvasZoomCommitCadenceRaw)
+        )
     }
 
     private func visibleScreenRect(for size: CGSize) -> CGRect {
@@ -1517,6 +2282,63 @@ struct WorkspaceCanvasView: View {
         return visibleRect.intersects(bounds.insetBy(dx: -routingOverscan, dy: -routingOverscan))
     }
 
+    private var edgeVisibilityOverscan: Double {
+        max(CanvasNodeMetrics.viewportOverscan * 2, 600)
+    }
+
+    private var canvasEdgeVisibilityOverscan: Double {
+        edgeVisibilityOverscan / CanvasZoomScale.safeZoom(effectiveZoom, minimum: 0.01)
+    }
+
+    private func canvasViewportRectRecord(for rect: CGRect) -> CanvasFrameRect {
+        let topLeft = CanvasViewportProjection.canvasPoint(
+            screenX: Double(rect.minX),
+            screenY: Double(rect.minY),
+            zoom: effectiveZoom,
+            viewportX: effectiveViewportX,
+            viewportY: effectiveViewportY
+        )
+        let bottomRight = CanvasViewportProjection.canvasPoint(
+            screenX: Double(rect.maxX),
+            screenY: Double(rect.maxY),
+            zoom: effectiveZoom,
+            viewportX: effectiveViewportX,
+            viewportY: effectiveViewportY
+        )
+        return CanvasFrameRect(
+            id: "edge-viewport",
+            x: min(topLeft.x, bottomRight.x),
+            y: min(topLeft.y, bottomRight.y),
+            width: abs(bottomRight.x - topLeft.x),
+            height: abs(bottomRight.y - topLeft.y)
+        )
+    }
+
+    private func canvasEdgeIndexRect(for node: CanvasNodeModel) -> CanvasFrameRect {
+        let size = committedNodeSize(for: node)
+        return CanvasFrameRect(
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            width: size.width,
+            height: size.height
+        )
+    }
+
+    private func canvasEdgeIndexRecord(for edge: CanvasEdgeModel) -> CanvasEdgeViewportRecord {
+        let controlPoint: CanvasEdgePoint? = if let x = edge.controlPointX, let y = edge.controlPointY {
+            CanvasEdgePoint(x: x, y: y)
+        } else {
+            nil
+        }
+        return CanvasEdgeViewportRecord(
+            id: edge.id,
+            sourceNodeID: edge.sourceNodeId,
+            targetNodeID: edge.targetNodeId,
+            controlPoint: controlPoint
+        )
+    }
+
     private func shouldShowEdgeControlHandle(for segment: CanvasEdgeSegment, edgeCount: Int) -> Bool {
         CanvasEdgeControlHandlePolicy.shouldShow(
             isSelected: selectedEdgeIDs.contains(segment.id),
@@ -1531,25 +2353,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private var currentEdgeTargetClearance: Double {
-        max(4, CanvasEdgeVisualMetrics.arrowLength(
+        max(CanvasEdgeRouteDefaults.targetClearance, CanvasEdgeVisualMetrics.arrowLength(
             zoom: Double(zoom),
             baseLength: 13,
             minimumLength: 6,
             maximumLength: 16
         ) * 0.6)
-    }
-
-    private func visibleCanvasEdgeCandidateCount(snapshot: CanvasRenderSnapshot, in visibleRect: CGRect) -> Int {
-        snapshot.visibleEdges.reduce(0) { count, edge in
-            guard let source = snapshot.nodeById[edge.sourceNodeId],
-                  let target = snapshot.nodeById[edge.targetNodeId] else {
-                return count
-            }
-            let sourceRect = screenRect(for: source)
-            let targetRect = screenRect(for: target)
-            let control = resolvedScreenControlPoint(for: edge)
-            return count + (isPotentialEdgeVisible(sourceRect: sourceRect, targetRect: targetRect, control: control, in: visibleRect) ? 1 : 0)
-        }
     }
 
     private func shouldRenderNode(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
@@ -1624,13 +2433,13 @@ struct WorkspaceCanvasView: View {
     }
 
     private func screenHitRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-        screenRect(for: node)
+        CanvasNodeDragHitRectPolicy.hitRect(forVisualRect: screenRect(for: node))
     }
 
     private func backgroundDragStartsOnNode(_ point: CGPoint) -> Bool {
-        let target = CanvasHitTesting.target(
+        let target = CanvasNodeInteractionHitPolicy.backgroundDragTarget(
             at: CanvasEdgePoint(x: Double(point.x), y: Double(point.y)),
-            nodes: workflowNodes.map(screenHitRect(for:)),
+            nodeRects: workflowNodes.map(screenHitRect(for:)),
             hitSlop: CanvasNodeMetrics.interactionHitSlop
         )
         if case .node = target {
@@ -1644,6 +2453,10 @@ struct WorkspaceCanvasView: View {
             return (Double(size.width), Double(size.height))
         }
 
+        return committedNodeSize(for: node)
+    }
+
+    private func committedNodeSize(for node: CanvasNodeModel) -> (width: Double, height: Double) {
         let size: CanvasNodeSize
         switch node.nodeType {
         case .groupFrame:
@@ -1743,11 +2556,11 @@ struct WorkspaceCanvasView: View {
                     edgeControlDragStart[segment.id] = edgeControlPoint(for: segment)
                 }
                 guard let start = edgeControlDragStart[segment.id] else { return }
-                guard hypot(value.translation.width, value.translation.height) >= 4 else { return }
-                transientEdgeControlPoints[segment.id] = CGPoint(
-                    x: start.x + value.translation.width,
-                    y: start.y + value.translation.height
-                )
+                guard let screenPoint = CanvasEdgeControlPointDragPolicy.movedScreenPoint(
+                    startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
+                    translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height))
+                ) else { return }
+                transientEdgeControlPoints[segment.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
             }
             .onEnded { value in
                 guard !(segment.control != nil && segment.isControlPointLocked) else {
@@ -1756,19 +2569,20 @@ struct WorkspaceCanvasView: View {
                     onStatus("Anchor is locked")
                     return
                 }
-                let distance = hypot(value.translation.width, value.translation.height)
-                guard distance >= 4 else {
+                let start = edgeControlDragStart[segment.id] ?? edgeControlPoint(for: segment)
+                guard let canvasPoint = CanvasEdgeControlPointDragPolicy.persistentControlPoint(
+                    startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
+                    translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height)),
+                    zoom: effectiveZoom,
+                    viewportX: effectiveViewportX,
+                    viewportY: effectiveViewportY
+                ) else {
                     transientEdgeControlPoints[segment.id] = nil
                     edgeControlDragStart[segment.id] = nil
                     selectEdge(segment.id)
                     return
                 }
-                let start = edgeControlDragStart[segment.id] ?? edgeControlPoint(for: segment)
-                let screenPoint = CGPoint(
-                    x: start.x + value.translation.width,
-                    y: start.y + value.translation.height
-                )
-                saveEdgeControlPoint(screenPoint, for: segment, status: "Adjusted link bend")
+                saveEdgeControlPoint(canvasPoint, for: segment, status: "Adjusted link bend")
                 transientEdgeControlPoints[segment.id] = nil
                 edgeControlDragStart[segment.id] = nil
             }
@@ -1845,6 +2659,10 @@ struct WorkspaceCanvasView: View {
             viewportX: effectiveViewportX,
             viewportY: effectiveViewportY
         )
+        saveEdgeControlPoint(canvasPoint, for: segment, status: status)
+    }
+
+    private func saveEdgeControlPoint(_ canvasPoint: CanvasEdgePoint, for segment: CanvasEdgeSegment, status: String) {
         if let edge = visibleEdges.first(where: { $0.id == segment.id }) {
             let edgeID = edge.id
             let oldX = edge.controlPointX
@@ -1911,8 +2729,23 @@ struct WorkspaceCanvasView: View {
         return workflowNodeById[id]
     }
 
+    private var lockedNodeIDs: Set<String> {
+        Set(workflowNodes.filter(\.locked).map(\.id))
+    }
+
+    private var hasMutableCanvasNodes: Bool {
+        !CanvasLockedNodeMutationPolicy.mutableNodeIDs(
+            from: Set(workflowNodes.map(\.id)),
+            lockedNodeIDs: lockedNodeIDs
+        ).isEmpty
+    }
+
     private var selectedNodeIDsContainLockedNode: Bool {
-        selectedNodeIDs.contains { workflowNodeById[$0]?.locked == true }
+        !selectedNodeIDs.isEmpty &&
+            !CanvasLockedNodeMutationPolicy.canMutateSelection(
+                selectedNodeIDs: selectedNodeIDs,
+                lockedNodeIDs: lockedNodeIDs
+            )
     }
 
     private var connectionSourceNode: CanvasNodeModel? {
@@ -1964,35 +2797,60 @@ struct WorkspaceCanvasView: View {
     }
 
     private func reconcileNodeState(existingNodeIDs: Set<String>) {
-        selectedNodeIDs = CanvasNodeStateReconciliation.validIDs(selectedNodeIDs, existingNodeIDs: existingNodeIDs)
-        editingNodeIDs = CanvasNodeStateReconciliation.validIDs(editingNodeIDs, existingNodeIDs: existingNodeIDs)
-        connectionSourceNodeId = CanvasNodeStateReconciliation.validOptionalID(connectionSourceNodeId, existingNodeIDs: existingNodeIDs)
-        primaryDraggedNodeId = CanvasNodeStateReconciliation.validOptionalID(primaryDraggedNodeId, existingNodeIDs: existingNodeIDs)
-        suppressedTapNodeId = CanvasNodeStateReconciliation.validOptionalID(suppressedTapNodeId, existingNodeIDs: existingNodeIDs)
-        resizingNodeId = CanvasNodeStateReconciliation.validOptionalID(resizingNodeId, existingNodeIDs: existingNodeIDs)
-        nodeDragStart = CanvasNodeStateReconciliation.filteredKeys(nodeDragStart, existingNodeIDs: existingNodeIDs)
-        nodeDragSnapshots = CanvasNodeStateReconciliation.filteredKeys(nodeDragSnapshots, existingNodeIDs: existingNodeIDs)
-        transientNodeOffsets = CanvasNodeStateReconciliation.filteredKeys(transientNodeOffsets, existingNodeIDs: existingNodeIDs)
-        resizeStartSizes = CanvasNodeStateReconciliation.filteredKeys(resizeStartSizes, existingNodeIDs: existingNodeIDs)
-        transientNodeSizes = CanvasNodeStateReconciliation.filteredKeys(transientNodeSizes, existingNodeIDs: existingNodeIDs)
+        let plan = CanvasNodeStateReconciliation.plan(
+            selectedNodeIDs: selectedNodeIDs,
+            editingNodeIDs: editingNodeIDs,
+            connectionSourceNodeId: connectionSourceNodeId,
+            primaryDraggedNodeId: primaryDraggedNodeId,
+            suppressedTapNodeId: suppressedTapNodeId,
+            resizingNodeId: resizingNodeId,
+            nodeDragStartIDs: Set(nodeDragStart.keys),
+            nodeDragSnapshotIDs: Set(nodeDragSnapshots.keys),
+            transientNodeOffsetIDs: Set(transientNodeOffsets.keys),
+            resizeStartSizeIDs: Set(resizeStartSizes.keys),
+            transientNodeSizeIDs: Set(transientNodeSizes.keys),
+            existingNodeIDs: existingNodeIDs
+        )
+        selectedNodeIDs = plan.selectedNodeIDs
+        editingNodeIDs = plan.editingNodeIDs
+        connectionSourceNodeId = plan.connectionSourceNodeId
+        primaryDraggedNodeId = plan.primaryDraggedNodeId
+        suppressedTapNodeId = plan.suppressedTapNodeId
+        resizingNodeId = plan.resizingNodeId
+        nodeDragStart = nodeDragStart.filter { plan.nodeDragStartIDs.contains($0.key) }
+        nodeDragSnapshots = nodeDragSnapshots.filter { plan.nodeDragSnapshotIDs.contains($0.key) }
+        transientNodeOffsets = transientNodeOffsets.filter { plan.transientNodeOffsetIDs.contains($0.key) }
+        resizeStartSizes = resizeStartSizes.filter { plan.resizeStartSizeIDs.contains($0.key) }
+        transientNodeSizes = transientNodeSizes.filter { plan.transientNodeSizeIDs.contains($0.key) }
     }
 
     private func webURL(for node: CanvasNodeModel) -> URL? {
-        guard node.objectType == "webURL" else { return nil }
-        return WebCardURL.normalized(node.objectId ?? node.body)
+        webCardAffordances(for: node)?.url
+    }
+
+    private func webCardAffordances(for node: CanvasNodeModel) -> CanvasWebCardAffordances? {
+        CanvasWebCardAffordancePolicy.affordances(
+            objectType: node.objectType,
+            objectID: node.objectId,
+            body: node.body,
+            nodeType: node.nodeTypeRaw
+        )
     }
 
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                guard !node.locked, !editingNodeIDs.contains(node.id) else { return }
+                guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else { return }
                 if resizingNodeId == node.id {
                     return
                 }
                 if nodeDragStart.isEmpty {
                     beginNodeDrag(for: node)
                 }
-                guard !nodeDragStart.isEmpty else { return }
+                guard CanvasNodeDragPersistencePolicy.action(
+                    for: .changed,
+                    hasActiveDrag: !nodeDragStart.isEmpty
+                ) == .updateTransientOffset else { return }
                 let delta = nodeDragDelta(for: value)
                 transientNodeOffsets = Dictionary(
                     uniqueKeysWithValues: nodeDragStart.keys.map { ($0, delta) }
@@ -2000,11 +2858,18 @@ struct WorkspaceCanvasView: View {
                 updateFrameDragControlPointOffsets(delta: delta)
             }
             .onEnded { value in
-                guard !node.locked, !editingNodeIDs.contains(node.id) else {
+                guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else {
                     resetNodeDragState()
                     return
                 }
                 if resizingNodeId == node.id {
+                    resetNodeDragState()
+                    return
+                }
+                guard CanvasNodeDragPersistencePolicy.action(
+                    for: .ended,
+                    hasActiveDrag: !nodeDragStart.isEmpty
+                ) == .commitModelAndSave else {
                     resetNodeDragState()
                     return
                 }
@@ -2015,7 +2880,7 @@ struct WorkspaceCanvasView: View {
     private func beginNodeDrag(for node: CanvasNodeModel) {
         clearFrameDragControlPointOffsets()
         let draggedNodes = draggedNodes(for: node)
-        guard !draggedNodes.contains(where: \.locked) else {
+        guard draggedNodes.allSatisfy({ CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: $0.locked) }) else {
             onStatus("Unlock selected cards before moving them.")
             return
         }
@@ -2063,10 +2928,9 @@ struct WorkspaceCanvasView: View {
     }
 
     private func nodeDragDelta(for value: DragGesture.Value) -> CGSize {
-        let safeZoom = max(zoom, 0.01)
-        return CGSize(
-            width: value.translation.width / safeZoom,
-            height: value.translation.height / safeZoom
+        CanvasNodeDragDeltaPolicy.canvasDelta(
+            screenTranslation: value.translation,
+            zoom: zoom
         )
     }
 
@@ -2093,10 +2957,17 @@ struct WorkspaceCanvasView: View {
         let movedControlPointStarts = Array(frameDragControlPointSnapshotsByID.values)
         let now = Date.now
 
-        for (id, start) in dragStart {
-            guard let movedNode = liveNodesById[id] else { continue }
-            movedNode.x = start.x + deltaX
-            movedNode.y = start.y + deltaY
+        let committedPositions = CanvasNodeDragCommitPolicy.committedPositions(
+            dragStarts: dragStart.map { id, start in
+                CanvasFramePosition(id: id, x: start.x, y: start.y)
+            },
+            deltaX: deltaX,
+            deltaY: deltaY
+        )
+        for position in committedPositions {
+            guard let movedNode = liveNodesById[position.id] else { continue }
+            movedNode.x = position.x
+            movedNode.y = position.y
             movedNode.updatedAt = now
         }
 
@@ -2263,15 +3134,23 @@ struct WorkspaceCanvasView: View {
         } else {
             baseNodes = [node]
         }
-        var draggedIDs = Set(baseNodes.map(\.id))
         let cards = renderSnapshot.cardNodes
-        let candidates = cards.map(frameRect(for:))
-        for frame in baseNodes where frame.nodeType == .groupFrame {
-            let childIDs = Set(CanvasFrameGeometry.childNodeIDs(inside: frameRect(for: frame), candidates: candidates))
-            for child in cards where childIDs.contains(child.id) || child.parentNodeId == frame.id {
-                draggedIDs.insert(child.id)
-            }
-        }
+        let frameRectsByID = Dictionary(
+            workflowNodes
+                .filter { $0.nodeType == .groupFrame }
+                .map { ($0.id, frameRect(for: $0)) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let parentNodeIDsByCardID = Dictionary(
+            cards.map { ($0.id, $0.parentNodeId) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let draggedIDs = CanvasOrganizationFrameDragPolicy.draggedNodeIDs(
+            baseNodeIDs: Set(baseNodes.map(\.id)),
+            frameRectsByID: frameRectsByID,
+            cardRects: cards.map(frameRect(for:)),
+            parentNodeIDsByCardID: parentNodeIDsByCardID
+        )
         return workflowNodes.filter { draggedIDs.contains($0.id) }
     }
 
@@ -2284,7 +3163,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func resizeNode(_ node: CanvasNodeModel, screenTranslation: CGSize, commit: Bool) {
-        guard !node.locked else {
+        guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked) else {
             transientNodeSizes[node.id] = nil
             resizeStartSizes[node.id] = nil
             resizingNodeId = nil
@@ -2308,10 +3187,11 @@ struct WorkspaceCanvasView: View {
             height: Double(startSize.height)
         )
         let minimumSize = minimumSize(for: node.nodeType)
-        let resized = CanvasFrameGeometry.resizedFrame(
-            startFrame,
-            deltaWidth: Double(screenTranslation.width) / effectiveZoom,
-            deltaHeight: Double(screenTranslation.height) / effectiveZoom,
+        let resized = CanvasNodeResizeCommitPolicy.resizedFrame(
+            startFrame: startFrame,
+            screenDeltaWidth: Double(screenTranslation.width),
+            screenDeltaHeight: Double(screenTranslation.height),
+            zoom: effectiveZoom,
             minimumWidth: minimumSize.width,
             minimumHeight: minimumSize.height
         )
@@ -2320,8 +3200,12 @@ struct WorkspaceCanvasView: View {
             let nodeID = node.id
             let oldWidth = node.width
             let oldHeight = node.height
-            let didChangeSize = abs(resized.width - oldWidth) >= 0.5 ||
-                abs(resized.height - oldHeight) >= 0.5
+            let didChangeSize = CanvasNodeResizeCommitPolicy.shouldCommitSizeChange(
+                oldWidth: oldWidth,
+                oldHeight: oldHeight,
+                newWidth: resized.width,
+                newHeight: resized.height
+            )
             guard didChangeSize else {
                 transientNodeSizes[node.id] = nil
                 resizeStartSizes[node.id] = nil
@@ -2409,23 +3293,26 @@ struct WorkspaceCanvasView: View {
                     return
                 }
                 if let rect = selectionRect {
-                    selectedNodeIDs = Set(workflowNodes.filter { node in
-                        let nodeRect = screenRect(for: node)
-                        return rect.intersects(CGRect(
-                            x: nodeRect.x - CanvasNodeMetrics.interactionHitSlop,
-                            y: nodeRect.y - CanvasNodeMetrics.interactionHitSlop,
-                            width: nodeRect.width + CanvasNodeMetrics.interactionHitSlop * 2,
-                            height: nodeRect.height + CanvasNodeMetrics.interactionHitSlop * 2
-                        ))
-                    }.map(\.id))
+                    selectedNodeIDs = CanvasBoxSelectionPolicy.selectedNodeIDs(
+                        selectionRect: rect,
+                        nodeRects: workflowNodes.map(screenRect(for:)),
+                        hitSlop: CanvasNodeMetrics.interactionHitSlop
+                    )
                     selectedEdgeIDs = []
                     selectionRect = nil
                     onStatus("Selected \(selectedNodeIDs.count) cards")
-                } else if transientViewportOffset != .zero {
-                    canvas.viewportX += Double(transientViewportOffset.width)
-                    canvas.viewportY += Double(transientViewportOffset.height)
-                    canvas.updatedAt = .now
-                    saveModelChanges(failurePrefix: "Could not save canvas position")
+                } else if let commit = CanvasBackgroundPanCommitPolicy.commit(
+                    viewportX: canvas.viewportX,
+                    viewportY: canvas.viewportY,
+                    transientOffset: transientViewportOffset,
+                    startsOnNode: false
+                ) {
+                    persistCanvasViewport(
+                        zoom: canvas.zoom,
+                        viewportX: commit.viewportX,
+                        viewportY: commit.viewportY,
+                        failurePrefix: "Could not save canvas position"
+                    )
                 } else if selectEdge(at: value.location, in: edgeSegments) {
                     transientViewportOffset = .zero
                 }
@@ -2443,33 +3330,37 @@ struct WorkspaceCanvasView: View {
             selectedEdgeIDs = []
             connectByTap(node)
         case .select, .boxSelect:
-            if selectedNodeIDs.contains(node.id), selectedNodeIDs.count > 1 {
-                selectedNodeIDs.remove(node.id)
-            } else {
-                selectedNodeIDs = [node.id]
-            }
-            selectedEdgeIDs = []
-            connectionSourceNodeId = nil
+            let result = CanvasNodeTapSelectionPolicy.result(
+                tappingNodeID: node.id,
+                selectedNodeIDs: selectedNodeIDs,
+                selectedEdgeIDs: selectedEdgeIDs,
+                connectionSourceNodeID: connectionSourceNodeId
+            )
+            selectedNodeIDs = result.selectedNodeIDs
+            selectedEdgeIDs = result.selectedEdgeIDs
+            connectionSourceNodeId = result.connectionSourceNodeID
         }
     }
 
     private func connectByTap(_ node: CanvasNodeModel) {
         selectedEdgeIDs = []
-        if let sourceId = connectionSourceNodeId {
-            if sourceId == node.id {
-                connectionSourceNodeId = nil
-                selectedNodeIDs = [node.id]
-                onStatus("Connection source cleared")
-                return
+        let command = CanvasConnectTapPolicy.command(
+            tappedNodeId: node.id,
+            currentSourceNodeId: connectionSourceNodeId
+        )
+        switch command.action {
+        case .startSource:
+            startConnection(from: node)
+        case .clearSource:
+            connectionSourceNodeId = nil
+            selectedNodeIDs = command.selectedNodeIDs
+            onStatus("Connection source cleared")
+        case let .createEdge(sourceNodeId, targetNodeId):
+            if createEdge(from: sourceNodeId, to: targetNodeId) {
+                selectedNodeIDs = command.selectedNodeIDs
+                applyConnectionCompletion(targetNodeId: targetNodeId)
             }
-            if createEdge(from: sourceId, to: node.id) {
-                selectedNodeIDs = [sourceId, node.id]
-                applyConnectionCompletion(targetNodeId: node.id)
-            }
-            return
         }
-
-        startConnection(from: node)
     }
 
     private func startConnection(from node: CanvasNodeModel) {
@@ -2521,11 +3412,13 @@ struct WorkspaceCanvasView: View {
         }
         transientZoom = nil
         transientZoomViewportOffset = .zero
-        canvas.zoom = fit.zoom
-        canvas.viewportX = fit.viewportX
-        canvas.viewportY = fit.viewportY
-        canvas.updatedAt = .now
-        saveModelChanges(failurePrefix: "Could not fit canvas", successStatus: status)
+        persistCanvasViewport(
+            zoom: fit.zoom,
+            viewportX: fit.viewportX,
+            viewportY: fit.viewportY,
+            failurePrefix: "Could not fit canvas",
+            successStatus: status
+        )
     }
 
     private func canvasBounds(for nodes: [CanvasNodeModel]) -> CanvasFrameRect? {
@@ -2548,23 +3441,22 @@ struct WorkspaceCanvasView: View {
         flushPendingScrollZoomCommit()
         transientZoom = nil
         transientZoomViewportOffset = .zero
-        canvas.zoom = CanvasZoomScale.clamped(
-            value,
-            minimum: CanvasNodeMetrics.zoomMinimum,
-            maximum: CanvasNodeMetrics.zoomMaximum
+        persistCanvasViewport(
+            zoom: value,
+            viewportX: canvas.viewportX,
+            viewportY: canvas.viewportY,
+            failurePrefix: "Could not save canvas zoom"
         )
-        canvas.updatedAt = .now
-        saveModelChanges(failurePrefix: "Could not save canvas zoom")
     }
 
     private func zoomFromScroll(deltaY: Double, location: CGPoint) {
         let oldZoom = effectiveZoom
-        let newZoom = CanvasZoomScale.zoom(
+        let newZoom = CanvasScrollZoomRuntimePolicy.zoom(
             forScrollDeltaY: deltaY,
             current: oldZoom,
             minimum: CanvasNodeMetrics.zoomMinimum,
             maximum: CanvasNodeMetrics.zoomMaximum,
-            direction: CanvasScrollZoomDirection.resolved(scrollZoomDirectionRaw)
+            directionRawValue: scrollZoomDirectionRaw
         )
         guard abs(newZoom - oldZoom) > 0.0001 else { return }
 
@@ -2594,7 +3486,7 @@ struct WorkspaceCanvasView: View {
     private func scheduleScrollZoomCommit() {
         pendingScrollZoomCommit?.cancel()
         pendingScrollZoomCommit = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: CanvasNodeMetrics.scrollZoomCommitDelayNanos)
+            try? await Task.sleep(nanoseconds: scrollZoomCommitDelayNanos)
             guard !Task.isCancelled else { return }
             commitScrollZoom()
         }
@@ -2620,21 +3512,39 @@ struct WorkspaceCanvasView: View {
         }
         let viewportX = canvas.viewportX + Double(transientZoomViewportOffset.width)
         let viewportY = canvas.viewportY + Double(transientZoomViewportOffset.height)
+        guard let commit = CanvasViewportPersistencePolicy.commit(
+            zoom: transientZoom,
+            viewportX: viewportX,
+            viewportY: viewportY,
+            minimumZoom: CanvasNodeMetrics.zoomMinimum,
+            maximumZoom: CanvasNodeMetrics.zoomMaximum
+        ) else {
+            onStatus("Could not save canvas zoom: ignored invalid canvas viewport")
+            return
+        }
+        let currentViewportIsFinite = canvas.zoom.isFinite && canvas.viewportX.isFinite && canvas.viewportY.isFinite
         let shouldPersist =
-            abs(transientZoom - canvas.zoom) >= CanvasNodeMetrics.scrollZoomCommitZoomEpsilon ||
-            abs(viewportX - canvas.viewportX) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon ||
-            abs(viewportY - canvas.viewportY) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon
+            !currentViewportIsFinite ||
+            abs(commit.zoom - canvas.zoom) >= CanvasNodeMetrics.scrollZoomCommitZoomEpsilon ||
+            abs(commit.viewportX - canvas.viewportX) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon ||
+            abs(commit.viewportY - canvas.viewportY) >= CanvasNodeMetrics.scrollZoomCommitViewportEpsilon
         guard shouldPersist else { return }
-        canvas.zoom = transientZoom
-        canvas.viewportX = viewportX
-        canvas.viewportY = viewportY
-        canvas.updatedAt = .now
-        saveModelChanges(failurePrefix: "Could not save canvas zoom")
+        persistCanvasViewport(commit, failurePrefix: "Could not save canvas zoom")
     }
 
     private func openSelectedNode() {
         guard let selectedNode else { return }
         open(selectedNode)
+    }
+
+    private func openResourceCardFromDoubleClick(_ node: CanvasNodeModel, hasResolvedResource: Bool) {
+        guard CanvasResourceCardDoubleClickPolicy.shouldOpenFinder(
+            nodeObjectType: node.objectType,
+            hasResolvedResource: hasResolvedResource
+        ) else {
+            return
+        }
+        open(node)
     }
 
     private func copySelectedNode() {
@@ -2700,7 +3610,12 @@ struct WorkspaceCanvasView: View {
         }
     }
 
-    private func inspect(_ node: CanvasNodeModel) {
+    private func inspect(_ node: CanvasNodeModel, source: CanvasInspectorOpenSource) {
+        guard CanvasInspectorOpenPolicy.shouldOpenInspector(source: source) else {
+            selectedNodeIDs = [node.id]
+            selectedEdgeIDs = []
+            return
+        }
         selectedNodeIDs = [node.id]
         selectedEdgeIDs = []
         if let resource = resource(for: node) {
@@ -2732,10 +3647,10 @@ struct WorkspaceCanvasView: View {
             ClipboardService().copy(workspace.title)
             selectedNodeIDs = [node.id]
             onStatus("Copied workspace title: \(workspace.title)")
-        } else if let url = webURL(for: node) {
-            ClipboardService().copy(url.absoluteString)
+        } else if let affordances = webCardAffordances(for: node) {
+            ClipboardService().copy(affordances.copyValue)
             selectedNodeIDs = [node.id]
-            onStatus("Copied URL: \(url.absoluteString)")
+            onStatus("Copied URL: \(affordances.copyValue)")
         } else {
             ClipboardService().copy(node.body.isEmpty ? node.title : node.body)
             selectedNodeIDs = [node.id]
@@ -2784,6 +3699,11 @@ struct WorkspaceCanvasView: View {
         guard node.body != body else { return }
         node.body = body
         node.updatedAt = .now
+        scheduleNodeTextCommit(for: node.id)
+    }
+
+    private func updateCardNote(_ node: CanvasNodeModel, resource: ResourcePinModel?, to body: String) {
+        guard CanvasResourceCardNotePolicy.applyNoteChange(body, node: node, resource: resource) else { return }
         scheduleNodeTextCommit(for: node.id)
     }
 
@@ -2844,12 +3764,24 @@ struct WorkspaceCanvasView: View {
             )
             modelContext.insert(aliasRecord)
             try modelContext.save()
+            MindDeskHiddenMaintenanceLogger.log(.finderAliasCreateResult(
+                sourceObjectType: aliasRecord.sourceObjectType,
+                status: aliasRecord.statusRaw,
+                hasAliasBookmark: aliasRecord.aliasFileBookmarkData != nil,
+                hasTargetBookmark: aliasRecord.aliasTargetBookmarkData != nil
+            ))
             onStatus("Created Finder alias: \(aliasURL.path)")
         } catch {
             let aliasError = error
             let failed = FinderAliasRecordModel(sourceObjectType: "resourcePin", sourceObjectId: resource.id, aliasDisplayPath: requestedAliasURL.path, status: .failed)
             modelContext.insert(failed)
             if saveModelChanges(failurePrefix: "Could not save failed alias record") {
+                MindDeskHiddenMaintenanceLogger.log(.finderAliasCreateResult(
+                    sourceObjectType: failed.sourceObjectType,
+                    status: failed.statusRaw,
+                    hasAliasBookmark: failed.aliasFileBookmarkData != nil,
+                    hasTargetBookmark: failed.aliasTargetBookmarkData != nil
+                ))
                 onStatus(aliasError.localizedDescription)
             }
         }
@@ -2900,25 +3832,24 @@ struct WorkspaceCanvasView: View {
     }
 
     private func addWebNode() {
-        guard let url = WebCardURL.normalized(webCardDraft) else {
+        guard let draft = CanvasWebCardCreationPolicy.draft(from: webCardDraft) else {
             onStatus("Enter a valid http or https URL")
             return
         }
         let point = nextNodePosition()
-        let title = url.host ?? url.absoluteString
         let node = CanvasNodeModel(
             canvasId: canvas.id,
-            title: title,
-            body: url.absoluteString,
+            title: draft.title,
+            body: draft.body,
             nodeType: .snippet,
-            objectType: "webURL",
-            objectId: url.absoluteString,
+            objectType: draft.objectType,
+            objectId: draft.objectID,
             x: point.x,
             y: point.y,
             width: CanvasNodeMetrics.cardWidth,
             height: CanvasNodeMetrics.cardHeight,
             collapsed: true,
-            accentColorRaw: "#33D499D1"
+            accentColorRaw: draft.accentColorRaw
         )
         modelContext.insert(node)
         if saveModelChanges(failurePrefix: "Could not add web page card", successStatus: "Added web page card") {
@@ -3000,7 +3931,10 @@ struct WorkspaceCanvasView: View {
             try modelContext.save()
             selectedNodeIDs = Set(addedIDs)
             selectedEdgeIDs = []
-            onStatus("Canvas drop: \(summary.statusText)")
+            onStatus(CanvasResourceDropStatusPolicy.statusText(
+                baseStatusText: summary.statusText,
+                skippedIssues: summary.skipped
+            ))
         } catch {
             modelContext.rollback()
             onStatus(error.localizedDescription)
@@ -3136,9 +4070,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func applyConnectionCompletion(targetNodeId: String) {
-        let completion = CanvasConnectionPolicy.completion(targetNodeId: targetNodeId, singleShot: connectSingleShot)
+        let completion = CanvasConnectionCompletionApplicationPolicy.state(
+            targetNodeId: targetNodeId,
+            singleShot: connectSingleShot
+        )
         connectionSourceNodeId = completion.nextSourceNodeId
-        if completion.returnsToSelectMode {
+        if completion.modeTransition == .select {
             mode = .select
         }
     }
@@ -3174,12 +4111,21 @@ struct WorkspaceCanvasView: View {
     }
 
     private func autoArrange() {
-        let unlockedNodes = workflowNodes.filter { !$0.locked }
-        guard !unlockedNodes.isEmpty else {
+        let mutableNodeIDs = CanvasLockedNodeMutationPolicy.mutableNodeIDs(
+            from: Set(workflowNodes.map(\.id)),
+            lockedNodeIDs: lockedNodeIDs
+        )
+        let mutableNodes = workflowNodes.filter { mutableNodeIDs.contains($0.id) }
+        let lockedNodes = workflowNodes.filter { lockedNodeIDs.contains($0.id) }
+        guard !mutableNodes.isEmpty else {
             onStatus("Unlock cards before auto arranging the canvas.")
             return
         }
-        let layout = unlockedNodes.map { node in
+        let layout = mutableNodes.map { node in
+            let size = nodeSize(for: node)
+            return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
+        }
+        let fixedLayout = lockedNodes.map { node in
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
@@ -3188,6 +4134,7 @@ struct WorkspaceCanvasView: View {
         }
         if apply(CanvasLayoutEngine.autoArrange(
             layout,
+            fixedNodes: fixedLayout,
             edges: layoutEdges,
             horizontalSpacing: 96,
             verticalSpacing: 56,
@@ -3200,7 +4147,7 @@ struct WorkspaceCanvasView: View {
     private func apply(_ layout: [CanvasLayoutNode]) -> Bool {
         for item in layout {
             guard let node = workflowNodeById[item.id] else { continue }
-            guard !node.locked else { continue }
+            guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked) else { continue }
             node.x = item.x
             node.y = item.y
             node.updatedAt = .now
@@ -3215,7 +4162,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func delete(_ node: CanvasNodeModel) {
-        guard !node.locked else {
+        guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked) else {
             onStatus("Unlock card before deleting it.")
             return
         }
@@ -3312,53 +4259,75 @@ struct WorkspaceCanvasView: View {
         childParents: [CanvasChildParentSnapshot]
     ) {
         guard !nodes.isEmpty || !edges.isEmpty || !childParents.isEmpty else { return }
+        let restorePlan = CanvasNodeDeletionUndoPolicy.restorePlan(
+            deletedNodeIDs: nodes.map(\.id),
+            detachedChildNodeIDs: childParents.map(\.id),
+            deletedEdgeIDs: edges.map(\.id)
+        )
+        let nodeSnapshotsByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        let edgeSnapshotsByID = Dictionary(uniqueKeysWithValues: edges.map { ($0.id, $0) })
+        let childParentSnapshotsByID = Dictionary(uniqueKeysWithValues: childParents.map { ($0.id, $0) })
         let undoContext = MainActorUndoContext(context: modelContext)
         undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
                 let context = undoContext.context
-                for snapshot in nodes {
-                    context.insert(snapshot.makeModel())
-                }
-                for snapshot in childParents {
-                    if let child = fetchCanvasNodeForUndo(id: snapshot.id, in: context) {
+                for step in restorePlan.steps {
+                    switch step {
+                    case .restoreNode(let id):
+                        if let snapshot = nodeSnapshotsByID[id] {
+                            context.insert(snapshot.makeModel())
+                        }
+                    case .restoreDetachedChildParent(let id):
+                        guard let snapshot = childParentSnapshotsByID[id],
+                              let child = fetchCanvasNodeForUndo(id: snapshot.id, in: context) else { continue }
                         child.parentNodeId = snapshot.parentNodeId
                         child.updatedAt = .now
+                    case .restoreEdge(let id):
+                        if let snapshot = edgeSnapshotsByID[id] {
+                            context.insert(snapshot.makeModel())
+                        }
                     }
-                }
-                for snapshot in edges {
-                    context.insert(snapshot.makeModel())
                 }
                 do {
                     try context.save()
-                    onStatus("Restored deleted cards")
+                    onStatus(restorePlan.successStatus)
                 } catch {
                     context.rollback()
                     onStatus("Could not undo card deletion: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName(nodes.count == 1 ? "Delete Card" : "Delete Cards")
+        undoManager?.setActionName(CanvasNodeDeletionUndoPolicy.actionName(deletedNodeCount: nodes.count))
     }
 
     private func registerCanvasEdgeDeletionUndo(_ edges: [CanvasEdgeDeletionSnapshot]) {
         guard !edges.isEmpty else { return }
+        let restorePlan = CanvasEdgeDeletionUndoPolicy.restorePlan(edges: edges.map { $0.restoreRecord() })
+        let edgeSnapshotsByID = Dictionary(uniqueKeysWithValues: edges.map { ($0.id, $0) })
         let undoContext = MainActorUndoContext(context: modelContext)
         undoManager?.registerUndo(withTarget: modelContext) { _ in
             MainActor.assumeIsolated {
                 let context = undoContext.context
-                for snapshot in edges {
-                    context.insert(snapshot.makeModel())
+                for step in restorePlan.steps {
+                    switch step {
+                    case .restoreEdge(let id, let controlPointX, let controlPointY):
+                        guard let snapshot = edgeSnapshotsByID[id] else { continue }
+                        let edge = snapshot.makeModel()
+                        edge.controlPointX = controlPointX
+                        edge.controlPointY = controlPointY
+                        context.insert(edge)
+                    }
                 }
                 do {
                     try context.save()
-                    onStatus("Restored deleted links")
+                    onStatus(restorePlan.successStatus)
                 } catch {
                     context.rollback()
                     onStatus("Could not undo link deletion: \(error.localizedDescription)")
                 }
             }
         }
-        undoManager?.setActionName(edges.count == 1 ? "Delete Link" : "Delete Links")
+        undoManager?.setActionName(CanvasEdgeDeletionUndoPolicy.actionName(deletedEdgeCount: edges.count))
     }
 
     private func handleDeleteCommand() {
@@ -3381,9 +4350,10 @@ struct WorkspaceCanvasView: View {
 
     private func selectEdge(_ id: String) {
         guard visibleEdges.contains(where: { $0.id == id }) else { return }
-        selectedEdgeIDs = [id]
-        selectedNodeIDs = []
-        connectionSourceNodeId = nil
+        let result = CanvasEdgeTapSelectionPolicy.result(tappingEdgeID: id)
+        selectedNodeIDs = result.selectedNodeIDs
+        selectedEdgeIDs = result.selectedEdgeIDs
+        connectionSourceNodeId = result.connectionSourceNodeID
         onStatus("Selected link")
     }
 
@@ -3394,7 +4364,7 @@ struct WorkspaceCanvasView: View {
         guard let id = CanvasEdgeHitTesting.nearestEdgeID(
             at: point,
             edges: records,
-            threshold: 12
+            threshold: CanvasEdgeHitTargetPolicy.screenThreshold(zoom: effectiveZoom)
         ) else {
             return false
         }
@@ -3680,7 +4650,7 @@ struct CanvasNodeCard: View {
     let rendersDetails: Bool
     let onEditingChange: (Bool) -> Void
     let onOpen: () -> Void
-    let onInfo: () -> Void
+    let onInfo: (CanvasInspectorOpenSource) -> Void
     let onCopy: () -> Void
     let onStartLink: () -> Void
     let onConnect: () -> Void
@@ -3726,8 +4696,9 @@ struct CanvasNodeCard: View {
                     onCopy()
                 }
             }
-            Button("Show Details") { onInfo() }
-            Button("Start Link From This Card") { onStartLink() }
+            if CanvasStartLinkContextMenuPolicy.shouldExposeStartLink(for: .card) {
+                Button(CanvasStartLinkContextMenuPolicy.title(for: .card)) { onStartLink() }
+            }
             Button("Connect") { onConnect() }
             Button("Toggle Note") { onToggleNote() }
             Button("Delete Card", role: .destructive) { onDelete() }
@@ -3761,8 +4732,15 @@ struct CanvasNodeCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(lightweightCardBackground)
         .overlay {
+            let frameStyle = selectionFrameStyle(inactiveLineWidth: 1)
             RoundedRectangle(cornerRadius: 8)
-                .stroke(node.nodeType == .note ? noteBorderColor : borderColor, lineWidth: isSelected || isConnectionSource ? 2 : 1)
+                .stroke(
+                    selectionFrameColor(
+                        frameStyle,
+                        inactiveColor: node.nodeType == .note ? inactiveNoteBorderColor : inactiveBorderColor
+                    ),
+                    lineWidth: frameStyle.lineWidth
+                )
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(isSelected ? 0.12 : 0.05), radius: isSelected ? 4 : 1, y: 1)
@@ -3789,8 +4767,12 @@ struct CanvasNodeCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(resourceCardBackground)
         .overlay {
+            let frameStyle = selectionFrameStyle(inactiveLineWidth: 1)
             RoundedRectangle(cornerRadius: 8)
-                .stroke(borderColor, lineWidth: isSelected || isConnectionSource ? 2 : 1)
+                .stroke(
+                    selectionFrameColor(frameStyle, inactiveColor: inactiveBorderColor),
+                    lineWidth: frameStyle.lineWidth
+                )
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(isSelected ? 0.18 : 0.08), radius: isSelected ? 5 : 1, y: isSelected ? 2 : 1)
@@ -3802,21 +4784,32 @@ struct CanvasNodeCard: View {
             titleView(cardSize: cardSize)
             Divider()
                 .opacity(0.28)
-            CanvasNativeTextEditor(
-                text: noteBinding,
-                fontSize: bodyFontSize(for: cardSize),
-                weight: .regular,
-                textColor: .labelColor,
-                onEditingChange: onEditingChange
-            )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if CanvasNoteCardEditingPolicy.canEditBody(nodeType: node.nodeType, rendersDetails: rendersDetails) {
+                CanvasNativeTextEditor(
+                    text: noteBinding,
+                    fontSize: bodyFontSize(for: cardSize),
+                    weight: .regular,
+                    textColor: .labelColor,
+                    onEditingChange: onEditingChange
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text(notePreview)
+                    .font(.system(size: bodyFontSize(for: cardSize), weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(noteCardBackground)
         .overlay {
+            let frameStyle = selectionFrameStyle(inactiveLineWidth: 1.2)
             RoundedRectangle(cornerRadius: 8)
-                .stroke(noteBorderColor, lineWidth: isSelected || isConnectionSource ? 2 : 1.2)
+                .stroke(
+                    selectionFrameColor(frameStyle, inactiveColor: inactiveNoteBorderColor),
+                    lineWidth: frameStyle.lineWidth
+                )
         }
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .shadow(color: .black.opacity(isSelected ? 0.18 : 0.08), radius: isSelected ? 5 : 1, y: isSelected ? 2 : 1)
@@ -3836,7 +4829,7 @@ struct CanvasNodeCard: View {
             .frame(width: chromeTextWidth(subtitle, fontSize: 12.5, weight: .semibold), height: 16, alignment: .leading)
             Spacer(minLength: 6)
             Button {
-                triggerFeedback("Copied") {
+                triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .copy)) {
                     onCopy()
                 }
             } label: {
@@ -3845,13 +4838,21 @@ struct CanvasNodeCard: View {
             }
             .buttonStyle(CardIconButtonStyle())
             .help(copyHelpText)
-            Button(action: onInfo) {
+            Button {
+                triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .details)) {
+                    onInfo(.cardInfoButton)
+                }
+            } label: {
                 CanvasSharpSymbol(systemName: "info.circle", pointSize: 12, weight: .semibold)
                     .frame(width: 13, height: 13)
             }
             .buttonStyle(CardIconButtonStyle())
             .help("Show details")
-            Button(role: .destructive, action: onDelete) {
+            Button(role: .destructive) {
+                triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .delete)) {
+                    onDelete()
+                }
+            } label: {
                 CanvasSharpSymbol(systemName: "trash", pointSize: 12, weight: .semibold)
                     .frame(width: 13, height: 13)
             }
@@ -3883,6 +4884,7 @@ struct CanvasNodeCard: View {
                 adaptiveTitleText(cardSize: cardSize)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
+                        guard CanvasNoteCardEditingPolicy.shouldStartTitleEditing(nodeType: node.nodeType, clickCount: 2) else { return }
                         isEditingTitle = true
                         onEditingChange(true)
                     }
@@ -3924,7 +4926,12 @@ struct CanvasNodeCard: View {
             }
             .buttonStyle(.plain)
 
-            if node.collapsed {
+            if node.collapsed ||
+                !CanvasResourceCardNotePolicy.usesEditableScrollableEditor(
+                    nodeType: node.nodeType,
+                    isCollapsed: node.collapsed,
+                    rendersDetails: rendersDetails
+                ) && node.nodeType == .resource {
                 CanvasSharpText(
                     text: notePreview,
                     fontSize: 12,
@@ -3958,11 +4965,25 @@ struct CanvasNodeCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var borderColor: Color {
-        if isConnectionSource {
+    private func selectionFrameStyle(inactiveLineWidth: CGFloat) -> CanvasNodeSelectionFrameStyle {
+        CanvasNodeSelectionFramePolicy.style(
+            isSelected: isSelected,
+            isConnectionSource: isConnectionSource,
+            inactiveLineWidth: inactiveLineWidth
+        )
+    }
+
+    private func selectionFrameColor(_ style: CanvasNodeSelectionFrameStyle, inactiveColor: Color) -> Color {
+        switch style.tone {
+        case .accent:
             return .accentColor
+        case .inactive:
+            return inactiveColor
         }
-        return isSelected ? .accentColor : Color.secondary.opacity(0.25)
+    }
+
+    private var inactiveBorderColor: Color {
+        Color.secondary.opacity(0.25)
     }
 
     private var icon: String {
@@ -3998,7 +5019,7 @@ struct CanvasNodeCard: View {
     }
 
     private var canRenameTitle: Bool {
-        node.nodeType == .note
+        CanvasNoteCardEditingPolicy.canRenameTitle(nodeType: node.nodeType)
     }
 
     private var titleBinding: Binding<String> {
@@ -4010,7 +5031,13 @@ struct CanvasNodeCard: View {
 
     private var noteBinding: Binding<String> {
         Binding(
-            get: { node.body },
+            get: {
+                CanvasResourceCardNotePolicy.noteText(
+                    nodeType: node.nodeType,
+                    nodeBody: node.body,
+                    resourceNote: resource?.note
+                )
+            },
             set: { onNoteChange($0) }
         )
     }
@@ -4049,8 +5076,7 @@ struct CanvasNodeCard: View {
     }
 
     private var notePreview: String {
-        let trimmed = node.body.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "No description yet." : trimmed
+        CanvasResourceCardNotePolicy.previewText(for: noteBinding.wrappedValue)
     }
 
     private var noteBackground: Color {
@@ -4082,10 +5108,7 @@ struct CanvasNodeCard: View {
         CanvasNodeColorStyle(rawValue: node.accentColorRaw)
     }
 
-    private var noteBorderColor: Color {
-        if isConnectionSource || isSelected {
-            return .accentColor
-        }
+    private var inactiveNoteBorderColor: Color {
         if let colorStyle {
             return colorStyle.cardFill.opacity(0.9)
         }
@@ -4191,15 +5214,23 @@ struct CardIconButtonStyle: ButtonStyle {
             )
             .background(backgroundColor(isPressed: configuration.isPressed))
             .clipShape(Circle())
-            .scaleEffect(configuration.isPressed ? 0.92 : 1)
-            .shadow(color: .black.opacity(configuration.isPressed ? 0.22 : 0.08), radius: configuration.isPressed ? 1 : 2, y: configuration.isPressed ? 0 : 1)
+            .scaleEffect(CanvasCardChromeButtonInteractionPolicy.visualScale(isPressed: configuration.isPressed))
+            .shadow(
+                color: .black.opacity(CanvasCardChromeButtonInteractionPolicy.shadowOpacity(isPressed: configuration.isPressed)),
+                radius: configuration.isPressed ? 1 : 2,
+                y: configuration.isPressed ? 0 : 1
+            )
     }
 
     private func backgroundColor(isPressed: Bool) -> Color {
         if isActive {
-            return Color.accentColor.opacity(isPressed ? 0.34 : 0.22)
+            return Color.accentColor.opacity(
+                CanvasCardChromeButtonInteractionPolicy.backgroundOpacity(isActive: isActive, isPressed: isPressed)
+            )
         }
-        return Color.secondary.opacity(isPressed ? 0.22 : 0.1)
+        return Color.secondary.opacity(
+            CanvasCardChromeButtonInteractionPolicy.backgroundOpacity(isActive: isActive, isPressed: isPressed)
+        )
     }
 }
 
@@ -4892,7 +5923,7 @@ struct CanvasFrameCard: View {
     let isConnectionSource: Bool
     let rendersDetails: Bool
     let onEditingChange: (Bool) -> Void
-    let onInfo: () -> Void
+    let onInfo: (CanvasInspectorOpenSource) -> Void
     let onCopy: () -> Void
     let onStartLink: () -> Void
     let onConnect: () -> Void
@@ -4932,8 +5963,9 @@ struct CanvasFrameCard: View {
                     onCopy()
                 }
             }
-            Button("Show Details", action: onInfo)
-            Button("Start Link From This Frame", action: onStartLink)
+            if CanvasStartLinkContextMenuPolicy.shouldExposeStartLink(for: .frame) {
+                Button(CanvasStartLinkContextMenuPolicy.title(for: .frame), action: onStartLink)
+            }
             Button("Connect", action: onConnect)
             Button("Delete Frame", role: .destructive, action: onDelete)
         }
@@ -4958,7 +5990,7 @@ struct CanvasFrameCard: View {
                         }
                     Spacer()
                     Button {
-                        triggerFeedback("Copied") {
+                        triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .copy)) {
                             onCopy()
                         }
                     } label: {
@@ -4966,16 +5998,27 @@ struct CanvasFrameCard: View {
                             .frame(width: 13, height: 13)
                     }
                     .buttonStyle(CardIconButtonStyle())
-                    Button(action: onInfo) {
+                    .help("Copy frame note")
+                    Button {
+                        triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .details)) {
+                            onInfo(.cardInfoButton)
+                        }
+                    } label: {
                         CanvasSharpSymbol(systemName: "info.circle", pointSize: 12, weight: .semibold)
                             .frame(width: 13, height: 13)
                     }
                     .buttonStyle(CardIconButtonStyle())
-                    Button(role: .destructive, action: onDelete) {
+                    .help("Show details")
+                    Button(role: .destructive) {
+                        triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .delete)) {
+                            onDelete()
+                        }
+                    } label: {
                         CanvasSharpSymbol(systemName: "trash", pointSize: 12, weight: .semibold)
                             .frame(width: 13, height: 13)
                     }
                     .buttonStyle(CardIconButtonStyle())
+                    .help("Delete frame")
                 }
 
                 CanvasNativeTextEditor(
@@ -5080,12 +6123,7 @@ private struct CanvasEdgeStrokeLayer: View {
             for segment in segments {
                 let baseStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 1.7, minimumWidth: 0.9, maximumWidth: 2.0))
                 let selectedStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 3.2, minimumWidth: 1.8, maximumWidth: 3.2))
-                let flowStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(
-                    zoom: Double(lineScale),
-                    baseWidth: theme == .blue ? 3.4 : 2.4,
-                    minimumWidth: theme == .blue ? 1.4 : 1.2,
-                    maximumWidth: theme == .blue ? 4.0 : 3.0
-                ))
+                let flowStrokeWidth = CGFloat(CanvasEdgeFlowStrokePolicy.strokeWidth(baseStrokeWidth: Double(baseStrokeWidth)))
                 let curve = EdgePathFactory.curve(
                     start: segment.start,
                     end: segment.end,
@@ -5115,7 +6153,7 @@ private struct CanvasEdgeStrokeLayer: View {
                         with: .color(flowColor.opacity(theme == .blue ? 1 : 0.9)),
                         style: StrokeStyle(
                             lineWidth: flowStrokeWidth,
-                            lineCap: .round,
+                            lineCap: edgeFlowLineCap,
                             lineJoin: .round,
                             dash: [max(8, 24 * lineScale), max(36, 148 * lineScale)],
                             dashPhase: dashPhase * lineScale
@@ -5130,6 +6168,15 @@ private struct CanvasEdgeStrokeLayer: View {
 
     private var flowColor: Color {
         theme == .blue ? .blue : .accentColor
+    }
+
+    private var edgeFlowLineCap: CGLineCap {
+        switch CanvasEdgeFlowStrokePolicy.lineCap {
+        case .butt:
+            .butt
+        case .round:
+            .round
+        }
     }
 }
 
@@ -5179,22 +6226,25 @@ private struct CanvasEdgeArrowHeadLayer: View {
     }
 
     private func sourceArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
-        let fallback = CGPoint(x: -segment.startDirection.x, y: -segment.startDirection.y)
-        guard let firstRoutePoint = segment.routePoints.first else { return fallback }
-        return normalizedDirection(from: firstRoutePoint, to: segment.start, fallback: fallback)
+        let direction = CanvasEdgeArrowDirectionPolicy.sourceDirection(
+            start: canvasEdgePoint(segment.start),
+            startDirection: canvasEdgePoint(segment.startDirection),
+            routePoints: segment.routePoints.map { canvasEdgePoint($0) }
+        )
+        return CGPoint(x: direction.x, y: direction.y)
     }
 
     private func targetArrowDirection(for segment: CanvasEdgeSegment) -> CGPoint {
-        guard let lastRoutePoint = segment.routePoints.last else { return segment.endDirection }
-        return normalizedDirection(from: lastRoutePoint, to: segment.end, fallback: segment.endDirection)
+        let direction = CanvasEdgeArrowDirectionPolicy.targetDirection(
+            end: canvasEdgePoint(segment.end),
+            endDirection: canvasEdgePoint(segment.endDirection),
+            routePoints: segment.routePoints.map { canvasEdgePoint($0) }
+        )
+        return CGPoint(x: direction.x, y: direction.y)
     }
 
-    private func normalizedDirection(from start: CGPoint, to end: CGPoint, fallback: CGPoint) -> CGPoint {
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        let length = sqrt(dx * dx + dy * dy)
-        guard length > 0.001 else { return fallback }
-        return CGPoint(x: dx / length, y: dy / length)
+    private func canvasEdgePoint(_ point: CGPoint) -> CanvasEdgePoint {
+        CanvasEdgePoint(x: point.x, y: point.y)
     }
 }
 
@@ -5225,12 +6275,7 @@ struct FlowingArrowEdge: View {
         Canvas { context, _ in
             let baseStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 1.7, minimumWidth: 0.9, maximumWidth: 2.0))
             let selectedStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 3.2, minimumWidth: 1.8, maximumWidth: 3.2))
-            let flowStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(
-                zoom: Double(lineScale),
-                baseWidth: theme == .blue ? 3.4 : 2.4,
-                minimumWidth: theme == .blue ? 1.4 : 1.2,
-                maximumWidth: theme == .blue ? 4.0 : 3.0
-            ))
+            let flowStrokeWidth = CGFloat(CanvasEdgeFlowStrokePolicy.strokeWidth(baseStrokeWidth: Double(baseStrokeWidth)))
             let curve = EdgePathFactory.curve(
                 start: start,
                 end: end,
@@ -5260,7 +6305,7 @@ struct FlowingArrowEdge: View {
                     with: .color(flowColor.opacity(theme == .blue ? 1 : 0.9)),
                     style: StrokeStyle(
                         lineWidth: flowStrokeWidth,
-                        lineCap: .round,
+                        lineCap: edgeFlowLineCap,
                         lineJoin: .round,
                         dash: [max(8, 24 * lineScale), max(36, 148 * lineScale)],
                         dashPhase: dashPhase * lineScale
@@ -5269,6 +6314,15 @@ struct FlowingArrowEdge: View {
             }
         }
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+    }
+
+    private var edgeFlowLineCap: CGLineCap {
+        switch CanvasEdgeFlowStrokePolicy.lineCap {
+        case .butt:
+            .butt
+        case .round:
+            .round
+        }
     }
 }
 

@@ -2,9 +2,76 @@ import Foundation
 import MindDeskCore
 import SwiftData
 
+enum PersistentStorePostOpenMaintenanceWork: Equatable, Sendable {
+    case backup(MindDeskStoreBackupReason)
+    case pruneOldBackups
+}
+
+struct PersistentStorePostOpenMaintenancePlan: Equatable, Sendable {
+    var immediateWork: [PersistentStorePostOpenMaintenanceWork]
+    var deferredWork: [PersistentStorePostOpenMaintenanceWork]
+
+    static func plan(
+        didMigrateStore: Bool,
+        didRestoreStore: Bool,
+        storeExists: Bool,
+        backupFolders: [URL],
+        now: Date
+    ) -> PersistentStorePostOpenMaintenancePlan {
+        if didMigrateStore {
+            return PersistentStorePostOpenMaintenancePlan(
+                immediateWork: [.backup(.migration), .pruneOldBackups],
+                deferredWork: []
+            )
+        }
+        if didRestoreStore {
+            return PersistentStorePostOpenMaintenancePlan(
+                immediateWork: [.backup(.restore), .pruneOldBackups],
+                deferredWork: []
+            )
+        }
+        if MindDeskStoreLayout.shouldCreateStartupBackup(
+            storeExists: storeExists,
+            backupFolders: backupFolders,
+            now: now
+        ) {
+            return PersistentStorePostOpenMaintenancePlan(
+                immediateWork: [],
+                deferredWork: [.backup(.startup), .pruneOldBackups]
+            )
+        }
+        return PersistentStorePostOpenMaintenancePlan(
+            immediateWork: [.pruneOldBackups],
+            deferredWork: []
+        )
+    }
+}
+
+enum PersistentStorePostOpenMaintenanceRunner {
+    static func run(
+        plan: PersistentStorePostOpenMaintenancePlan,
+        runImmediate: ([PersistentStorePostOpenMaintenanceWork]) -> Void,
+        runDeferred: @escaping @Sendable ([PersistentStorePostOpenMaintenanceWork]) -> Void,
+        scheduleDeferred: (@escaping @Sendable () -> Void) -> Void
+    ) {
+        if !plan.immediateWork.isEmpty {
+            runImmediate(plan.immediateWork)
+        }
+
+        let deferredWork = plan.deferredWork
+        if !deferredWork.isEmpty {
+            scheduleDeferred {
+                runDeferred(deferredWork)
+            }
+        }
+    }
+}
+
 enum PersistentStoreBootstrap {
+    static let applicationSupportOverrideEnvironmentKey = "MINDDESK_APPLICATION_SUPPORT_DIR"
+
     static func makeModelContainer(fileManager: FileManager = .default) throws -> ModelContainer {
-        let layout = try makeLayout(fileManager: fileManager)
+        let layout = try resolvedLayout(fileManager: fileManager)
         let schema = Schema(modelTypes)
         let preparation = try prepareStore(at: layout, schema: schema, fileManager: fileManager)
         let configuration = ModelConfiguration(schema: schema, url: layout.storeURL)
@@ -46,7 +113,10 @@ enum PersistentStoreBootstrap {
         ]
     }
 
-    private static func makeLayout(fileManager: FileManager) throws -> MindDeskStoreLayout {
+    static func resolvedLayout(fileManager: FileManager = .default) throws -> MindDeskStoreLayout {
+        if let overrideDirectory = applicationSupportOverrideDirectory() {
+            return MindDeskStoreLayout(applicationSupportDirectory: overrideDirectory)
+        }
         let support = try fileManager.url(
             for: .applicationSupportDirectory,
             in: .userDomainMask,
@@ -54,6 +124,17 @@ enum PersistentStoreBootstrap {
             create: true
         )
         return MindDeskStoreLayout(applicationSupportDirectory: support)
+    }
+
+    private static func applicationSupportOverrideDirectory() -> URL? {
+        guard let rawValue = ProcessInfo.processInfo.environment[applicationSupportOverrideEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawValue.isEmpty
+        else {
+            return nil
+        }
+        return URL(fileURLWithPath: (rawValue as NSString).expandingTildeInPath, isDirectory: true)
+            .standardizedFileURL
     }
 
     private static func prepareStore(
@@ -66,7 +147,7 @@ enum PersistentStoreBootstrap {
         try fileManager.createDirectory(at: layout.backupDirectory, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: layout.quarantineDirectory, withIntermediateDirectories: true)
         try cleanIncompleteBackupFolders(layout: layout, fileManager: fileManager)
-        try recoverInterruptedMigrationIfNeeded(layout: layout, fileManager: fileManager)
+        try recoverInterruptedMigrationIfNeeded(layout: layout, schema: schema, fileManager: fileManager)
 
         var preparation = PersistentStorePreparation(didMigrateStore: false, didRestoreStore: false)
         if !fileManager.fileExists(atPath: layout.storeURL.path) {
@@ -96,19 +177,41 @@ enum PersistentStoreBootstrap {
         layout: MindDeskStoreLayout,
         fileManager: FileManager
     ) {
-        if preparation.didMigrateStore {
-            try? backupSQLiteFileSetIfPresent(layout: layout, reason: .migration, fileManager: fileManager)
-        } else if !preparation.didRestoreStore {
-            let backupFolders = (try? existingBackupFolders(layout: layout, fileManager: fileManager)) ?? []
-            if MindDeskStoreLayout.shouldCreateStartupBackup(
-                storeExists: fileManager.fileExists(atPath: layout.storeURL.path),
-                backupFolders: backupFolders,
-                now: .now
-            ) {
-                try? backupSQLiteFileSetIfPresent(layout: layout, reason: .startup, fileManager: fileManager)
+        let backupFolders = (try? existingBackupFolders(layout: layout, fileManager: fileManager)) ?? []
+        let plan = PersistentStorePostOpenMaintenancePlan.plan(
+            didMigrateStore: preparation.didMigrateStore,
+            didRestoreStore: preparation.didRestoreStore,
+            storeExists: fileManager.fileExists(atPath: layout.storeURL.path),
+            backupFolders: backupFolders,
+            now: .now
+        )
+        PersistentStorePostOpenMaintenanceRunner.run(
+            plan: plan,
+            runImmediate: { workItems in
+                runPostOpenMaintenance(workItems, layout: layout, fileManager: fileManager)
+            },
+            runDeferred: { workItems in
+                runPostOpenMaintenance(workItems, layout: layout, fileManager: .default)
+            },
+            scheduleDeferred: { work in
+                DispatchQueue.global(qos: .utility).async(execute: work)
+            }
+        )
+    }
+
+    private static func runPostOpenMaintenance(
+        _ workItems: [PersistentStorePostOpenMaintenanceWork],
+        layout: MindDeskStoreLayout,
+        fileManager: FileManager
+    ) {
+        for workItem in workItems {
+            switch workItem {
+            case .backup(let reason):
+                try? backupSQLiteFileSetIfPresent(layout: layout, reason: reason, fileManager: fileManager)
+            case .pruneOldBackups:
+                try? pruneOldBackups(layout: layout, fileManager: fileManager)
             }
         }
-        try? pruneOldBackups(layout: layout, fileManager: fileManager)
     }
 
     private static func migrateSQLiteFileSet(
@@ -129,11 +232,29 @@ enum PersistentStoreBootstrap {
         }
     }
 
-    private static func recoverInterruptedMigrationIfNeeded(layout: MindDeskStoreLayout, fileManager: FileManager) throws {
+    private static func recoverInterruptedMigrationIfNeeded(
+        layout: MindDeskStoreLayout,
+        schema: Schema,
+        fileManager: FileManager
+    ) throws {
         let marker = migrationMarkerURL(layout: layout)
         guard fileManager.fileExists(atPath: marker.path) else { return }
-        removeSQLiteFileSet(for: layout.storeURL, fileManager: fileManager)
-        try? fileManager.removeItem(at: marker)
+
+        guard fileManager.fileExists(atPath: layout.storeURL.path) else {
+            removeSQLiteFileSet(for: layout.storeURL, fileManager: fileManager)
+            try? fileManager.removeItem(at: marker)
+            return
+        }
+
+        do {
+            try validateStore(at: layout.storeURL, schema: schema)
+        } catch {
+            removeSQLiteFileSet(for: layout.storeURL, fileManager: fileManager)
+            try? fileManager.removeItem(at: marker)
+            return
+        }
+
+        try fileManager.removeItem(at: marker)
     }
 
     private static func migrationMarkerURL(layout: MindDeskStoreLayout) -> URL {
@@ -176,7 +297,7 @@ enum PersistentStoreBootstrap {
         }
     }
 
-    private static func backupSQLiteFileSetIfPresent(
+    static func backupSQLiteFileSetIfPresent(
         layout: MindDeskStoreLayout,
         reason: MindDeskStoreBackupReason,
         fileManager: FileManager
@@ -314,12 +435,14 @@ enum PersistentStoreBootstrap {
     }
 
     private static func isRecoverableBackupFolder(_ folder: URL, fileManager: FileManager) -> Bool {
-        if fileManager.fileExists(atPath: folder.appendingPathComponent(".complete", isDirectory: false).path) {
-            return true
-        }
-        return fileManager.fileExists(
-            atPath: folder.appendingPathComponent(MindDeskStoreLayout.storeFileName, isDirectory: false).path
+        let fileNames = Set(
+            ((try? fileManager.contentsOfDirectory(
+                at: folder,
+                includingPropertiesForKeys: nil,
+                options: []
+            )) ?? []).map(\.lastPathComponent)
         )
+        return MindDeskStoreBackupRecoverability.isRecoverableBackupFolder(containing: fileNames)
     }
 
     private static func cleanIncompleteBackupFolders(layout: MindDeskStoreLayout, fileManager: FileManager) throws {

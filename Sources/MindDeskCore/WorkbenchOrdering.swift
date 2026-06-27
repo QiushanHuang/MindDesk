@@ -231,9 +231,22 @@ public enum WorkspaceDeletionPolicy {
 }
 
 public enum WorkbenchSidebarMetrics {
-    public static let minimumWidth: Double = 208
-    public static let idealWidth: Double = 224
-    public static let maximumWidth: Double = 300
+    public static let minimumWidth: Double = 240
+    public static let idealWidth: Double = 268
+    public static let maximumWidth: Double = 340
+    public static let primaryNavigationLabels = [
+        "Home",
+        "Global Library",
+        "Snippet Library",
+        "Pinned Folders",
+        "Pinned Files",
+        "Workspaces"
+    ]
+    public static let minimumPrimaryNavigationLabelWidth: Double = 240
+
+    public static func canShowPrimaryNavigationLabels(at width: Double) -> Bool {
+        width.isFinite && width >= minimumPrimaryNavigationLabelWidth
+    }
 }
 
 public enum CanvasSideRailLayout {
@@ -243,6 +256,11 @@ public enum CanvasSideRailLayout {
 
     public static func rightRailWidth(availableWidth: Double) -> Double {
         min(rightRailIdealWidth, max(rightRailMinimumWidth, floor(availableWidth * 0.22)))
+    }
+
+    public static func rightRailScrollableContentWidth(railWidth: Double) -> Double {
+        guard railWidth.isFinite else { return rightRailIdealWidth }
+        return max(rightRailIdealWidth, railWidth)
     }
 }
 
@@ -394,13 +412,13 @@ public enum SnippetLibraryFiltering {
 
 public enum CommandRunConfirmationPolicy {
     public static func shouldConfirm(kind: String, requiresConfirmation _: Bool) -> Bool {
-        kind == "command"
+        kind == "command" && WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand, actor: .directUser)
     }
 }
 
 public enum SnippetImportTrustPolicy {
     public static func requiresConfirmation(kind: String, exportedRequiresConfirmation: Bool) -> Bool {
-        kind == "command" ? true : exportedRequiresConfirmation
+        kind == "command" ? WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand, actor: .directUser) : exportedRequiresConfirmation
     }
 }
 
@@ -678,6 +696,47 @@ public enum CanvasEdgeDeletionPolicy {
     }
 }
 
+public struct CanvasEdgeDeletionUndoRecord: Equatable, Sendable {
+    public var id: String
+    public var controlPointX: Double?
+    public var controlPointY: Double?
+
+    public init(id: String, controlPointX: Double?, controlPointY: Double?) {
+        self.id = id
+        self.controlPointX = controlPointX
+        self.controlPointY = controlPointY
+    }
+}
+
+public enum CanvasEdgeDeletionUndoRestoreStep: Equatable, Sendable {
+    case restoreEdge(id: String, controlPointX: Double?, controlPointY: Double?)
+}
+
+public struct CanvasEdgeDeletionUndoRestorePlan: Equatable, Sendable {
+    public var steps: [CanvasEdgeDeletionUndoRestoreStep]
+    public var successStatus: String
+
+    public init(steps: [CanvasEdgeDeletionUndoRestoreStep], successStatus: String) {
+        self.steps = steps
+        self.successStatus = successStatus
+    }
+}
+
+public enum CanvasEdgeDeletionUndoPolicy {
+    public static func restorePlan(edges: [CanvasEdgeDeletionUndoRecord]) -> CanvasEdgeDeletionUndoRestorePlan {
+        CanvasEdgeDeletionUndoRestorePlan(
+            steps: edges.map {
+                .restoreEdge(id: $0.id, controlPointX: $0.controlPointX, controlPointY: $0.controlPointY)
+            },
+            successStatus: "Restored deleted links"
+        )
+    }
+
+    public static func actionName(deletedEdgeCount: Int) -> String {
+        deletedEdgeCount == 1 ? "Delete Link" : "Delete Links"
+    }
+}
+
 public enum CanvasNodeDeletionPolicy {
     public static func incidentEdgeIDs(
         selectedNodeIDs: Set<String>,
@@ -687,6 +746,41 @@ public enum CanvasNodeDeletionPolicy {
         return edges
             .filter { selectedNodeIDs.contains($0.sourceNodeId) || selectedNodeIDs.contains($0.targetNodeId) }
             .map(\.id)
+    }
+}
+
+public enum CanvasNodeDeletionUndoRestoreStep: Equatable, Sendable {
+    case restoreNode(id: String)
+    case restoreDetachedChildParent(id: String)
+    case restoreEdge(id: String)
+}
+
+public struct CanvasNodeDeletionUndoRestorePlan: Equatable, Sendable {
+    public var steps: [CanvasNodeDeletionUndoRestoreStep]
+    public var successStatus: String
+
+    public init(steps: [CanvasNodeDeletionUndoRestoreStep], successStatus: String) {
+        self.steps = steps
+        self.successStatus = successStatus
+    }
+}
+
+public enum CanvasNodeDeletionUndoPolicy {
+    public static func restorePlan(
+        deletedNodeIDs: [String],
+        detachedChildNodeIDs: [String],
+        deletedEdgeIDs: [String]
+    ) -> CanvasNodeDeletionUndoRestorePlan {
+        CanvasNodeDeletionUndoRestorePlan(
+            steps: deletedNodeIDs.map { .restoreNode(id: $0) } +
+                detachedChildNodeIDs.map { .restoreDetachedChildParent(id: $0) } +
+                deletedEdgeIDs.map { .restoreEdge(id: $0) },
+            successStatus: "Restored deleted cards"
+        )
+    }
+
+    public static func actionName(deletedNodeCount: Int) -> String {
+        deletedNodeCount == 1 ? "Delete Card" : "Delete Cards"
     }
 }
 
@@ -781,6 +875,14 @@ public enum CanvasEdgeHitTesting {
         let dx = rhs.x - lhs.x
         let dy = rhs.y - lhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+}
+
+public enum CanvasEdgeHitTargetPolicy {
+    public static let defaultScreenThreshold = 12.0
+
+    public static func screenThreshold(zoom _: Double) -> Double {
+        return defaultScreenThreshold
     }
 }
 
@@ -997,6 +1099,49 @@ public enum CanvasEdgeCurveGeometry {
         let dx = rhs.x - lhs.x
         let dy = rhs.y - lhs.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    private static func vector(from start: CanvasEdgePoint, to end: CanvasEdgePoint) -> CanvasEdgePoint {
+        CanvasEdgePoint(x: end.x - start.x, y: end.y - start.y)
+    }
+
+    private static func normalized(_ vector: CanvasEdgePoint, fallback: CanvasEdgePoint) -> CanvasEdgePoint {
+        let length = sqrt(vector.x * vector.x + vector.y * vector.y)
+        if length > 0.0001 {
+            return CanvasEdgePoint(x: vector.x / length, y: vector.y / length)
+        }
+
+        let fallbackLength = sqrt(fallback.x * fallback.x + fallback.y * fallback.y)
+        if fallbackLength > 0.0001 {
+            return CanvasEdgePoint(x: fallback.x / fallbackLength, y: fallback.y / fallbackLength)
+        }
+
+        return CanvasEdgePoint(x: 1, y: 0)
+    }
+}
+
+public enum CanvasEdgeArrowDirectionPolicy {
+    public static func sourceDirection(
+        start: CanvasEdgePoint,
+        startDirection: CanvasEdgePoint,
+        routePoints: [CanvasEdgePoint]
+    ) -> CanvasEdgePoint {
+        let fallback = CanvasEdgePoint(x: -startDirection.x, y: -startDirection.y)
+        guard let firstRoutePoint = routePoints.first else {
+            return normalized(fallback, fallback: CanvasEdgePoint(x: -1, y: 0))
+        }
+        return normalized(vector(from: firstRoutePoint, to: start), fallback: fallback)
+    }
+
+    public static func targetDirection(
+        end: CanvasEdgePoint,
+        endDirection: CanvasEdgePoint,
+        routePoints: [CanvasEdgePoint]
+    ) -> CanvasEdgePoint {
+        guard let lastRoutePoint = routePoints.last else {
+            return normalized(endDirection, fallback: CanvasEdgePoint(x: 1, y: 0))
+        }
+        return normalized(vector(from: lastRoutePoint, to: end), fallback: endDirection)
     }
 
     private static func vector(from start: CanvasEdgePoint, to end: CanvasEdgePoint) -> CanvasEdgePoint {
@@ -1291,7 +1436,7 @@ public enum CanvasEdgeRoutePlanner {
 }
 
 public enum CanvasEdgeRouteDefaults {
-    public static let targetClearance = 0.0
+    public static let targetClearance = 4.0
     public static let routingClearance = 2.0
 }
 
@@ -1404,7 +1549,7 @@ public enum CanvasResizeHandleGeometry {
 
     public static func center(in rect: CanvasFrameRect, zoom: Double) -> CanvasEdgePoint {
         let scale = zoom.isFinite ? max(zoom, 0.01) : 1
-        let inset = baseInset * scale
+        let inset = min(baseInset * scale, hitSize(zoom: zoom) / 2)
         return CanvasEdgePoint(
             x: rect.x + rect.width - inset,
             y: rect.y + rect.height - inset
@@ -1724,6 +1869,35 @@ public struct ResourceUsageRecord: Equatable, Sendable {
     }
 }
 
+public enum ResourceRelationshipSearchTermPolicy {
+    public static func terms(for usages: [ResourceUsageRecord]) -> [String] {
+        var terms: [String] = []
+        var seen: Set<String> = []
+        for kind in [.canvasNode, .todo, .snippetWorkingDirectory, .alias] as [ResourceUsageKind] {
+            guard usages.contains(where: { $0.kind == kind }) else { continue }
+            for term in searchTerms(for: kind) where seen.insert(term).inserted {
+                terms.append(term)
+            }
+        }
+        return terms
+    }
+
+    private static func searchTerms(for kind: ResourceUsageKind) -> [String] {
+        switch kind {
+        case .workspaceResource:
+            return []
+        case .canvasNode:
+            return ["canvas", "canvas card"]
+        case .todo:
+            return ["linked task", "todo"]
+        case .snippetWorkingDirectory:
+            return ["snippet", "working directory"]
+        case .alias:
+            return ["finder alias", "alias"]
+        }
+    }
+}
+
 public struct ReferenceIndex: Equatable, Sendable {
     public var workspaceResources: [WorkspaceResourceReference]
     public var canvasObjects: [CanvasObjectReference]
@@ -1763,6 +1937,42 @@ public struct ReferenceIndex: Equatable, Sendable {
             .filter { $0.sourceObjectType == "resourcePin" && $0.sourceObjectId == resourceId }
             .map { ResourceUsageRecord(kind: .alias, id: $0.aliasId) }
         return usages
+    }
+
+    public func resourceRelatedSearchTermsByID() -> [String: [String]] {
+        var usagesByResourceID: [String: [ResourceUsageRecord]] = [:]
+        for canvasObject in canvasObjects where canvasObject.objectType == "resourcePin" {
+            guard let resourceId = canvasObject.objectId else { continue }
+            usagesByResourceID[resourceId, default: []].append(
+                ResourceUsageRecord(kind: .canvasNode, id: canvasObject.nodeId, workspaceId: canvasObject.workspaceId)
+            )
+        }
+        for todoLink in todoLinks {
+            guard let resourceId = todoLink.linkedResourceId else { continue }
+            usagesByResourceID[resourceId, default: []].append(
+                ResourceUsageRecord(kind: .todo, id: todoLink.todoId, workspaceId: todoLink.workspaceId)
+            )
+        }
+        for workingDirectory in snippetWorkingDirectories {
+            guard let resourceId = workingDirectory.resourceId else { continue }
+            usagesByResourceID[resourceId, default: []].append(
+                ResourceUsageRecord(kind: .snippetWorkingDirectory, id: workingDirectory.snippetId)
+            )
+        }
+        for alias in aliases where alias.sourceObjectType == "resourcePin" {
+            usagesByResourceID[alias.sourceObjectId, default: []].append(
+                ResourceUsageRecord(kind: .alias, id: alias.aliasId)
+            )
+        }
+
+        var termsByResourceID: [String: [String]] = [:]
+        for (resourceId, usages) in usagesByResourceID {
+            let terms = ResourceRelationshipSearchTermPolicy.terms(for: usages)
+            if !terms.isEmpty {
+                termsByResourceID[resourceId] = terms
+            }
+        }
+        return termsByResourceID
     }
 }
 
@@ -1888,6 +2098,43 @@ public enum CanvasConnectSourcePolicy {
     }
 }
 
+public enum CanvasConnectTapAction: Equatable, Sendable {
+    case startSource(nodeId: String)
+    case clearSource(nodeId: String)
+    case createEdge(sourceNodeId: String, targetNodeId: String)
+}
+
+public struct CanvasConnectTapCommand: Equatable, Sendable {
+    public var action: CanvasConnectTapAction
+    public var selectedNodeIDs: Set<String>
+
+    public init(action: CanvasConnectTapAction, selectedNodeIDs: Set<String>) {
+        self.action = action
+        self.selectedNodeIDs = selectedNodeIDs
+    }
+}
+
+public enum CanvasConnectTapPolicy {
+    public static func command(tappedNodeId: String, currentSourceNodeId: String?) -> CanvasConnectTapCommand {
+        guard let currentSourceNodeId else {
+            return CanvasConnectTapCommand(
+                action: .startSource(nodeId: tappedNodeId),
+                selectedNodeIDs: [tappedNodeId]
+            )
+        }
+        guard currentSourceNodeId != tappedNodeId else {
+            return CanvasConnectTapCommand(
+                action: .clearSource(nodeId: tappedNodeId),
+                selectedNodeIDs: [tappedNodeId]
+            )
+        }
+        return CanvasConnectTapCommand(
+            action: .createEdge(sourceNodeId: currentSourceNodeId, targetNodeId: tappedNodeId),
+            selectedNodeIDs: [currentSourceNodeId, tappedNodeId]
+        )
+    }
+}
+
 public enum CanvasConnectionPolicy {
     public static func completion(targetNodeId: String, singleShot: Bool) -> CanvasConnectionCompletion {
         CanvasConnectionCompletion(
@@ -1904,6 +2151,51 @@ public enum TodoBoardColumnSplit {
 
     public static func clampedRatio(_ ratio: Double) -> Double {
         min(max(ratio, minimumRatio), maximumRatio)
+    }
+}
+
+public struct TodoBoardInitialPresentationState: Equatable, Sendable {
+    public var isPanelOpen: Bool
+    public var isDoneColumnOpen: Bool
+
+    public init(isPanelOpen: Bool, isDoneColumnOpen: Bool) {
+        self.isPanelOpen = isPanelOpen
+        self.isDoneColumnOpen = isDoneColumnOpen
+    }
+}
+
+public enum TodoBoardStartupPolicy {
+    public static func initialState(
+        defaultPanelOpen: Bool,
+        defaultDoneColumnOpen: Bool
+    ) -> TodoBoardInitialPresentationState {
+        TodoBoardInitialPresentationState(
+            isPanelOpen: defaultPanelOpen,
+            isDoneColumnOpen: defaultDoneColumnOpen
+        )
+    }
+}
+
+public enum TodoBoardDefaultGroupCreationTrigger: Equatable, Sendable {
+    case workspaceOpen
+    case boardAppear
+    case addTask
+    case deleteGroupFallback
+}
+
+public enum TodoBoardDefaultGroupCreationPolicy {
+    public static func shouldCreateDefaultGroup(
+        trigger: TodoBoardDefaultGroupCreationTrigger,
+        hasUsableGroup: Bool
+    ) -> Bool {
+        guard !hasUsableGroup else { return false }
+
+        switch trigger {
+        case .workspaceOpen, .boardAppear:
+            return false
+        case .addTask, .deleteGroupFallback:
+            return true
+        }
     }
 }
 
@@ -1984,6 +2276,71 @@ public enum TodoGroupDeletionPolicy {
     }
 }
 
+public enum TodoDeletionUndoRestoreStep: Equatable, Sendable {
+    case restoreTask(id: String)
+}
+
+public struct TodoDeletionUndoRestorePlan: Equatable, Sendable {
+    public var steps: [TodoDeletionUndoRestoreStep]
+    public var successStatus: String
+
+    public init(steps: [TodoDeletionUndoRestoreStep], successStatus: String) {
+        self.steps = steps
+        self.successStatus = successStatus
+    }
+}
+
+public enum TodoDeletionUndoPolicy {
+    public static let actionName = "Delete Task"
+
+    public static func restorePlan(deletedTodoId: String) -> TodoDeletionUndoRestorePlan {
+        TodoDeletionUndoRestorePlan(
+            steps: [.restoreTask(id: deletedTodoId)],
+            successStatus: "Restored task"
+        )
+    }
+}
+
+public struct TodoGroupMembershipUndoRecord: Equatable, Sendable {
+    public var todoId: String
+    public var groupId: String?
+
+    public init(todoId: String, groupId: String?) {
+        self.todoId = todoId
+        self.groupId = groupId
+    }
+}
+
+public enum TodoGroupDeletionUndoRestoreStep: Equatable, Sendable {
+    case restoreGroup(id: String)
+    case restoreTaskMembership(todoId: String, groupId: String?)
+}
+
+public struct TodoGroupDeletionUndoRestorePlan: Equatable, Sendable {
+    public var steps: [TodoGroupDeletionUndoRestoreStep]
+    public var successStatus: String
+
+    public init(steps: [TodoGroupDeletionUndoRestoreStep], successStatus: String) {
+        self.steps = steps
+        self.successStatus = successStatus
+    }
+}
+
+public enum TodoGroupDeletionUndoPolicy {
+    public static let actionName = "Delete Group"
+
+    public static func restorePlan(
+        deletedGroupId: String,
+        memberships: [TodoGroupMembershipUndoRecord]
+    ) -> TodoGroupDeletionUndoRestorePlan {
+        TodoGroupDeletionUndoRestorePlan(
+            steps: [.restoreGroup(id: deletedGroupId)] +
+                memberships.map { .restoreTaskMembership(todoId: $0.todoId, groupId: $0.groupId) },
+            successStatus: "Restored group"
+        )
+    }
+}
+
 public enum TodoBoardTaskSummary {
     public static func inlineDetail(_ details: String) -> String? {
         let cleaned = details
@@ -2026,6 +2383,109 @@ public enum WebCardURL {
     }
 }
 
+public struct CanvasWebCardDraft: Equatable, Sendable {
+    public var title: String
+    public var body: String
+    public var objectType: String
+    public var objectID: String
+    public var accentColorRaw: String
+
+    public init(
+        title: String,
+        body: String,
+        objectType: String,
+        objectID: String,
+        accentColorRaw: String
+    ) {
+        self.title = title
+        self.body = body
+        self.objectType = objectType
+        self.objectID = objectID
+        self.accentColorRaw = accentColorRaw
+    }
+}
+
+public enum CanvasWebCardCreationPolicy {
+    public static let objectType = "webURL"
+    public static let accentColorRaw = "#33D499D1"
+
+    public static func draft(from rawURL: String) -> CanvasWebCardDraft? {
+        guard let url = WebCardURL.normalized(rawURL) else { return nil }
+        let absoluteString = url.absoluteString
+        return CanvasWebCardDraft(
+            title: url.host ?? absoluteString,
+            body: absoluteString,
+            objectType: objectType,
+            objectID: absoluteString,
+            accentColorRaw: accentColorRaw
+        )
+    }
+}
+
+public enum CanvasWebCardOpenPolicy {
+    public static func openableURL(objectType: String?, objectID: String?, body: String) -> URL? {
+        guard objectType == CanvasWebCardCreationPolicy.objectType else { return nil }
+        let trimmedObjectID = objectID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedObjectID, !trimmedObjectID.isEmpty {
+            return WebCardURL.normalized(trimmedObjectID)
+        }
+        return WebCardURL.normalized(body)
+    }
+}
+
+public struct CanvasWebCardAffordances: Equatable, Sendable {
+    public var url: URL
+    public var copyValue: String
+    public var detailTitle: String
+    public var canShowDetails: Bool
+    public var canConnect: Bool
+    public var quickOpenKind: QuickOpenRecordKind
+
+    public init(
+        url: URL,
+        copyValue: String,
+        detailTitle: String,
+        canShowDetails: Bool,
+        canConnect: Bool,
+        quickOpenKind: QuickOpenRecordKind
+    ) {
+        self.url = url
+        self.copyValue = copyValue
+        self.detailTitle = detailTitle
+        self.canShowDetails = canShowDetails
+        self.canConnect = canConnect
+        self.quickOpenKind = quickOpenKind
+    }
+}
+
+public enum CanvasWebCardAffordancePolicy {
+    public static func affordances(
+        objectType: String?,
+        objectID: String?,
+        body: String,
+        nodeType: String
+    ) -> CanvasWebCardAffordances? {
+        guard WorkbenchObjectReferencePolicy.isCompatible(
+            nodeType: nodeType,
+            objectType: CanvasWebCardCreationPolicy.objectType
+        ) else { return nil }
+        guard let url = CanvasWebCardOpenPolicy.openableURL(
+            objectType: objectType,
+            objectID: objectID,
+            body: body
+        ) else { return nil }
+
+        return CanvasWebCardAffordances(
+            url: url,
+            copyValue: url.absoluteString,
+            detailTitle: "Details",
+            canShowDetails: true,
+            canConnect: true,
+            quickOpenKind: .webCard
+        )
+    }
+}
+
 public enum QuickOpenRecordKind: String, Sendable {
     case workspace
     case resource
@@ -2038,12 +2498,23 @@ public struct QuickOpenRecord: Equatable, Identifiable, Sendable {
     public var kind: QuickOpenRecordKind
     public var title: String
     public var subtitle: String
+    public var location: String
+    public var relatedSearchTerms: [String]
 
-    public init(id: String, kind: QuickOpenRecordKind, title: String, subtitle: String) {
+    public init(
+        id: String,
+        kind: QuickOpenRecordKind,
+        title: String,
+        subtitle: String,
+        location: String = "",
+        relatedSearchTerms: [String] = []
+    ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.subtitle = subtitle
+        self.location = location
+        self.relatedSearchTerms = relatedSearchTerms
     }
 }
 
@@ -2054,6 +2525,7 @@ public enum QuickOpenIndex {
         let title: String
         let subtitle: String
         let kind: String
+        let relatedSearchTerms: [String]
     }
 
     public static func results(
@@ -2077,7 +2549,8 @@ public enum QuickOpenIndex {
                 record: record,
                 title: record.title.lowercased(),
                 subtitle: record.subtitle.lowercased(),
-                kind: record.kind.rawValue.lowercased()
+                kind: record.kind.rawValue.lowercased(),
+                relatedSearchTerms: record.relatedSearchTerms.map { $0.lowercased() }
             )
             var totalScore = 0
             for token in tokens {
@@ -2108,6 +2581,7 @@ public enum QuickOpenIndex {
         if searchRecord.subtitle.hasPrefix(token) { return 3 }
         if searchRecord.subtitle.contains(token) { return 4 }
         if searchRecord.kind.contains(token) { return 5 }
+        if searchRecord.relatedSearchTerms.contains(where: { $0.contains(token) }) { return 6 }
         return nil
     }
 
@@ -2150,6 +2624,32 @@ public enum CanvasScrollZoomDirection: String, CaseIterable, Identifiable, Senda
 
     public static func resolved(_ rawValue: String) -> CanvasScrollZoomDirection {
         CanvasScrollZoomDirection(rawValue: rawValue) ?? .scrollDownZoomsOut
+    }
+}
+
+public enum CanvasScrollZoomDirectionSettingsDescriptor {
+    public static let preferenceKey = AppPreferenceKeys.canvasScrollZoomDirection
+    public static let defaultRawValue = AppPreferenceDefaults.canvasScrollZoomDirection
+    public static let title = "Scroll Zoom Direction"
+    public static let helpText = "Controls canvas zoom direction for mouse wheels and vertical trackpad scrolling. Pinch zoom keeps the system gesture behavior."
+    public static let optionRawValues = CanvasScrollZoomDirection.allCases.map(\.rawValue)
+}
+
+public enum CanvasScrollZoomRuntimePolicy {
+    public static func zoom(
+        forScrollDeltaY deltaY: Double,
+        current: Double,
+        minimum: Double,
+        maximum: Double,
+        directionRawValue: String
+    ) -> Double {
+        CanvasZoomScale.zoom(
+            forScrollDeltaY: deltaY,
+            current: current,
+            minimum: minimum,
+            maximum: maximum,
+            direction: CanvasScrollZoomDirection.resolved(directionRawValue)
+        )
     }
 }
 
@@ -2219,6 +2719,89 @@ public enum CanvasZoomScale {
             x: screenX - canvasX * resolvedZoom,
             y: screenY - canvasY * resolvedZoom
         )
+    }
+}
+
+public struct CanvasPinchZoomUpdate: Equatable, Sendable {
+    public var zoom: Double
+    public var viewportX: Double
+    public var viewportY: Double
+
+    public init(zoom: Double, viewportX: Double, viewportY: Double) {
+        self.zoom = zoom
+        self.viewportX = viewportX
+        self.viewportY = viewportY
+    }
+}
+
+public enum CanvasPinchZoomPolicy {
+    public static func update(
+        startZoom: Double,
+        magnification: Double,
+        screenX: Double,
+        screenY: Double,
+        anchorCanvasX: Double,
+        anchorCanvasY: Double,
+        minimumZoom: Double,
+        maximumZoom: Double
+    ) -> CanvasPinchZoomUpdate {
+        let safeStart = CanvasZoomScale.clamped(startZoom, minimum: minimumZoom, maximum: maximumZoom)
+        let safeMagnification = magnification.isFinite && magnification > 0 ? magnification : 1
+        let newZoom = CanvasZoomScale.clamped(
+            safeStart * safeMagnification,
+            minimum: minimumZoom,
+            maximum: maximumZoom
+        )
+        let viewport = CanvasZoomScale.viewport(
+            keepingScreenX: screenX,
+            screenY: screenY,
+            canvasX: anchorCanvasX,
+            canvasY: anchorCanvasY,
+            zoom: newZoom
+        )
+        return CanvasPinchZoomUpdate(zoom: newZoom, viewportX: viewport.x, viewportY: viewport.y)
+    }
+}
+
+public struct CanvasNodeScaledContentLayout: Equatable, Sendable {
+    public var contentWidth: Double
+    public var contentHeight: Double
+    public var layoutWidth: Double
+    public var layoutHeight: Double
+    public var zoom: Double
+
+    public init(
+        contentWidth: Double,
+        contentHeight: Double,
+        layoutWidth: Double,
+        layoutHeight: Double,
+        zoom: Double
+    ) {
+        self.contentWidth = contentWidth
+        self.contentHeight = contentHeight
+        self.layoutWidth = layoutWidth
+        self.layoutHeight = layoutHeight
+        self.zoom = zoom
+    }
+}
+
+public enum CanvasNodeScaledContentLayoutPolicy {
+    public static func layout(width: Double, height: Double, zoom: Double) -> CanvasNodeScaledContentLayout {
+        let contentWidth = finiteNonNegative(width)
+        let contentHeight = finiteNonNegative(height)
+        let safeZoom = CanvasZoomScale.safeZoom(zoom, minimum: 0.01)
+        return CanvasNodeScaledContentLayout(
+            contentWidth: contentWidth,
+            contentHeight: contentHeight,
+            layoutWidth: contentWidth * safeZoom,
+            layoutHeight: contentHeight * safeZoom,
+            zoom: safeZoom
+        )
+    }
+
+    private static func finiteNonNegative(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        return max(0, value)
     }
 }
 

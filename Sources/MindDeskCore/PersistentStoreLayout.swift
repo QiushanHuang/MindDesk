@@ -163,3 +163,17 @@ public struct MindDeskStoreLayout: Equatable, Sendable {
         return formatter.string(from: date) == timestamp
     }
 }
+
+public enum MindDeskStoreBackupRecoverability {
+    public static func isRecoverableBackupFolder(
+        containing fileNames: Set<String>,
+        storeFileName: String = MindDeskStoreLayout.storeFileName
+    ) -> Bool {
+        guard fileNames.contains(storeFileName) else { return false }
+        if fileNames.contains(".complete") {
+            return true
+        }
+        return fileNames.contains("\(storeFileName)-wal") &&
+            fileNames.contains("\(storeFileName)-shm")
+    }
+}

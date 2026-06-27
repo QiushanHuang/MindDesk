@@ -23,11 +23,28 @@ jobs:
         run: swift test --scratch-path /tmp/minddesk-ci-tests
 
       - name: Validate shell scripts and entitlements
+        shell: bash
         run: |
           bash -n script/build_and_run.sh
           bash -n script/package_release.sh
+          bash -n script/preserve_release_failure_artifacts.sh
+          bash -n script/verify_release_artifacts.sh
           bash -n script/verify_release_metadata.sh
+          bash -n script/verify_release_worktree.sh
+          bash -n script/test_build_and_run_ui_smoke_guard.sh
+          bash -n script/test_release_artifact_verifier.sh
+          bash -n script/test_release_failure_artifact_preserver.sh
+          bash -n script/test_release_package_failure_diagnostics.sh
+          bash -n script/test_release_workflow_guards.sh
+          bash -n script/test_release_worktree_guard.sh
           plutil -lint script/release.entitlements
+          ./script/verify_release_worktree.sh
+          bash script/test_release_artifact_verifier.sh
+          bash script/test_release_failure_artifact_preserver.sh
+          bash script/test_release_package_failure_diagnostics.sh
+          bash script/test_build_and_run_ui_smoke_guard.sh
+          bash script/test_release_workflow_guards.sh
+          bash script/test_release_worktree_guard.sh
           ./script/package_release.sh --help >/tmp/minddesk-package-help.txt
           ./script/verify_release_metadata.sh
 
@@ -35,6 +52,7 @@ jobs:
         run: ./script/build_and_run.sh --verify-bundle
 
       - name: Verify release guardrails
+        shell: bash
         run: |
           set +e
           ./script/package_release.sh >/tmp/minddesk-package-default.out 2>&1
@@ -94,6 +112,19 @@ jobs:
             exit 1
           fi
           grep -qi "api key notarization requires all three options" /tmp/minddesk-package-notary-key.out
+
+      - name: Package ad-hoc release smoke
+        shell: bash
+        env:
+          RELEASE_PLATFORM_SUFFIX: macOS-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          ./script/package_release.sh --mode adhoc --allow-adhoc
+          bash script/verify_release_artifacts.sh \
+            --artifact-dir "dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}-adhoc/artifacts" \
+            --version "$VERSION" \
+            --suffix "$RELEASE_PLATFORM_SUFFIX" \
+            --mode adhoc
 
       - name: Check whitespace
         run: git diff --check

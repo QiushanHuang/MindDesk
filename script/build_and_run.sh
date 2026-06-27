@@ -103,6 +103,17 @@ open_app() {
   /usr/bin/open -n "$APP_BUNDLE"
 }
 
+open_app_for_ui_smoke() {
+  local ui_support_dir
+  ui_support_dir="$(mktemp -d "${TMPDIR:-/tmp}/minddesk-ui-smoke-support.XXXXXX")"
+  echo "Launching $APP_DISPLAY_NAME with isolated Application Support:"
+  echo "  MINDDESK_APPLICATION_SUPPORT_DIR=$ui_support_dir"
+  echo "Remove this directory after manual UI smoke if you no longer need the test data."
+  /usr/bin/open -n \
+    --env "MINDDESK_APPLICATION_SUPPORT_DIR=$ui_support_dir" \
+    "$APP_BUNDLE"
+}
+
 verify_bundle() {
   codesign --verify --deep --strict "$APP_BUNDLE"
   local actual_identifier
@@ -116,6 +127,10 @@ verify_bundle() {
 case "$MODE" in
   run)
     open_app
+    ;;
+  --ui-smoke|ui-smoke)
+    verify_bundle
+    open_app_for_ui_smoke
     ;;
   --debug|debug)
     lldb -- "$APP_BINARY"
@@ -138,7 +153,7 @@ case "$MODE" in
     verify_bundle
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-bundle]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-bundle|--ui-smoke]" >&2
     exit 2
     ;;
 esac

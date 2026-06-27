@@ -113,6 +113,28 @@ public enum CanvasLayoutEngine {
         return nodes.map { arrangedById[$0.id] ?? $0 }
     }
 
+    public static func autoArrange(
+        _ nodes: [CanvasLayoutNode],
+        fixedNodes: [CanvasLayoutNode],
+        edges: [CanvasLayoutEdge],
+        horizontalSpacing: Double = 96,
+        verticalSpacing: Double = 56,
+        disconnectedColumns: Int = 3
+    ) -> [CanvasLayoutNode] {
+        let arranged = autoArrange(
+            nodes,
+            edges: edges,
+            horizontalSpacing: horizontalSpacing,
+            verticalSpacing: verticalSpacing,
+            disconnectedColumns: disconnectedColumns
+        )
+        return avoidFixedObstacles(
+            arranged,
+            fixedNodes: fixedNodes,
+            spacing: safeSpacing(verticalSpacing)
+        )
+    }
+
     public static func alignLeft(_ nodes: [CanvasLayoutNode]) -> [CanvasLayoutNode] {
         guard let minX = nodes.map(\.x).filter(\.isFinite).min() else { return nodes }
         return nodes.map { node in
@@ -257,6 +279,54 @@ public enum CanvasLayoutEngine {
 
     private static func safeSpacing(_ value: Double) -> Double {
         nonNegativeFinite(value)
+    }
+
+    private static func avoidFixedObstacles(
+        _ nodes: [CanvasLayoutNode],
+        fixedNodes: [CanvasLayoutNode],
+        spacing: Double
+    ) -> [CanvasLayoutNode] {
+        var adjusted = sanitized(nodes)
+        let fixedNodes = sanitized(fixedNodes)
+        guard !adjusted.isEmpty, !fixedNodes.isEmpty else { return adjusted }
+
+        let maximumPasses = max(1, adjusted.count + fixedNodes.count)
+        for _ in 0..<maximumPasses {
+            let offset = downwardOffsetToAvoidFixedObstacles(
+                adjusted,
+                fixedNodes: fixedNodes,
+                spacing: spacing
+            )
+            guard offset > 0 else { break }
+            for index in adjusted.indices {
+                adjusted[index].y += offset
+            }
+        }
+        return adjusted
+    }
+
+    private static func downwardOffsetToAvoidFixedObstacles(
+        _ nodes: [CanvasLayoutNode],
+        fixedNodes: [CanvasLayoutNode],
+        spacing: Double
+    ) -> Double {
+        var offset: Double = 0
+        for node in nodes {
+            for fixed in fixedNodes where rectanglesOverlap(node, fixed) {
+                offset = max(offset, fixed.y + fixed.height + spacing - node.y)
+            }
+        }
+        return max(0, offset)
+    }
+
+    private static func rectanglesOverlap(
+        _ lhs: CanvasLayoutNode,
+        _ rhs: CanvasLayoutNode
+    ) -> Bool {
+        !(lhs.x + lhs.width <= rhs.x ||
+            rhs.x + rhs.width <= lhs.x ||
+            lhs.y + lhs.height <= rhs.y ||
+            rhs.y + rhs.height <= lhs.y)
     }
 
     private static func nonNegativeFinite(_ value: Double) -> Double {

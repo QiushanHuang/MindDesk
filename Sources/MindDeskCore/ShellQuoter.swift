@@ -47,4 +47,16 @@ public enum ShellQuoter {
     public static func terminalCommand(command: String, workingDirectory: String) -> String {
         "\(changeDirectoryCommand(workingDirectory: workingDirectory)) && \(command)"
     }
+
+    public static func terminalPrefillCommand(command: String, workingDirectory: String) -> String {
+        let flattenedCommand = command
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ; ")
+        guard !flattenedCommand.isEmpty else {
+            return changeDirectoryCommand(workingDirectory: workingDirectory)
+        }
+        return "\(changeDirectoryCommand(workingDirectory: workingDirectory)) && \(flattenedCommand)"
+    }
 }

@@ -30,6 +30,7 @@ NOTARY_TIMEOUT="${NOTARY_TIMEOUT:-30m}"
 ENTITLEMENTS_FILE="$ROOT_DIR/script/release.entitlements"
 RELEASE_NOTES_SOURCE="$ROOT_DIR/docs/releases/v$VERSION.md"
 ALLOW_ADHOC_RELEASE="${ALLOW_ADHOC_RELEASE:-0}"
+WORKTREE_GUARD="$ROOT_DIR/script/verify_release_worktree.sh"
 
 usage() {
   cat <<USAGE
@@ -235,9 +236,11 @@ validate_adhoc_release_inputs() {
 
 if [[ "$MODE" == "notarized" ]]; then
   declare -a NOTARY_ARGS
+  "$WORKTREE_GUARD"
   validate_release_notes
   validate_notarized_release_inputs
 else
+  "$WORKTREE_GUARD"
   validate_adhoc_release_inputs
 fi
 
@@ -260,11 +263,13 @@ RELEASE_NAME="$APP_DISPLAY_NAME-v$VERSION-$RELEASE_PLATFORM_SUFFIX"
 if [[ "$MODE" == "adhoc" ]]; then
   RELEASE_NAME="$RELEASE_NAME-adhoc"
 fi
-FINAL_RELEASE_DIR="$ROOT_DIR/dist/release/$RELEASE_NAME"
-RELEASE_DIR="$ROOT_DIR/dist/release/.staging-$RELEASE_NAME-$$"
+RELEASE_ROOT="$ROOT_DIR/dist/release"
+FINAL_RELEASE_DIR="$RELEASE_ROOT/$RELEASE_NAME"
+RELEASE_DIR="$RELEASE_ROOT/.staging-$RELEASE_NAME-$$"
 PAYLOAD_DIR="$RELEASE_DIR/payload"
 DMG_ROOT="$RELEASE_DIR/dmg-root"
 ARTIFACT_DIR="$RELEASE_DIR/artifacts"
+FAILURE_ARTIFACT_PRESERVER="$ROOT_DIR/script/preserve_release_failure_artifacts.sh"
 APP_BUNDLE="$PAYLOAD_DIR/$APP_DISPLAY_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -282,7 +287,22 @@ if [[ -e "$FINAL_RELEASE_DIR" ]]; then
 fi
 rm -rf "$RELEASE_DIR"
 cleanup_staging() {
+  local status=$?
+  set +e
+  if [[ "$status" -ne 0 && -d "$ARTIFACT_DIR" ]]; then
+    if [[ -f "$FAILURE_ARTIFACT_PRESERVER" ]]; then
+      bash "$FAILURE_ARTIFACT_PRESERVER" \
+        --artifact-dir "$ARTIFACT_DIR" \
+        --release-root "$RELEASE_ROOT" \
+        --release-name "$RELEASE_NAME" >&2 || {
+          echo "Warning: could not preserve failed release diagnostics from: $ARTIFACT_DIR" >&2
+        }
+    else
+      echo "Warning: missing failed release diagnostics preserver: $FAILURE_ARTIFACT_PRESERVER" >&2
+    fi
+  fi
   rm -rf "$RELEASE_DIR"
+  return "$status"
 }
 trap cleanup_staging EXIT
 
@@ -430,6 +450,10 @@ hdiutil create \
 if [[ "$MODE" == "notarized" ]]; then
   codesign --force --timestamp --sign "$CODESIGN_IDENTITY" "$DMG_PATH"
   codesign --verify --strict "$DMG_PATH"
+  codesign -dvvv "$DMG_PATH" >/dev/null 2>"$ARTIFACT_DIR/codesign-dmg.txt" || {
+    cat "$ARTIFACT_DIR/codesign-dmg.txt" >&2
+    exit 1
+  }
   submit_for_notarization "$DMG_PATH" "dmg"
   xcrun stapler staple "$DMG_PATH"
   xcrun stapler validate "$DMG_PATH"

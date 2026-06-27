@@ -14,43 +14,111 @@ enum SidebarSelection: Hashable {
     case workspace(String)
 }
 
+enum PinnedSidebarSection: Equatable, Sendable {
+    case folders
+    case files
+}
+
+enum PinnedSidebarNavigationPolicy {
+    nonisolated static func sectionSelection(for section: PinnedSidebarSection) -> SidebarSelection {
+        switch section {
+        case .folders:
+            return .pinnedFolders
+        case .files:
+            return .pinnedFiles
+        }
+    }
+
+    nonisolated static func resourceSelection(resourceID: String) -> SidebarSelection {
+        .resource(resourceID)
+    }
+}
+
+enum WorkspaceSidebarSelectionPolicy {
+    nonisolated static func selectionAfterDeletingWorkspace(
+        currentSelection: SidebarSelection?,
+        deletedWorkspaceID: String,
+        orderedWorkspaceIDs: [String]
+    ) -> SidebarSelection? {
+        guard let currentSelection,
+              case .workspace(let currentWorkspaceID) = currentSelection,
+              currentWorkspaceID == deletedWorkspaceID else {
+            return currentSelection
+        }
+
+        guard let nextWorkspaceID = orderedWorkspaceIDs.first(where: { $0 != deletedWorkspaceID }) else {
+            return .home
+        }
+        return .workspace(nextWorkspaceID)
+    }
+}
+
+enum WorkspaceContextMenuPresentationPolicy {
+    nonisolated static let renameTitle = "Rename"
+    nonisolated static let moveUpTitle = "Move Up"
+    nonisolated static let moveDownTitle = "Move Down"
+    nonisolated static let deleteMetadataTitle = "Delete MindDesk Metadata"
+
+    nonisolated static func pinToggleTitle(isPinned: Bool) -> String {
+        isPinned ? "Unpin from Top" : "Pin to Top"
+    }
+
+    nonisolated static func menuTitles(isPinned: Bool) -> [String] {
+        [
+            renameTitle,
+            pinToggleTitle(isPinned: isPinned),
+            moveUpTitle,
+            moveDownTitle,
+            deleteMetadataTitle
+        ]
+    }
+}
+
+enum WorkspaceDeletionImpactMessagePolicy {
+    nonisolated static func message(
+        workspaceTitle: String,
+        workspacePinCount: Int,
+        workspaceSnippetCount: Int,
+        canvasMapCount: Int,
+        deletionPlan: WorkspaceDeletionPlan,
+        aliasRecordCount: Int,
+        todoGroupCount: Int,
+        todoCount: Int
+    ) -> String {
+        """
+        This removes \(workspaceTitle) from MindDesk metadata only.
+
+        Workspace pins: \(workspacePinCount)
+        Workspace snippets: \(workspaceSnippetCount)
+        Canvas maps: \(canvasMapCount)
+        Canvas cards/references: \(deletionPlan.nodeIds.count)
+        Links: \(deletionPlan.edgeIds.count)
+        Command working directories cleared: \(deletionPlan.snippetIdsClearingWorkingDirectory.count)
+        Alias records marked missing: \(aliasRecordCount)
+        Todo groups/tasks: \(todoGroupCount)/\(todoCount)
+        Finder items affected: 0
+        """
+    }
+}
+
 private struct ManifestExportOptions {
     let scope: ManifestExportScope
     let includesUsageDates: Bool
-}
-
-private struct ManifestImportSummary {
-    var workspaces: Int
-    var resources: Int
-    var snippets: Int
-    var canvases: Int
-    var nodes: Int
-    var edges: Int
-    var aliases: Int
-    var todoGroups: Int
-    var todos: Int
-
-    var statusText: String {
-        let parts = [
-            "\(workspaces) workspace\(workspaces == 1 ? "" : "s")",
-            "\(resources) resource\(resources == 1 ? "" : "s")",
-            "\(snippets) snippet\(snippets == 1 ? "" : "s")",
-            "\(canvases) canvas\(canvases == 1 ? "" : "es")",
-            "\(nodes) card\(nodes == 1 ? "" : "s")",
-            "\(edges) link\(edges == 1 ? "" : "s")",
-            "\(aliases) alias\(aliases == 1 ? "" : "es")",
-            "\(todoGroups) task group\(todoGroups == 1 ? "" : "s")",
-            "\(todos) task\(todos == 1 ? "" : "s")"
-        ]
-        return parts.joined(separator: ", ")
-    }
 }
 
 struct MindDeskFocusedCommands {
     var newWorkspace: () -> Void
     var quickOpen: () -> Void
     var importManifest: () -> Void
+    var importProposalReview: () -> Void
     var exportManifest: () -> Void
+    var exportAgentReviewPackage: () -> Void
+}
+
+enum ResourceRemovalConfirmationText {
+    nonisolated static func message(forDisplayName displayName: String) -> String {
+        "This removes \(displayName) and related MindDesk canvas cards, task links, snippet working directories, and aliases from MindDesk metadata only. Finder files and folders are not deleted, renamed, or moved."
+    }
 }
 
 private struct MindDeskFocusedCommandsKey: FocusedValueKey {
@@ -79,6 +147,7 @@ struct ContentView: View {
     @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppPreferenceDefaults.startupDestination
     @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
+    @AppStorage(AppPreferenceKeys.agentReviewCustomPromptGuidance) private var agentReviewCustomPromptGuidance = AppPreferenceDefaults.agentReviewCustomPromptGuidance
 
     @State private var selection: SidebarSelection? = .home
     @State private var inspectorSelection: InspectorSelection?
@@ -97,6 +166,12 @@ struct ContentView: View {
     @State private var isInspectorVisible = false
     @State private var isQuickOpenPresented = false
     @State private var quickOpenRecordsSnapshot: [QuickOpenRecord] = []
+    @State private var proposalReviewSheet: ProposalReviewSheetState?
+    @State private var pendingApprovedProposalCopyPathPlans: [MindDeskProposalCopyPathPlan] = []
+    @State private var approvedProposalCopyPathConfirmation: ApprovedProposalCopyPathConfirmation?
+    @State private var agentReviewHandoffPromptPresentation: AgentReviewHandoffPromptPresentation?
+    @State private var openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
+    @State private var openCanvasNodeRequestID = 0
     @State private var didApplyStartupDestination = false
 
     private var defaultCanvasZoom: Double {
@@ -128,7 +203,7 @@ struct ContentView: View {
                                 onCopy: { copyResourcePath(resource) },
                                 onOpen: { openResource(resource) }
                             )
-                                .tag(SidebarSelection.resource(resource.id))
+                                .tag(PinnedSidebarNavigationPolicy.resourceSelection(resourceID: resource.id))
                                 .contextMenu {
                                     resourceContextMenu(for: resource)
                                 }
@@ -138,7 +213,7 @@ struct ContentView: View {
                             Label("Pinned Folders", systemImage: "folder")
                             Spacer()
                             Button {
-                                selection = .pinnedFolders
+                                selection = PinnedSidebarNavigationPolicy.sectionSelection(for: .folders)
                             } label: {
                                 Image(systemName: "list.bullet")
                             }
@@ -147,7 +222,7 @@ struct ContentView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selection = .pinnedFolders
+                            selection = PinnedSidebarNavigationPolicy.sectionSelection(for: .folders)
                         }
                     }
                     .tag(SidebarSelection.pinnedFolders)
@@ -164,7 +239,7 @@ struct ContentView: View {
                                 onCopy: { copyResourcePath(resource) },
                                 onOpen: { openResource(resource) }
                             )
-                                .tag(SidebarSelection.resource(resource.id))
+                                .tag(PinnedSidebarNavigationPolicy.resourceSelection(resourceID: resource.id))
                                 .contextMenu {
                                     resourceContextMenu(for: resource)
                                 }
@@ -174,7 +249,7 @@ struct ContentView: View {
                             Label("Pinned Files", systemImage: "doc")
                             Spacer()
                             Button {
-                                selection = .pinnedFiles
+                                selection = PinnedSidebarNavigationPolicy.sectionSelection(for: .files)
                             } label: {
                                 Image(systemName: "list.bullet")
                             }
@@ -183,7 +258,7 @@ struct ContentView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            selection = .pinnedFiles
+                            selection = PinnedSidebarNavigationPolicy.sectionSelection(for: .files)
                         }
                     }
                     .tag(SidebarSelection.pinnedFiles)
@@ -236,15 +311,7 @@ struct ContentView: View {
                 }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                HStack {
-                    Text(statusMessage)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 2)
-                .background(.bar)
+                bottomStatusArea
             }
             .toolbar {
                 Button {
@@ -252,7 +319,6 @@ struct ContentView: View {
                 } label: {
                     Label("Quick Open", systemImage: "magnifyingglass")
                 }
-                .keyboardShortcut("k", modifiers: .command)
                 Button {
                     exportManifest()
                 } label: {
@@ -272,7 +338,7 @@ struct ContentView: View {
             .navigationTitle(detailNavigationTitle)
             .onAppear {
                 do {
-                    try SeedData.seedIfNeeded(context: modelContext, workspaces: workspaces, resources: resources, snippets: snippets, canvases: canvases, nodes: nodes)
+                    try SeedData.seedIfNeeded(context: modelContext)
                 } catch {
                     setStatus(error.localizedDescription)
                 }
@@ -304,11 +370,17 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $isQuickOpenPresented, onDismiss: {
-            quickOpenRecordsSnapshot = []
+            quickOpenRecordsSnapshot = QuickOpenSnapshotLifecyclePolicy.recordsAfterDismiss()
         }) {
             QuickOpenPanel(
                 records: quickOpenRecordsSnapshot,
                 onOpen: openQuickOpenRecord
+            )
+        }
+        .sheet(item: $proposalReviewSheet) { state in
+            ProposalReviewSheetRoot(
+                state: state,
+                onReadyPresentationChange: handleProposalReviewPresentationChange
             )
         }
         .alert("Delete workspace metadata?", isPresented: Binding(
@@ -344,7 +416,7 @@ struct ContentView: View {
             }
         } message: {
             if let resourceToRemove {
-                Text("This removes \(resourceToRemove.displayName) and related MindDesk canvas cards/aliases from MindDesk metadata only. Finder files and folders are not deleted, renamed, or moved.")
+                Text(ResourceRemovalConfirmationText.message(forDisplayName: resourceToRemove.displayName))
             }
         }
         .alert("Delete snippet metadata?", isPresented: Binding(
@@ -365,11 +437,28 @@ struct ContentView: View {
                 Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MindDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
+        .alert("Copy approved proposal path?", isPresented: Binding(
+            get: { approvedProposalCopyPathConfirmation != nil },
+            set: { if !$0 { approvedProposalCopyPathConfirmation = nil } }
+        )) {
+            Button(approvedProposalCopyPathConfirmation?.primaryButtonTitle ?? "Copy Current Path") {
+                confirmApprovedProposalCopyPath()
+            }
+            Button(approvedProposalCopyPathConfirmation?.cancelButtonTitle ?? "Cancel", role: .cancel) {
+                approvedProposalCopyPathConfirmation = nil
+            }
+        } message: {
+            if let approvedProposalCopyPathConfirmation {
+                Text("\(approvedProposalCopyPathConfirmation.message)\n\n\(approvedProposalCopyPathConfirmation.pathLabel).")
+            }
+        }
         .focusedValue(\.mindDeskCommands, MindDeskFocusedCommands(
             newWorkspace: addWorkspace,
             quickOpen: openQuickOpen,
             importManifest: importManifest,
-            exportManifest: exportManifest
+            importProposalReview: importProposalReview,
+            exportManifest: exportManifest,
+            exportAgentReviewPackage: exportAgentReviewPackage
         ))
     }
 
@@ -431,35 +520,190 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var bottomStatusArea: some View {
+        VStack(spacing: 0) {
+            agentReviewHandoffPromptBanner
+            approvedProposalCopyPathBanner
+            HStack {
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+            .background(.bar)
+        }
+    }
+
+    @ViewBuilder
+    private var agentReviewHandoffPromptBanner: some View {
+        if let presentation = agentReviewHandoffPromptPresentation,
+           proposalReviewSheet == nil {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(presentation.title)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text(presentation.summaryText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                    Text(presentation.readiness.safetyBoundaryText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button {
+                    copyAgentReviewHandoffPrompt(presentation)
+                } label: {
+                    Label(presentation.copyPromptButtonTitle, systemImage: "doc.on.doc")
+                }
+                Button {
+                    copyAgentReviewProposalTemplate(presentation)
+                } label: {
+                    Label(presentation.copyProposalTemplateButtonTitle, systemImage: "curlybraces")
+                }
+                Button(presentation.dismissButtonTitle) {
+                    agentReviewHandoffPromptPresentation = nil
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.bar)
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private var approvedProposalCopyPathBanner: some View {
+        if ApprovedProposalCopyPathBannerPolicy.shouldShow(
+            hasPendingPlans: !pendingApprovedProposalCopyPathPlans.isEmpty,
+            isProposalReviewSheetOpen: proposalReviewSheet != nil
+        ) {
+            if let confirmation = nextApprovedProposalCopyPathConfirmation {
+                HStack(spacing: 10) {
+                    Image(systemName: "doc.on.clipboard")
+                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Approved proposal action ready")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        Text(confirmation.summaryText)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer()
+                    Button {
+                        approvedProposalCopyPathConfirmation = confirmation
+                    } label: {
+                        Label(confirmation.primaryButtonTitle, systemImage: "doc.on.clipboard")
+                    }
+                    Button("Dismiss") {
+                        removePendingApprovedProposalCopyPathPlan(confirmation.plan)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+                Divider()
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                    Text(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Dismiss") {
+                        pendingApprovedProposalCopyPathPlans.removeAll()
+                        setStatus(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.bar)
+                Divider()
+            }
+        }
+    }
+
+    private var nextApprovedProposalCopyPathConfirmation: ApprovedProposalCopyPathConfirmation? {
+        for plan in pendingApprovedProposalCopyPathPlans {
+            if let confirmation = ApprovedProposalCopyPathConfirmationPolicy.confirmation(
+                for: plan,
+                resources: resources
+            ) {
+                return confirmation
+            }
+        }
+        return nil
+    }
+
     private var quickOpenRecords: [QuickOpenRecord] {
-        var records: [QuickOpenRecord] = []
-        records.append(contentsOf: orderedWorkspaces.map {
-            QuickOpenRecord(id: "workspace:\($0.id)", kind: .workspace, title: $0.title, subtitle: $0.details)
-        })
-        records.append(contentsOf: orderedResources.map {
-            QuickOpenRecord(id: "resource:\($0.id)", kind: .resource, title: $0.displayName, subtitle: $0.displayPath)
-        })
+        let workspaceTitleByID = Dictionary(
+            workspaces.map { ($0.id, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let workspaceRecords = orderedWorkspaces.map {
+            QuickOpenRecord(
+                id: "workspace:\($0.id)",
+                kind: .workspace,
+                title: $0.title,
+                subtitle: $0.details,
+                location: "Workspace"
+            )
+        }
+        let resourceRelationshipTermsByResourceID = resourceRelatedSearchTermsByID()
+        let resourceRecords = orderedResources.map {
+            QuickOpenRecord(
+                id: "resource:\($0.id)",
+                kind: .resource,
+                title: $0.displayName,
+                subtitle: $0.displayPath,
+                location: QuickOpenLocationText.resourceLocation(
+                    scopeRaw: $0.scopeRaw,
+                    workspaceId: $0.workspaceId,
+                    workspaceTitleByID: workspaceTitleByID
+                ),
+                relatedSearchTerms: resourceRelationshipTermsByResourceID[$0.id] ?? []
+            )
+        }
         let snippetRecords = snippets.sorted {
             if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
             let titleComparison = $0.title.localizedCaseInsensitiveCompare($1.title)
             if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
             return $0.id < $1.id
         }.map {
-            QuickOpenRecord(id: "snippet:\($0.id)", kind: .snippet, title: $0.title, subtitle: $0.details)
+            QuickOpenRecord(
+                id: "snippet:\($0.id)",
+                kind: .snippet,
+                title: $0.title,
+                subtitle: $0.details,
+                location: QuickOpenLocationText.resourceLocation(
+                    scopeRaw: $0.scopeRaw,
+                    workspaceId: $0.workspaceId,
+                    workspaceTitleByID: workspaceTitleByID
+                )
+            )
         }
-        records.append(contentsOf: snippetRecords)
-        let webCards = nodes.compactMap { node -> QuickOpenRecord? in
-            guard node.objectType == "webURL", let url = WebCardURL.normalized(node.objectId ?? node.body) else { return nil }
-            return QuickOpenRecord(id: "webCard:\(node.id)", kind: .webCard, title: node.title, subtitle: url.absoluteString)
-        }.sorted {
-            let titleComparison = $0.title.localizedCaseInsensitiveCompare($1.title)
-            if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
-            let subtitleComparison = $0.subtitle.localizedCaseInsensitiveCompare($1.subtitle)
-            if subtitleComparison != .orderedSame { return subtitleComparison == .orderedAscending }
-            return $0.id < $1.id
-        }
-        records.append(contentsOf: webCards)
-        return records
+        let webCardRecords = QuickOpenWebCardRecordPolicy.records(
+            workspaces: workspaces,
+            canvases: canvases,
+            nodes: nodes
+        )
+        return QuickOpenCatalogOrdering.emptyQueryRecords(
+            workspaces: workspaceRecords,
+            resources: resourceRecords,
+            snippets: snippetRecords,
+            webCards: webCardRecords
+        )
     }
 
     private func applyStartupDestinationIfNeeded() {
@@ -496,12 +740,7 @@ struct ContentView: View {
     }
 
     private var recentWorkspaces: [WorkspaceModel] {
-        let records = workspaces.map {
-            WorkspaceRecencyRecord(id: $0.id, lastOpenedAt: $0.lastOpenedAt, updatedAt: $0.updatedAt)
-        }
-        let orderedIDs = WorkspaceRecencyOrdering.recent(records, limit: 6).map(\.id)
-        let byID = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
-        return orderedIDs.compactMap { byID[$0] }
+        HomeRecentWorkspacePresentationPolicy.orderedWorkspaces(workspaces)
     }
 
     private var homeWorkspaceBriefsByID: [String: WorkspaceReentryBrief] {
@@ -646,6 +885,8 @@ struct ContentView: View {
                     onRemoveResource: { resourceToRemove = $0 },
                     onEditSnippet: { editingSnippet = $0 },
                     onDeleteSnippet: { snippetToDelete = $0 },
+                    openCanvasNodeRequest: openCanvasNodeRequest,
+                    onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
                     onSelectWorkspace: { selection = .workspace($0) }
                 )
             } else {
@@ -669,22 +910,22 @@ struct ContentView: View {
 
     @ViewBuilder
     private func workspaceContextMenu(for workspace: WorkspaceModel) -> some View {
-        Button("Rename") {
+        Button(WorkspaceContextMenuPresentationPolicy.renameTitle) {
             renamingWorkspace = workspace
         }
-        Button(workspace.isPinned ? "Unpin from Top" : "Pin to Top") {
+        Button(WorkspaceContextMenuPresentationPolicy.pinToggleTitle(isPinned: workspace.isPinned)) {
             toggleWorkspacePinned(workspace)
         }
-        Button("Move Up") {
+        Button(WorkspaceContextMenuPresentationPolicy.moveUpTitle) {
             moveWorkspace(workspace, direction: .up)
         }
         .disabled(!canMoveWorkspace(workspace, direction: .up))
-        Button("Move Down") {
+        Button(WorkspaceContextMenuPresentationPolicy.moveDownTitle) {
             moveWorkspace(workspace, direction: .down)
         }
         .disabled(!canMoveWorkspace(workspace, direction: .down))
         Divider()
-        Button("Delete MindDesk Metadata", role: .destructive) {
+        Button(WorkspaceContextMenuPresentationPolicy.deleteMetadataTitle, role: .destructive) {
             workspaceToDelete = workspace
         }
     }
@@ -779,41 +1020,118 @@ struct ContentView: View {
         statusMessage = message
     }
 
+    private func copyAgentReviewHandoffPrompt(_ presentation: AgentReviewHandoffPromptPresentation) {
+        let result = AgentReviewHandoffPromptPresentationPolicy.copyPrompt(
+            presentation,
+            isUserInitiated: true,
+            copy: { ClipboardService().copy($0) }
+        )
+        if result.didCopy {
+            agentReviewHandoffPromptPresentation = nil
+        }
+        if let statusMessage = result.statusMessage {
+            setStatus(statusMessage)
+        }
+    }
+
+    private func copyAgentReviewProposalTemplate(_ presentation: AgentReviewHandoffPromptPresentation) {
+        let result = AgentReviewHandoffPromptPresentationPolicy.copyProposalTemplate(
+            presentation,
+            isUserInitiated: true,
+            copy: { ClipboardService().copy($0) }
+        )
+        if result.didCopy {
+            agentReviewHandoffPromptPresentation = nil
+        }
+        if let statusMessage = result.statusMessage {
+            setStatus(statusMessage)
+        }
+    }
+
+    private func handleProposalReviewPresentationChange(_ presentation: ProposalReviewPresentationModel) {
+        switch presentation.state {
+        case .approved:
+            let plans = MindDeskProposalCopyPathPlanner.approvedResourcePinPlans(in: presentation.session)
+            guard !plans.isEmpty else { return }
+            pendingApprovedProposalCopyPathPlans = plans
+            setStatus("Approved proposal recorded. Close the review sheet to confirm Copy Path.")
+        case .rejected, .applied, .expired, .superseded:
+            pendingApprovedProposalCopyPathPlans.removeAll()
+        case .pendingReview:
+            break
+        }
+    }
+
+    private func confirmApprovedProposalCopyPath() {
+        guard let pendingConfirmation = approvedProposalCopyPathConfirmation else { return }
+        guard let currentConfirmation = ApprovedProposalCopyPathConfirmationPolicy.confirmation(
+            for: pendingConfirmation.plan,
+            resources: resources
+        ) else {
+            removePendingApprovedProposalCopyPathPlan(pendingConfirmation.plan)
+            approvedProposalCopyPathConfirmation = nil
+            setStatus(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
+            return
+        }
+        let result = ApprovedProposalCopyPathConfirmationPolicy.execute(
+            currentConfirmation,
+            isConfirmed: true,
+            copy: { ClipboardService().copy($0) }
+        )
+        if let statusMessage = result.statusMessage {
+            setStatus(statusMessage)
+        }
+        removePendingApprovedProposalCopyPathPlan(currentConfirmation.plan)
+        approvedProposalCopyPathConfirmation = nil
+    }
+
+    private func removePendingApprovedProposalCopyPathPlan(_ plan: MindDeskProposalCopyPathPlan) {
+        pendingApprovedProposalCopyPathPlans.removeAll { $0.id == plan.id }
+    }
+
     private func openQuickOpen() {
         quickOpenRecordsSnapshot = quickOpenRecords
         isQuickOpenPresented = true
     }
 
     private func openQuickOpenRecord(_ record: QuickOpenRecord) {
-        let id = payloadID(from: record)
-        switch record.kind {
-        case .workspace:
-            selection = .workspace(id)
-            setStatus("Opened workspace: \(record.title)")
-        case .resource:
-            selection = .resource(id)
-            setStatus("Opened resource record: \(record.title)")
-        case .snippet:
-            selection = .snippets
-            showInspector(.snippet(id))
-            setStatus("Showing snippet: \(record.title)")
-        case .webCard:
-            guard let node = nodes.first(where: { $0.id == id }),
-                  let url = WebCardURL.normalized(node.objectId ?? node.body) else {
-                setStatus("Web card is missing a valid URL")
+        if let action = QuickOpenDirectOpenActionPolicy.action(for: record) {
+            selection = action.selection
+            if let inspectorSelection = action.inspectorSelection {
+                showInspector(inspectorSelection)
+            }
+            setStatus(action.statusMessage)
+        } else {
+            let action = QuickOpenWebCardOpenActionPolicy.action(
+                for: QuickOpenWebCardDeepLinkPolicy.result(
+                    for: record,
+                    workspaces: workspaces,
+                    canvases: canvases,
+                    nodes: nodes
+                ),
+                recordTitle: record.title
+            )
+            if action.clearsPendingCanvasNodeRequest {
+                openCanvasNodeRequest = nil
+            }
+            guard let target = action.target else {
+                setStatus(action.statusMessage)
                 return
             }
-            NSWorkspace.shared.open(url)
-            if let canvas = canvases.first(where: { $0.id == node.canvasId }) {
-                selection = .workspace(canvas.workspaceId)
-            }
-            setStatus("Opened web page: \(url.absoluteString)")
+            selection = .workspace(target.workspaceID)
+            openCanvasNodeRequestID += 1
+            openCanvasNodeRequest = WorkspaceCanvasNodeOpenRequestPolicy.nextRequest(
+                afterID: openCanvasNodeRequestID - 1,
+                target: target
+            )
+            setStatus(action.statusMessage)
         }
         isQuickOpenPresented = false
     }
 
-    private func payloadID(from record: QuickOpenRecord) -> String {
-        record.id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? record.id
+    private func handleOpenCanvasNodeRequestHandled(_ request: WorkspaceCanvasNodeOpenRequest) {
+        guard openCanvasNodeRequest == request else { return }
+        openCanvasNodeRequest = nil
     }
 
     private func saveWorkspaceRename(_ workspace: WorkspaceModel) {
@@ -972,19 +1290,16 @@ struct ContentView: View {
         let todoCount = todos.filter { $0.workspaceId == workspace.id }.count
         let todoGroupCount = todoGroups.filter { $0.workspaceId == workspace.id }.count
 
-        return """
-        This removes \(workspace.title) from MindDesk metadata only.
-
-        Workspace pins: \(workspaceResources.count)
-        Workspace snippets: \(workspaceSnippets.count)
-        Canvas maps: \(workspaceCanvases.count)
-        Canvas cards/references: \(deletionPlan.nodeIds.count)
-        Links: \(deletionPlan.edgeIds.count)
-        Command working directories cleared: \(deletionPlan.snippetIdsClearingWorkingDirectory.count)
-        Alias records marked missing: \(aliasCount)
-        Todo groups/tasks: \(todoGroupCount)/\(todoCount)
-        Finder items affected: 0
-        """
+        return WorkspaceDeletionImpactMessagePolicy.message(
+            workspaceTitle: workspace.title,
+            workspacePinCount: workspaceResources.count,
+            workspaceSnippetCount: workspaceSnippets.count,
+            canvasMapCount: workspaceCanvases.count,
+            deletionPlan: deletionPlan,
+            aliasRecordCount: aliasCount,
+            todoGroupCount: todoGroupCount,
+            todoCount: todoCount
+        )
     }
 
     private func workspaceDeletionPlan(for workspace: WorkspaceModel) -> WorkspaceDeletionPlan {
@@ -1064,7 +1379,11 @@ struct ContentView: View {
             }
             modelContext.delete(workspace)
             try modelContext.save()
-            selection = orderedWorkspaces.first { $0.id != workspace.id }.map { .workspace($0.id) } ?? .home
+            selection = WorkspaceSidebarSelectionPolicy.selectionAfterDeletingWorkspace(
+                currentSelection: selection,
+                deletedWorkspaceID: workspace.id,
+                orderedWorkspaceIDs: orderedWorkspaces.map(\.id)
+            )
             inspectorSelection = nil
             workspaceCanvasTabActive = false
             let workingDirectoryStatus = snippetIdsClearingWorkingDirectory.isEmpty
@@ -1190,6 +1509,21 @@ struct ContentView: View {
         }
     }
 
+    private func resourceRelatedSearchTermsByID() -> [String: [String]] {
+        ReferenceIndex(
+            canvasObjects: canvasObjectReferences(),
+            todoLinks: todos.map {
+                TodoResourceReference(todoId: $0.id, workspaceId: $0.workspaceId, linkedResourceId: $0.linkedResourceId)
+            },
+            snippetWorkingDirectories: snippets.map {
+                SnippetWorkingDirectoryReference(snippetId: $0.id, resourceId: $0.workingDirectoryRef)
+            },
+            aliases: aliases.map {
+                AliasObjectReference(aliasId: $0.id, sourceObjectType: $0.sourceObjectType, sourceObjectId: $0.sourceObjectId)
+            }
+        ).resourceRelatedSearchTermsByID()
+    }
+
     private func deleteSnippet(_ snippet: SnippetModel) {
         do {
             let snippetNodeIds = Set(nodes.filter { $0.objectType == "snippet" && $0.objectId == snippet.id }.map(\.id))
@@ -1218,24 +1552,7 @@ struct ContentView: View {
         guard let exportOptions = requestManifestExportOptions() else { return }
         guard let url = FileDialogs.saveJSON() else { return }
         do {
-            let baseManifest = ImportExportService().makeManifest(
-                workspaces: workspaces,
-                resources: resources,
-                snippets: snippets,
-                canvases: canvases,
-                nodes: nodes,
-                edges: edges,
-                aliases: aliases,
-                todoGroups: todoGroups,
-                todos: todos
-            )
-            let scopedManifest = ExportManifestScopePolicy.manifest(
-                from: baseManifest,
-                scope: exportOptions.scope
-            )
-            let manifest = exportOptions.includesUsageDates
-                ? scopedManifest
-                : ExportManifestUsageDatePolicy.removingUsageDates(from: scopedManifest)
+            let manifest = makeExportManifest(options: exportOptions)
             let data = try JSONEncoder.minddesk.encode(manifest)
             try data.write(to: url, options: .atomic)
             setStatus("Exported MindDesk manifest to \(url.path)")
@@ -1244,12 +1561,64 @@ struct ContentView: View {
         }
     }
 
-    private func requestManifestExportOptions() -> ManifestExportOptions? {
+    private func exportAgentReviewPackage() {
+        guard let exportOptions = requestManifestExportOptions(
+            title: "Export Agent Review Package",
+            message: ImportExportService.agentReviewPackageConfirmationMessage,
+            help: ImportExportService.agentReviewPackagePrivacyDisclosure
+        ) else { return }
+        guard let url = FileDialogs.saveAgentReviewPackage() else { return }
+        do {
+            let manifest = makeExportManifest(options: exportOptions)
+            let service = ImportExportService()
+            let package = service.makeAgentReviewPackage(
+                from: manifest,
+                customPromptGuidance: agentReviewCustomPromptGuidance
+            )
+            let data = try service.encodeAgentReviewPackage(package)
+            try data.write(to: url, options: .atomic)
+            agentReviewHandoffPromptPresentation = AgentReviewHandoffPromptPresentationPolicy.presentation(
+                for: package,
+                packageURL: url
+            )
+            setStatus(ImportExportService.agentReviewPackageExportStatus(path: url.path, report: package.validationReport))
+        } catch {
+            agentReviewHandoffPromptPresentation = nil
+            setStatus(error.localizedDescription)
+        }
+    }
+
+    private func makeExportManifest(options exportOptions: ManifestExportOptions) -> ExportManifest {
+        let baseManifest = ImportExportService().makeManifest(
+            workspaces: workspaces,
+            resources: resources,
+            snippets: snippets,
+            canvases: canvases,
+            nodes: nodes,
+            edges: edges,
+            aliases: aliases,
+            todoGroups: todoGroups,
+            todos: todos
+        )
+        let scopedManifest = ExportManifestScopePolicy.manifest(
+            from: baseManifest,
+            scope: exportOptions.scope
+        )
+        return exportOptions.includesUsageDates
+            ? scopedManifest
+            : ExportManifestUsageDatePolicy.removingUsageDates(from: scopedManifest)
+    }
+
+    private func requestManifestExportOptions(
+        title: String = "Export MindDesk JSON",
+        message: String = "Choose what this export contains. Complete Workspace Map is the only portable backup-style JSON export.",
+        help: String = ImportExportService.manifestExportOptionsHelpText
+    ) -> ManifestExportOptions? {
         let currentScope = ManifestExportScope.resolved(manifestExportScopeRaw)
         let alert = NSAlert()
         alert.alertStyle = .informational
-        alert.messageText = "Export MindDesk JSON"
-        alert.informativeText = "Choose what this export contains. Complete Workspace Map is the only portable backup-style JSON export."
+        alert.messageText = title
+        alert.informativeText = message
         alert.addButton(withTitle: "Export")
         alert.addButton(withTitle: "Cancel")
 
@@ -1277,7 +1646,7 @@ struct ContentView: View {
         )
         includeUsageDates.state = manifestExportIncludesUsageDates ? .on : .off
 
-        let helpText = NSTextField(wrappingLabelWithString: "Global Library Only excludes workspaces, canvases, cards, links, and aliases. Portable JSON never includes security-scoped bookmark authorization data, but it can include paths, notes, snippets, and canvas text.")
+        let helpText = NSTextField(wrappingLabelWithString: help)
         helpText.textColor = .secondaryLabelColor
 
         let stack = NSStackView(views: [scopeRow, includeUsageDates, helpText])
@@ -1312,11 +1681,49 @@ struct ContentView: View {
         Task { @MainActor in
             do {
                 let manifest = try await Self.loadManifest(from: url)
-                let summary = try importRecords(from: manifest)
+                let summary = try ManifestImportService().importRecords(from: manifest, into: modelContext)
                 let authorizationNote = summary.resources > 0 ? " Resources require reauthorization." : ""
                 setStatus("Imported \(summary.statusText).\(authorizationNote)")
             } catch {
                 modelContext.rollback()
+                setStatus(error.localizedDescription)
+            }
+        }
+    }
+
+    private func importProposalReview() {
+        guard renamingWorkspace == nil,
+              renamingResource == nil,
+              editingSnippet == nil,
+              !isQuickOpenPresented,
+              proposalReviewSheet == nil else {
+            setStatus("Close the current sheet before reviewing a proposal.")
+            return
+        }
+        guard let proposalURL = FileDialogs.openProposalEnvelope() else { return }
+        guard let sourcePackageURL = FileDialogs.openProposalSourcePackage() else { return }
+        pendingApprovedProposalCopyPathPlans.removeAll()
+        approvedProposalCopyPathConfirmation = nil
+        setStatus("Reviewing MindDesk proposal...")
+        Task { @MainActor in
+            do {
+                let result = try await Self.loadProposalReviewImport(
+                    proposalURL: proposalURL,
+                    sourcePackageURL: sourcePackageURL
+                )
+                switch result {
+                case .ready(let session):
+                    proposalReviewSheet = ProposalReviewSheetState(gateResult: result)
+                    setStatus(ImportExportService.proposalReviewImportReadyStatus(for: session))
+                case .blocked(let report):
+                    proposalReviewSheet = ProposalReviewSheetState(gateResult: result)
+                    if let status = ImportExportService.proposalReviewImportBlockedStatus(for: report) {
+                        setStatus(status)
+                    } else {
+                        setStatus("Proposal import blocked: validation did not return an error.")
+                    }
+                }
+            } catch {
                 setStatus(error.localizedDescription)
             }
         }
@@ -1330,221 +1737,226 @@ struct ContentView: View {
     }
 
     nonisolated private static func readManifestData(from url: URL) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values.isRegularFile == true else {
-            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: choose a regular JSON file.")
-        }
-        guard let fileSize = values.fileSize else {
-            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file size could not be read.")
-        }
-        guard fileSize <= ManifestImportLimits.maximumManifestBytes else {
-            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file is larger than 64 MiB.")
-        }
-
-        let data = try Data(contentsOf: url)
-        guard data.count <= ManifestImportLimits.maximumManifestBytes else {
-            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: file is larger than 64 MiB.")
-        }
-        return data
-    }
-
-    private func importRecords(from manifest: ExportManifest) throws -> ManifestImportSummary {
-        let validationIssues = ManifestImportValidation.issues(in: manifest)
-        guard validationIssues.isEmpty else {
-            let details = validationIssues.prefix(5).joined(separator: " ")
-            let suffix = validationIssues.count > 5 ? " \(validationIssues.count - 5) more issue\(validationIssues.count - 5 == 1 ? "" : "s")." : ""
-            throw WorkbenchError.invalidManifestReferences("Manifest import blocked: \(details)\(suffix)")
-        }
-
-        var workspaceMap: [String: String] = [:]
-        var resourceMap: [String: String] = [:]
-        var snippetMap: [String: String] = [:]
-        var canvasMap: [String: String] = [:]
-        var nodeMap: [String: String] = [:]
-        var importedNodeParents: [(node: CanvasNodeModel, parentNodeId: String?)] = []
-        var importedEdgeCount = 0
-        var importedAliasCount = 0
-        var importedTodoGroupCount = 0
-        var importedTodoCount = 0
-
-        for record in manifest.workspaces {
-            let workspace = WorkspaceModel(title: record.title, details: record.details, createdAt: record.createdAt, updatedAt: record.updatedAt, lastOpenedAt: record.lastOpenedAt, isPinned: record.isPinned, sortIndex: record.sortIndex, schemaVersion: manifest.schemaVersion)
-            workspaceMap[record.id] = workspace.id
-            modelContext.insert(workspace)
-        }
-
-        for record in manifest.resources {
-            let scope = WorkbenchScope(rawValue: record.scope) ?? .global
-            let resource = ResourcePinModel(
-                workspaceId: scope == .workspace ? record.workspaceId.flatMap { workspaceMap[$0] } : nil,
-                title: record.title,
-                targetType: ResourceTargetType(rawValue: record.targetType) ?? .folder,
-                displayPath: record.displayPath,
-                lastResolvedPath: record.lastResolvedPath,
-                note: record.note,
-                tags: record.tags,
-                scope: scope,
-                sortIndex: record.sortIndex,
-                isPinned: record.isPinned,
-                originalName: record.originalName,
-                customName: record.customName,
-                searchText: record.searchText,
-                status: .unavailable
-            )
-            resource.createdAt = record.createdAt
-            resource.updatedAt = record.updatedAt
-            resource.lastOpenedAt = record.lastOpenedAt
-            resourceMap[record.id] = resource.id
-            modelContext.insert(resource)
-        }
-
-        for record in manifest.snippets {
-            let scope = WorkbenchScope(rawValue: record.scope) ?? .global
-            let snippet = SnippetModel(
-                workspaceId: scope == .workspace ? record.workspaceId.flatMap { workspaceMap[$0] } : nil,
-                title: record.title,
-                kind: SnippetKind(rawValue: record.kind) ?? .prompt,
-                body: record.body,
-                details: record.details,
-                tags: record.tags,
-                scope: scope,
-                workingDirectoryRef: record.workingDirectoryRef.flatMap { resourceMap[$0] },
-                requiresConfirmation: SnippetImportTrustPolicy.requiresConfirmation(
-                    kind: record.kind,
-                    exportedRequiresConfirmation: record.requiresConfirmation
-                ),
-                lastCopiedAt: record.lastCopiedAt,
-                lastUsedAt: record.lastUsedAt,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt
-            )
-            snippetMap[record.id] = snippet.id
-            modelContext.insert(snippet)
-        }
-
-        for record in manifest.canvases {
-            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
-            let canvas = CanvasModel(workspaceId: workspaceId, title: record.title, viewportX: record.viewportX, viewportY: record.viewportY, zoom: record.zoom, linkAnimationThemeRaw: record.linkAnimationTheme, animationsEnabled: record.animationsEnabled, createdAt: record.createdAt, updatedAt: record.updatedAt)
-            canvasMap[record.id] = canvas.id
-            modelContext.insert(canvas)
-        }
-
-        for record in manifest.nodes {
-            guard let canvasId = canvasMap[record.canvasId] else { continue }
-            let mappedObjectId = CanvasNodeObjectReferenceMapper.mappedObjectId(
-                objectType: record.objectType,
-                objectId: record.objectId,
-                body: record.body,
-                resourceMap: resourceMap,
-                snippetMap: snippetMap,
-                workspaceMap: workspaceMap
-            )
-            let node = CanvasNodeModel(
-                canvasId: canvasId,
-                title: record.title,
-                body: record.body,
-                nodeType: CanvasNodeKind(rawValue: record.nodeType) ?? .note,
-                objectType: record.objectType,
-                objectId: mappedObjectId,
-                x: record.x,
-                y: record.y,
-                width: record.width,
-                height: record.height,
-                collapsed: record.collapsed,
-                parentNodeId: nil,
-                zIndex: record.zIndex,
-                locked: record.locked,
-                styleRaw: record.style,
-                accentColorRaw: record.accentColor,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt
-            )
-            nodeMap[record.id] = node.id
-            importedNodeParents.append((node: node, parentNodeId: record.parentNodeId))
-            modelContext.insert(node)
-        }
-
-        for importedNodeParent in importedNodeParents {
-            importedNodeParent.node.parentNodeId = CanvasManifestParentMapper.mappedParentNodeId(
-                importedNodeParent.parentNodeId,
-                nodeMap: nodeMap
-            )
-        }
-
-        for record in manifest.edges {
-            guard let canvasId = canvasMap[record.canvasId],
-                  let sourceId = nodeMap[record.sourceNodeId],
-                  let targetId = nodeMap[record.targetNodeId] else { continue }
-            modelContext.insert(CanvasEdgeModel(canvasId: canvasId, sourceNodeId: sourceId, targetNodeId: targetId, label: record.label, style: record.style, sourceArrowRaw: record.sourceArrow, targetArrowRaw: record.targetArrow, animated: record.animated, animationThemeRaw: record.animationTheme, controlPointX: record.controlPointX, controlPointY: record.controlPointY, createdAt: record.createdAt, updatedAt: record.updatedAt))
-            importedEdgeCount += 1
-        }
-
-        for record in manifest.aliases {
-            let mappedSourceId = AliasImportSourceMapper.mappedSourceObjectId(
-                sourceObjectType: record.sourceObjectType,
-                sourceObjectId: record.sourceObjectId,
-                resourceMap: resourceMap,
-                snippetMap: snippetMap
-            )
-            modelContext.insert(FinderAliasRecordModel(sourceObjectType: record.sourceObjectType, sourceObjectId: mappedSourceId, aliasDisplayPath: record.aliasDisplayPath, status: AliasStatus(rawValue: record.status) ?? .missing, createdAt: record.createdAt))
-            importedAliasCount += 1
-        }
-
-        var todoGroupMap: [String: String] = [:]
-        for record in manifest.todoGroups {
-            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
-            let group = WorkspaceTodoGroupModel(
-                workspaceId: workspaceId,
-                title: record.title,
-                isPinned: record.isPinned,
-                sortIndex: record.sortIndex,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt
-            )
-            todoGroupMap[record.id] = group.id
-            modelContext.insert(group)
-            importedTodoGroupCount += 1
-        }
-
-        for record in manifest.todos {
-            guard let workspaceId = workspaceMap[record.workspaceId] else { continue }
-            let todo = WorkspaceTodoModel(
-                workspaceId: workspaceId,
-                groupId: record.groupId.flatMap { todoGroupMap[$0] },
-                title: record.title,
-                details: record.details,
-                isCompleted: record.isCompleted,
-                isPinned: record.isPinned,
-                sortIndex: record.sortIndex,
-                createdAt: record.createdAt,
-                updatedAt: record.updatedAt,
-                completedAt: record.completedAt,
-                dueAt: record.dueAt,
-                linkedResourceId: record.linkedResourceId.flatMap { resourceMap[$0] }
-            )
-            modelContext.insert(todo)
-            importedTodoCount += 1
-        }
-
-        try modelContext.save()
-        return ManifestImportSummary(
-            workspaces: workspaceMap.count,
-            resources: resourceMap.count,
-            snippets: snippetMap.count,
-            canvases: canvasMap.count,
-            nodes: nodeMap.count,
-            edges: importedEdgeCount,
-            aliases: importedAliasCount,
-            todoGroups: importedTodoGroupCount,
-            todos: importedTodoCount
+        try readJSONImportData(
+            from: url,
+            blockedPrefix: "Manifest import blocked",
+            maximumBytes: ManifestImportLimits.maximumManifestBytes,
+            maximumBytesDescription: "64 MiB"
         )
     }
+
+    nonisolated private static func loadProposalReviewImport(
+        proposalURL: URL,
+        sourcePackageURL: URL
+    ) async throws -> MindDeskProposalReviewGateResult {
+        try await Task.detached(priority: .userInitiated) {
+            let proposalEnvelopeData = try readJSONImportData(
+                from: proposalURL,
+                blockedPrefix: "Proposal import blocked",
+                maximumBytes: ProposalImportLimits.maximumProposalEnvelopeBytes,
+                maximumBytesDescription: ProposalImportLimits.proposalEnvelopeByteLimitDescription
+            )
+            let sourcePackageData = try readJSONImportData(
+                from: sourcePackageURL,
+                blockedPrefix: "Proposal import blocked",
+                maximumBytes: ProposalImportLimits.maximumSourcePackageBytes,
+                maximumBytesDescription: ProposalImportLimits.sourcePackageByteLimitDescription
+            )
+            return try ImportExportService().decodeProposalReviewImport(
+                proposalEnvelopeData: proposalEnvelopeData,
+                sourcePackageData: sourcePackageData,
+                maximumProposalEnvelopeBytes: ProposalImportLimits.maximumProposalEnvelopeBytes,
+                maximumSourcePackageBytes: ProposalImportLimits.maximumSourcePackageBytes
+            )
+        }.value
+    }
+
+    nonisolated private static func readJSONImportData(
+        from url: URL,
+        blockedPrefix: String,
+        maximumBytes: Int,
+        maximumBytesDescription: String
+    ) throws -> Data {
+        try ImportExportService.readJSONImportData(
+            from: url,
+            blockedPrefix: blockedPrefix,
+            maximumBytes: maximumBytes,
+            maximumBytesDescription: maximumBytesDescription
+        )
+    }
+
 }
 
 enum InspectorSelection: Equatable {
     case resource(String)
     case snippet(String)
     case node(String)
+}
+
+enum QuickOpenCatalogDescriptor {
+    static let searchableKinds: [QuickOpenRecordKind] = [.workspace, .resource, .snippet, .webCard]
+    static let emptyCatalogText = "Create a workspace or add a resource, snippet, or web page card."
+    static let queryHintText = "Try a title, path, URL, or kind."
+
+    static var searchHelpText: String {
+        let targets = QuickOpenCatalogDescriptor.searchableKinds.map(\.searchHelpPhrase)
+        return "Search \(formattedList(targets))."
+    }
+
+    private static func formattedList(_ values: [String]) -> String {
+        switch values.count {
+        case 0:
+            return "MindDesk items"
+        case 1:
+            return values[0]
+        case 2:
+            return values.joined(separator: " and ")
+        default:
+            return "\(values.dropLast().joined(separator: ", ")), and \(values[values.count - 1])"
+        }
+    }
+}
+
+enum QuickOpenCatalogOrdering {
+    static let emptyQueryKindOrder: [QuickOpenRecordKind] = [.workspace, .resource, .snippet, .webCard]
+
+    static func emptyQueryRecords(
+        workspaces: [QuickOpenRecord],
+        resources: [QuickOpenRecord],
+        snippets: [QuickOpenRecord],
+        webCards: [QuickOpenRecord]
+    ) -> [QuickOpenRecord] {
+        workspaces + resources + snippets + webCards
+    }
+}
+
+enum QuickOpenScrollAnchor: Equatable {
+    case center
+
+    var unitPoint: UnitPoint {
+        switch self {
+        case .center:
+            return .center
+        }
+    }
+}
+
+struct QuickOpenScrollTarget: Equatable {
+    var id: String
+    var anchor: QuickOpenScrollAnchor
+}
+
+enum QuickOpenScrollFollowPolicy {
+    static func target(selectedIndex: Int, results: [QuickOpenRecord]) -> QuickOpenScrollTarget? {
+        guard !results.isEmpty else { return nil }
+        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+        return QuickOpenScrollTarget(id: results[index].id, anchor: .center)
+    }
+}
+
+enum QuickOpenKeyCommandAction: Equatable {
+    case openSelected
+    case dismiss
+    case moveSelection(delta: Int)
+    case ignore
+}
+
+enum QuickOpenKeyCommandPolicy {
+    static func action(forKeyCode keyCode: UInt16) -> QuickOpenKeyCommandAction {
+        switch keyCode {
+        case 36, 76:
+            return .openSelected
+        case 53:
+            return .dismiss
+        case 125:
+            return .moveSelection(delta: 1)
+        case 126:
+            return .moveSelection(delta: -1)
+        default:
+            return .ignore
+        }
+    }
+}
+
+enum QuickOpenSelectedRecordPolicy {
+    static func selectedRecord(in results: [QuickOpenRecord], selectedIndex: Int) -> QuickOpenRecord? {
+        guard !results.isEmpty else { return nil }
+        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
+        return results[index]
+    }
+}
+
+enum QuickOpenSnapshotLifecyclePolicy {
+    static func recordsAfterDismiss() -> [QuickOpenRecord] {
+        []
+    }
+}
+
+struct QuickOpenDirectOpenAction: Equatable {
+    var selection: SidebarSelection
+    var inspectorSelection: InspectorSelection?
+    var statusMessage: String
+}
+
+enum QuickOpenDirectOpenActionPolicy {
+    static func action(for record: QuickOpenRecord) -> QuickOpenDirectOpenAction? {
+        let id = QuickOpenRecordPayloadPolicy.payloadID(from: record)
+        switch record.kind {
+        case .workspace:
+            return QuickOpenDirectOpenAction(
+                selection: .workspace(id),
+                inspectorSelection: nil,
+                statusMessage: "Opened workspace: \(record.title)"
+            )
+        case .resource:
+            return QuickOpenDirectOpenAction(
+                selection: .resource(id),
+                inspectorSelection: nil,
+                statusMessage: "Opened resource record: \(record.title)"
+            )
+        case .snippet:
+            return QuickOpenDirectOpenAction(
+                selection: .snippets,
+                inspectorSelection: .snippet(id),
+                statusMessage: "Showing snippet: \(record.title)"
+            )
+        case .webCard:
+            return nil
+        }
+    }
+}
+
+enum QuickOpenRecordPayloadPolicy {
+    static func payloadID(from record: QuickOpenRecord) -> String {
+        record.id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? record.id
+    }
+}
+
+struct QuickOpenResultRowPresentation: Equatable {
+    var systemImage: String
+    var titleText: String
+    var kindText: String
+    var subtitleText: String
+    var locationText: String?
+    var accessibilityLabel: String
+
+    init(record: QuickOpenRecord) {
+        systemImage = record.kind.systemImage
+        titleText = record.title
+        kindText = record.kind.title
+        subtitleText = record.subtitle.isEmpty ? record.kind.title : record.subtitle
+        let trimmedLocation = record.location.trimmingCharacters(in: .whitespacesAndNewlines)
+        locationText = trimmedLocation.isEmpty ? nil : record.location
+        accessibilityLabel = [
+            kindText,
+            titleText,
+            subtitleText,
+            locationText
+        ]
+            .compactMap { $0 }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: ", ")
+    }
 }
 
 struct QuickOpenPanel: View {
@@ -1561,9 +1973,11 @@ struct QuickOpenPanel: View {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                TextField("Quick Open", text: $query)
+                TextField("Search MindDesk", text: $query)
                     .textFieldStyle(.plain)
                     .focused($isSearchFocused)
+                    .accessibilityLabel("Quick Open search")
+                    .help(QuickOpenCatalogDescriptor.searchHelpText)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -1571,33 +1985,57 @@ struct QuickOpenPanel: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             if results.isEmpty {
-                ContentUnavailableView("No matching items", systemImage: "magnifyingglass", description: Text(query.isEmpty ? "Start typing to search MindDesk." : query))
+                ContentUnavailableView(
+                    records.isEmpty ? "No MindDesk items yet" : "No matching items",
+                    systemImage: "magnifyingglass",
+                    description: Text(
+                        records.isEmpty
+                            ? QuickOpenCatalogDescriptor.emptyCatalogText
+                            : QuickOpenCatalogDescriptor.queryHintText
+                    )
+                )
                     .frame(maxWidth: .infinity, minHeight: 320)
             } else {
                 ScrollViewReader { proxy in
                     List(Array(results.enumerated()), id: \.element.id) { index, record in
+                        let presentation = QuickOpenResultRowPresentation(record: record)
                         Button {
                             selectedIndex = index
                             openSelectedResult()
                         } label: {
                             HStack(spacing: 10) {
-                                Image(systemName: record.kind.systemImage)
+                                Image(systemName: presentation.systemImage)
                                     .foregroundStyle(.secondary)
                                     .frame(width: 18)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(record.title)
-                                        .font(.body.weight(.semibold))
-                                        .lineLimit(1)
-                                    Text(record.subtitle.isEmpty ? record.kind.title : record.subtitle)
+                                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                        Text(presentation.titleText)
+                                            .font(.body.weight(.semibold))
+                                            .lineLimit(1)
+                                        Spacer(minLength: 8)
+                                        Text(presentation.kindText)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+                                    Text(presentation.subtitleText)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .lineLimit(1)
+                                    if let locationText = presentation.locationText {
+                                        Text(locationText)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                    }
                                 }
                                 Spacer()
                             }
                             .padding(.vertical, 4)
                             .contentShape(Rectangle())
                             .background(selectedIndex == index ? Color.accentColor.opacity(0.16) : Color.clear)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(presentation.accessibilityLabel)
                         }
                         .id(record.id)
                         .buttonStyle(.plain)
@@ -1658,37 +2096,36 @@ struct QuickOpenPanel: View {
     }
 
     private func handleKeyDown(_ event: NSEvent) -> Bool {
-        switch event.keyCode {
-        case 36, 76:
+        switch QuickOpenKeyCommandPolicy.action(forKeyCode: event.keyCode) {
+        case .openSelected:
             openSelectedResult()
             return true
-        case 53:
+        case .dismiss:
             dismiss()
             return true
-        case 125:
-            selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: 1, resultCount: results.count)
+        case .moveSelection(let delta):
+            selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: delta, resultCount: results.count)
             return true
-        case 126:
-            selectedIndex = QuickOpenSelectionPolicy.movedIndex(current: selectedIndex, delta: -1, resultCount: results.count)
-            return true
-        default:
+        case .ignore:
             return false
         }
     }
 
     private func scrollSelectedResult(with proxy: ScrollViewProxy, results: [QuickOpenRecord]) {
-        guard !results.isEmpty else { return }
-        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
-        let id = results[index].id
-        proxy.scrollTo(id, anchor: .center)
+        guard let target = QuickOpenScrollFollowPolicy.target(selectedIndex: selectedIndex, results: results) else {
+            return
+        }
+        proxy.scrollTo(target.id, anchor: target.anchor.unitPoint)
     }
 
     private func openSelectedResult() {
-        guard !results.isEmpty else { return }
-        let index = QuickOpenSelectionPolicy.normalizedIndex(selectedIndex, resultCount: results.count)
-        onOpen(results[index])
+        guard let record = QuickOpenSelectedRecordPolicy.selectedRecord(in: results, selectedIndex: selectedIndex) else {
+            return
+        }
+        onOpen(record)
         dismiss()
     }
+
 }
 
 private struct QuickOpenKeyMonitor: NSViewRepresentable {
@@ -1752,9 +2189,47 @@ private extension QuickOpenRecordKind {
         switch self {
         case .workspace: "Workspace"
         case .resource: "Resource"
-        case .webCard: "Web Page"
+        case .webCard: "Web Page Card"
         case .snippet: "Snippet"
         }
+    }
+
+    var searchHelpPhrase: String {
+        switch self {
+        case .workspace: "workspaces"
+        case .resource: "resources"
+        case .webCard: "web page cards"
+        case .snippet: "snippets"
+        }
+    }
+}
+
+enum QuickOpenLocationText {
+    static func resourceLocation(
+        scopeRaw: String,
+        workspaceId: String?,
+        workspaceTitleByID: [String: String]
+    ) -> String {
+        switch WorkbenchScope(rawValue: scopeRaw) ?? .global {
+        case .global:
+            return "Global Library"
+        case .workspace:
+            guard let workspaceId,
+                  let title = workspaceTitleByID[workspaceId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else {
+                return "Workspace"
+            }
+            return "Workspace: \(title)"
+        }
+    }
+
+    static func webCardLocation(workspaceTitle: String, canvasTitle: String) -> String {
+        "Canvas: \(displayTitle(workspaceTitle, fallback: "Untitled Workspace")) / \(displayTitle(canvasTitle, fallback: "Untitled Canvas"))"
+    }
+
+    private static func displayTitle(_ title: String, fallback: String) -> String {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
     }
 }
 
@@ -1985,27 +2460,66 @@ struct HomeView: View {
     }
 }
 
+enum HomeRecentWorkspacePresentationPolicy {
+    nonisolated static let workspaceLimit = 6
+    nonisolated static let visibleBadgeLimit = 2
+
+    nonisolated static func orderedWorkspaces(
+        _ workspaces: [WorkspaceModel],
+        limit: Int = workspaceLimit
+    ) -> [WorkspaceModel] {
+        let records = workspaces.map {
+            WorkspaceRecencyRecord(id: $0.id, lastOpenedAt: $0.lastOpenedAt, updatedAt: $0.updatedAt)
+        }
+        let orderedIDs = WorkspaceRecencyOrdering.recent(records, limit: limit).map(\.id)
+        let byID = Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) })
+        return orderedIDs.compactMap { byID[$0] }
+    }
+
+    nonisolated static func visibleBadges(
+        for brief: WorkspaceReentryBrief?,
+        limit: Int = visibleBadgeLimit
+    ) -> [WorkspaceReentryBadge] {
+        guard let brief else { return [] }
+        return Array(brief.badges.prefix(max(0, limit)))
+    }
+
+    nonisolated static func taskSummary(for brief: WorkspaceReentryBrief?) -> String? {
+        guard let brief, brief.openTaskCount > 0 else { return nil }
+        return "\(brief.openTaskCount) open"
+    }
+}
+
 struct HomeWorkspaceResumeCard: View {
     let workspace: WorkspaceModel
     let brief: WorkspaceReentryBrief?
     let onSelect: () -> Void
 
+    private var displayText: WorkspaceReentryBriefDisplayText? {
+        guard let brief else { return nil }
+        return WorkspaceReentryBriefDisplayPolicy.text(
+            for: brief,
+            taskTitles: [],
+            resourceIssueTitles: [],
+            snippetTitles: []
+        )
+    }
+
     private var canvasText: String {
-        guard let brief else { return "Canvas" }
-        if brief.isLargeDataDegraded {
-            return "Large workspace"
-        }
-        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+        displayText?.canvasValue ?? "Canvas"
     }
 
     private var taskText: String? {
-        guard let brief, brief.openTaskCount > 0 else { return nil }
-        return "\(brief.openTaskCount) open"
+        HomeRecentWorkspacePresentationPolicy.taskSummary(for: brief)
     }
 
     private var issueText: String? {
         guard let brief, brief.resourceIssueCount > 0 else { return nil }
         return "\(brief.resourceIssueCount) issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    private var visibleBadges: [WorkspaceReentryBadge] {
+        HomeRecentWorkspacePresentationPolicy.visibleBadges(for: brief)
     }
 
     var body: some View {
@@ -2028,9 +2542,9 @@ struct HomeWorkspaceResumeCard: View {
                     Spacer(minLength: 0)
                 }
 
-                if let brief, !brief.badges.isEmpty {
+                if !visibleBadges.isEmpty {
                     HStack(spacing: 6) {
-                        ForEach(brief.badges) { badge in
+                        ForEach(visibleBadges) { badge in
                             WorkspaceResumeBadgeView(badge: badge)
                         }
                     }
@@ -2068,20 +2582,103 @@ struct HomeWorkspaceResumeCard: View {
     }
 }
 
+struct WorkspaceReentryBriefDisplayText: Equatable, Sendable {
+    var canvasValue: String
+    var canvasDetail: String
+    var taskValue: String
+    var taskDetail: String
+    var resourceValue: String
+    var resourceDetail: String
+    var snippetValue: String
+    var snippetDetail: String
+}
+
+enum WorkspaceReentryBriefDisplayPolicy {
+    nonisolated static let degradedDetailText = "Details skipped"
+    nonisolated static let degradedReferenceText = "Reference checks skipped"
+
+    nonisolated static func text(
+        for brief: WorkspaceReentryBrief,
+        taskTitles: [String],
+        resourceIssueTitles: [String],
+        snippetTitles: [String]
+    ) -> WorkspaceReentryBriefDisplayText {
+        if brief.isLargeDataDegraded {
+            return WorkspaceReentryBriefDisplayText(
+                canvasValue: "Large workspace - counts only",
+                canvasDetail: "Detailed checks paused",
+                taskValue: taskValue(openTaskCount: brief.openTaskCount),
+                taskDetail: "Next task ranking skipped",
+                resourceValue: degradedResourceValue(resourceIssueCount: brief.resourceIssueCount),
+                resourceDetail: degradedReferenceText,
+                snippetValue: "Recent snippets not summarized",
+                snippetDetail: degradedDetailText
+            )
+        }
+        return WorkspaceReentryBriefDisplayText(
+            canvasValue: "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links",
+            canvasDetail: canvasDetail(unresolvedReferenceCount: brief.unresolvedReferenceCount),
+            taskValue: taskValue(openTaskCount: brief.openTaskCount),
+            taskDetail: joined(taskTitles),
+            resourceValue: resourceValue(resourceIssueCount: brief.resourceIssueCount),
+            resourceDetail: joined(resourceIssueTitles),
+            snippetValue: snippetValue(snippetTitles: snippetTitles),
+            snippetDetail: joined(snippetTitles)
+        )
+    }
+
+    nonisolated private static func canvasDetail(unresolvedReferenceCount: Int) -> String {
+        if unresolvedReferenceCount > 0 {
+            return "\(unresolvedReferenceCount) unresolved reference\(unresolvedReferenceCount == 1 ? "" : "s")"
+        }
+        return "Workspace map"
+    }
+
+    nonisolated private static func taskValue(openTaskCount: Int) -> String {
+        if openTaskCount == 0 {
+            return "No open tasks"
+        }
+        return "\(openTaskCount) open task\(openTaskCount == 1 ? "" : "s")"
+    }
+
+    nonisolated private static func resourceValue(resourceIssueCount: Int) -> String {
+        if resourceIssueCount == 0 {
+            return "No resource issues"
+        }
+        return "\(resourceIssueCount) resource issue\(resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    nonisolated private static func degradedResourceValue(resourceIssueCount: Int) -> String {
+        if resourceIssueCount == 0 {
+            return degradedReferenceText
+        }
+        return "\(resourceIssueCount) known resource issue\(resourceIssueCount == 1 ? "" : "s")"
+    }
+
+    nonisolated private static func snippetValue(snippetTitles: [String]) -> String {
+        if snippetTitles.isEmpty {
+            return "No recent snippets"
+        }
+        return "\(snippetTitles.count) recent snippet\(snippetTitles.count == 1 ? "" : "s")"
+    }
+
+    nonisolated private static func joined(_ titles: [String]) -> String {
+        titles.isEmpty ? "None" : titles.joined(separator: ", ")
+    }
+}
+
 struct WorkspaceResumeBriefView: View {
     let brief: WorkspaceReentryBrief
     let todosByID: [String: WorkspaceTodoModel]
     let resourcesByID: [String: ResourcePinModel]
     let snippetsByID: [String: SnippetModel]
     let onShowCanvas: () -> Void
+    let onShowTasks: () -> Void
     let onShowResources: () -> Void
     let onShowSnippets: () -> Void
 
     private var canvasText: String {
-        if brief.isLargeDataDegraded {
-            return "Large workspace"
-        }
-        return "\(brief.canvasSummary.cardCount) cards · \(brief.canvasSummary.validLinkCount) links"
+        displayText.canvasValue
     }
 
     private var taskTitles: [String] {
@@ -2096,25 +2693,33 @@ struct WorkspaceResumeBriefView: View {
         brief.recentSnippetIds.compactMap { snippetsByID[$0]?.title }
     }
 
+    private var displayText: WorkspaceReentryBriefDisplayText {
+        WorkspaceReentryBriefDisplayPolicy.text(
+            for: brief,
+            taskTitles: taskTitles,
+            resourceIssueTitles: resourceIssueTitles,
+            snippetTitles: snippetTitles
+        )
+    }
+
     private var taskSummary: String {
-        if brief.openTaskCount == 0 {
-            return "No open tasks"
-        }
-        return "\(brief.openTaskCount) open task\(brief.openTaskCount == 1 ? "" : "s")"
+        displayText.taskValue
     }
 
     private var resourceSummary: String {
-        if brief.resourceIssueCount == 0 {
-            return "No resource issues"
-        }
-        return "\(brief.resourceIssueCount) resource issue\(brief.resourceIssueCount == 1 ? "" : "s")"
+        displayText.resourceValue
     }
 
     private var snippetSummary: String {
-        if snippetTitles.isEmpty {
-            return "No recent snippets"
-        }
-        return "\(snippetTitles.count) recent snippet\(snippetTitles.count == 1 ? "" : "s")"
+        displayText.snippetValue
+    }
+
+    private var nextTaskAction: WorkspaceReentryEntryAction {
+        WorkspaceReentryEntryActionPolicy.action(
+            for: .nextTasks,
+            brief: brief,
+            visibleTaskTitles: taskTitles
+        )
     }
 
     var body: some View {
@@ -2135,23 +2740,33 @@ struct WorkspaceResumeBriefView: View {
                     systemImage: "rectangle.connected.to.line.below",
                     action: onShowCanvas
                 )
-                resumeItem(
-                    title: "Next",
-                    value: taskSummary,
-                    detail: joined(taskTitles),
-                    systemImage: "checklist"
-                )
+                if nextTaskAction.isEnabled {
+                    resumeButton(
+                        title: "Next",
+                        value: taskSummary,
+                        detail: displayText.taskDetail,
+                        systemImage: "checklist",
+                        action: onShowTasks
+                    )
+                } else {
+                    resumeItem(
+                        title: "Next",
+                        value: taskSummary,
+                        detail: displayText.taskDetail,
+                        systemImage: "checklist"
+                    )
+                }
                 resumeButton(
                     title: "Resources",
                     value: resourceSummary,
-                    detail: joined(resourceIssueTitles),
+                    detail: displayText.resourceDetail,
                     systemImage: "externaldrive.badge.exclamationmark",
                     action: onShowResources
                 )
                 resumeButton(
                     title: "Snippets",
                     value: snippetSummary,
-                    detail: joined(snippetTitles),
+                    detail: displayText.snippetDetail,
                     systemImage: "text.quote",
                     action: onShowSnippets
                 )
@@ -2164,14 +2779,7 @@ struct WorkspaceResumeBriefView: View {
     }
 
     private var canvasDetailText: String {
-        if brief.unresolvedReferenceCount > 0 {
-            return "\(brief.unresolvedReferenceCount) unresolved reference\(brief.unresolvedReferenceCount == 1 ? "" : "s")"
-        }
-        return "Workspace map"
-    }
-
-    private func joined(_ titles: [String]) -> String {
-        titles.isEmpty ? "None" : titles.joined(separator: ", ")
+        displayText.canvasDetail
     }
 
     private func resumeButton(
@@ -2234,6 +2842,556 @@ struct WorkspaceResumeBriefView: View {
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+enum WorkspaceReentryEntryKind: Equatable, Sendable {
+    case canvas
+    case nextTasks
+    case resources
+    case snippets
+}
+
+struct WorkspaceReentryEntryAction: Equatable, Sendable {
+    var isEnabled: Bool
+    var targetTab: String?
+    var opensTaskPanel: Bool
+    var statusMessage: String?
+}
+
+struct WorkspaceTodoPanelOpenRequest: Equatable, Sendable {
+    var id: Int
+    var workspaceID: String
+}
+
+struct WorkspaceCanvasNodeOpenTarget: Equatable, Sendable {
+    var workspaceID: String
+    var canvasID: String
+    var nodeID: String
+}
+
+struct WorkspaceCanvasNodeOpenRequest: Equatable, Sendable {
+    var id: Int
+    var target: WorkspaceCanvasNodeOpenTarget
+}
+
+enum WorkspaceResourceDisplayPolicy {
+    static func resources(
+        forWorkspaceID workspaceID: String,
+        resources: [ResourcePinModel],
+        todos: [WorkspaceTodoModel],
+        canvases: [CanvasModel],
+        nodes: [CanvasNodeModel]
+    ) -> [ResourcePinModel] {
+        let workspaceCanvasIDs = Set(canvases.filter { $0.workspaceId == workspaceID }.map(\.id))
+        let canvasResourceIDs = nodes.reduce(into: Set<String>()) { result, node in
+            guard workspaceCanvasIDs.contains(node.canvasId),
+                  node.objectType == "resourcePin",
+                  let objectId = node.objectId else {
+                return
+            }
+            result.insert(objectId)
+        }
+        let linkedTaskResourceIDs = todos.reduce(into: Set<String>()) { result, todo in
+            guard todo.workspaceId == workspaceID,
+                  let linkedResourceId = todo.linkedResourceId else {
+                return
+            }
+            result.insert(linkedResourceId)
+        }
+        let usedResourceIDs = canvasResourceIDs.union(linkedTaskResourceIDs)
+
+        return resources.filter { resource in
+            switch resource.scopeRaw {
+            case WorkbenchScope.workspace.rawValue:
+                return resource.workspaceId == workspaceID
+            case WorkbenchScope.global.rawValue:
+                return usedResourceIDs.contains(resource.id)
+            default:
+                return false
+            }
+        }
+    }
+}
+
+enum WorkspaceResourceRemovalPolicy {
+    static func canRemoveFromWorkspaceResources(_ resource: ResourcePinModel) -> Bool {
+        resource.scopeRaw == WorkbenchScope.workspace.rawValue
+    }
+
+    static func blockedStatus(for resource: ResourcePinModel) -> String {
+        "Global resources are shared. Remove this workspace's canvas card or task link, or manage \(resource.displayName) in Global Library."
+    }
+}
+
+struct AgentReviewHandoffPromptPresentation: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let summaryText: String
+    let readiness: MindDeskAgentReviewPackageReadiness
+    let prompt: MindDeskAgentHandoffPrompt
+    let proposalTemplate: MindDeskProposalEnvelopeTemplate
+    let copyPromptButtonTitle: String
+    let copyProposalTemplateButtonTitle: String
+    let dismissButtonTitle: String
+}
+
+struct AgentReviewHandoffPromptCopyResult: Equatable {
+    var didCopy: Bool
+    var statusMessage: String?
+}
+
+enum AgentReviewHandoffPromptPresentationPolicy {
+    static func presentation(
+        for package: MindDeskInterchangePackage,
+        packageURL _: URL
+    ) -> AgentReviewHandoffPromptPresentation {
+        let readiness = MindDeskAgentReviewPackageReadinessBuilder.build(package: package)
+        return AgentReviewHandoffPromptPresentation(
+            id: "agent-handoff-\(package.packageInstanceID)",
+            title: "Agent Review Package Exported for Review",
+            summaryText: readiness.bannerSummaryText,
+            readiness: readiness,
+            prompt: MindDeskAgentHandoffPromptBuilder.build(package: package),
+            proposalTemplate: MindDeskProposalEnvelopeTemplateBuilder.build(package: package),
+            copyPromptButtonTitle: "Copy Codex Prompt",
+            copyProposalTemplateButtonTitle: "Copy Proposal Template",
+            dismissButtonTitle: "Dismiss"
+        )
+    }
+
+    static func copyPrompt(
+        _ presentation: AgentReviewHandoffPromptPresentation,
+        isUserInitiated: Bool,
+        copy: (String) -> Void
+    ) -> AgentReviewHandoffPromptCopyResult {
+        guard isUserInitiated else {
+            return AgentReviewHandoffPromptCopyResult(didCopy: false, statusMessage: nil)
+        }
+        copy(presentation.prompt.bodyMarkdown)
+        return AgentReviewHandoffPromptCopyResult(
+            didCopy: true,
+            statusMessage: "Copied Codex handoff prompt for agent review."
+        )
+    }
+
+    static func copyProposalTemplate(
+        _ presentation: AgentReviewHandoffPromptPresentation,
+        isUserInitiated: Bool,
+        copy: (String) -> Void
+    ) -> AgentReviewHandoffPromptCopyResult {
+        guard isUserInitiated else {
+            return AgentReviewHandoffPromptCopyResult(didCopy: false, statusMessage: nil)
+        }
+        copy(presentation.proposalTemplate.bodyJSON)
+        return AgentReviewHandoffPromptCopyResult(
+            didCopy: true,
+            statusMessage: "Copied proposal envelope template for agent review."
+        )
+    }
+}
+
+enum ApprovedProposalCopyPathBannerPolicy {
+    static func shouldShow(
+        hasPendingPlans: Bool,
+        isProposalReviewSheetOpen: Bool
+    ) -> Bool {
+        hasPendingPlans && !isProposalReviewSheetOpen
+    }
+}
+
+struct ApprovedProposalCopyPathConfirmation: Identifiable, Equatable {
+    var id: String {
+        plan.id
+    }
+
+    let plan: MindDeskProposalCopyPathPlan
+    let resourceID: String
+    let resourceName: String
+    let clipboardPayload: String
+
+    var title: String {
+        "Copy approved proposal path?"
+    }
+
+    var message: String {
+        "This will copy the current MindDesk path for “\(resourceName)” to the system clipboard. Proposal approval is not authorization; this copy only happens if you confirm now."
+    }
+
+    var pathLabel: String {
+        "Current MindDesk path is hidden until copied"
+    }
+
+    var summaryText: String {
+        "\(resourceName): \(pathLabel)"
+    }
+
+    var primaryButtonTitle: String {
+        "Copy Current Path"
+    }
+
+    var cancelButtonTitle: String {
+        "Cancel"
+    }
+}
+
+struct ApprovedProposalCopyPathExecutionResult: Equatable {
+    var didCopy: Bool
+    var statusMessage: String?
+}
+
+enum ApprovedProposalCopyPathConfirmationPolicy {
+    static let unavailableStatus = "Approved proposal action is no longer available for a current MindDesk resource."
+
+    static func confirmation(
+        for plan: MindDeskProposalCopyPathPlan,
+        resources: [ResourcePinModel]
+    ) -> ApprovedProposalCopyPathConfirmation? {
+        guard plan.target.kind == .resourcePin else {
+            return nil
+        }
+        guard let resource = resources.first(where: { $0.id == plan.target.id }) else {
+            return nil
+        }
+        guard !resource.displayPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return ApprovedProposalCopyPathConfirmation(
+            plan: plan,
+            resourceID: resource.id,
+            resourceName: safeResourceName(resource.displayName),
+            clipboardPayload: resource.displayPath
+        )
+    }
+
+    private static func safeResourceName(_ name: String) -> String {
+        ProposalReviewSafeDisplayText.safeAgentText(
+            name,
+            fallback: "Selected resource"
+        )
+    }
+
+    static func execute(
+        _ confirmation: ApprovedProposalCopyPathConfirmation,
+        isConfirmed: Bool,
+        copy: (String) -> Void
+    ) -> ApprovedProposalCopyPathExecutionResult {
+        guard isConfirmed,
+              confirmation.plan.target.kind == .resourcePin,
+              !confirmation.clipboardPayload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return ApprovedProposalCopyPathExecutionResult(didCopy: false, statusMessage: nil)
+        }
+        copy(confirmation.clipboardPayload)
+        return ApprovedProposalCopyPathExecutionResult(
+            didCopy: true,
+            statusMessage: "Copied current path for approved proposal."
+        )
+    }
+}
+
+enum QuickOpenWebCardRecordPolicy {
+    static func records(
+        workspaces: [WorkspaceModel],
+        canvases: [CanvasModel],
+        nodes: [CanvasNodeModel]
+    ) -> [QuickOpenRecord] {
+        let workspacesByID = Dictionary(
+            workspaces.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let navigableCanvasIDs = Set(canvases.compactMap { canvas in
+            workspacesByID[canvas.workspaceId] == nil ? nil : canvas.id
+        })
+        let canvasesByID = Dictionary(
+            canvases.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        return nodes.compactMap { node -> QuickOpenRecord? in
+            guard navigableCanvasIDs.contains(node.canvasId),
+                  node.objectType == WorkbenchObjectKind.webURL.rawValue,
+                  WorkbenchObjectReferencePolicy.isCompatible(
+                      nodeType: node.nodeTypeRaw,
+                      objectType: WorkbenchObjectKind.webURL.rawValue
+                  ),
+                  let url = normalizedURL(for: node),
+                  let canvas = canvasesByID[node.canvasId],
+                  let workspace = workspacesByID[canvas.workspaceId] else {
+                return nil
+            }
+            return QuickOpenRecord(
+                id: "webCard:\(node.id)",
+                kind: .webCard,
+                title: node.title,
+                subtitle: url.absoluteString,
+                location: QuickOpenLocationText.webCardLocation(
+                    workspaceTitle: workspace.title,
+                    canvasTitle: canvas.title
+                )
+            )
+        }.sorted {
+            let titleComparison = $0.title.localizedCaseInsensitiveCompare($1.title)
+            if titleComparison != .orderedSame { return titleComparison == .orderedAscending }
+            let subtitleComparison = $0.subtitle.localizedCaseInsensitiveCompare($1.subtitle)
+            if subtitleComparison != .orderedSame { return subtitleComparison == .orderedAscending }
+            return $0.id < $1.id
+        }
+    }
+
+    static func normalizedURL(for node: CanvasNodeModel) -> URL? {
+        let trimmedObjectID = node.objectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedObjectID, !trimmedObjectID.isEmpty {
+            return WebCardURL.normalized(trimmedObjectID)
+        }
+        return WebCardURL.normalized(node.body)
+    }
+}
+
+enum QuickOpenWebCardDeepLinkBlockedReason: Equatable, Sendable {
+    case unsupportedRecordKind
+    case missingNode
+    case incompatibleNode
+    case invalidURL
+    case missingCanvas
+    case missingWorkspace
+
+    var statusMessage: String {
+        switch self {
+        case .unsupportedRecordKind:
+            "Selected item is not a web page card."
+        case .missingNode:
+            "Web page card is no longer available."
+        case .invalidURL:
+            "Web page card has an invalid URL."
+        case .missingCanvas:
+            "Workspace map for this web page card is no longer available."
+        case .missingWorkspace:
+            "Workspace for this web page card is no longer available."
+        case .incompatibleNode:
+            "This item is no longer a web page card."
+        }
+    }
+}
+
+enum QuickOpenWebCardDeepLinkResult: Equatable, Sendable {
+    case ready(WorkspaceCanvasNodeOpenTarget)
+    case blocked(QuickOpenWebCardDeepLinkBlockedReason)
+}
+
+struct QuickOpenWebCardOpenAction: Equatable, Sendable {
+    var target: WorkspaceCanvasNodeOpenTarget?
+    var statusMessage: String
+    var clearsPendingCanvasNodeRequest: Bool
+}
+
+enum QuickOpenWebCardOpenActionPolicy {
+    static func action(
+        for result: QuickOpenWebCardDeepLinkResult,
+        recordTitle: String
+    ) -> QuickOpenWebCardOpenAction {
+        switch result {
+        case .ready(let target):
+            return QuickOpenWebCardOpenAction(
+                target: target,
+                statusMessage: "Showing web page card: \(recordTitle)",
+                clearsPendingCanvasNodeRequest: false
+            )
+        case .blocked(let reason):
+            return QuickOpenWebCardOpenAction(
+                target: nil,
+                statusMessage: reason.statusMessage,
+                clearsPendingCanvasNodeRequest: true
+            )
+        }
+    }
+}
+
+enum QuickOpenWebCardDeepLinkPolicy {
+    static func target(
+        for record: QuickOpenRecord,
+        workspaces: [WorkspaceModel],
+        canvases: [CanvasModel],
+        nodes: [CanvasNodeModel]
+    ) -> WorkspaceCanvasNodeOpenTarget? {
+        guard case .ready(let target) = result(
+            for: record,
+            workspaces: workspaces,
+            canvases: canvases,
+            nodes: nodes
+        ) else {
+            return nil
+        }
+        return target
+    }
+
+    static func result(
+        for record: QuickOpenRecord,
+        workspaces: [WorkspaceModel],
+        canvases: [CanvasModel],
+        nodes: [CanvasNodeModel]
+    ) -> QuickOpenWebCardDeepLinkResult {
+        guard record.kind == .webCard else { return .blocked(.unsupportedRecordKind) }
+        let workspaceIDs = Set(workspaces.map(\.id))
+        let nodeID = payloadID(from: record)
+        guard let node = nodes.first(where: { $0.id == nodeID }) else {
+            return .blocked(.missingNode)
+        }
+        guard node.objectType == WorkbenchObjectKind.webURL.rawValue,
+              WorkbenchObjectReferencePolicy.isCompatible(
+                nodeType: node.nodeTypeRaw,
+                objectType: WorkbenchObjectKind.webURL.rawValue
+              ) else {
+            return .blocked(.incompatibleNode)
+        }
+        guard QuickOpenWebCardRecordPolicy.normalizedURL(for: node) != nil else {
+            return .blocked(.invalidURL)
+        }
+        guard let canvas = canvases.first(where: { $0.id == node.canvasId }) else {
+            return .blocked(.missingCanvas)
+        }
+        guard workspaceIDs.contains(canvas.workspaceId) else {
+            return .blocked(.missingWorkspace)
+        }
+        return .ready(WorkspaceCanvasNodeOpenTarget(
+            workspaceID: canvas.workspaceId,
+            canvasID: canvas.id,
+            nodeID: node.id
+        ))
+    }
+
+    private static func payloadID(from record: QuickOpenRecord) -> String {
+        record.id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? record.id
+    }
+}
+
+enum WorkspaceCanvasNodeOpenRequestPolicy {
+    nonisolated static func nextRequest(
+        after currentRequest: WorkspaceCanvasNodeOpenRequest?,
+        target: WorkspaceCanvasNodeOpenTarget
+    ) -> WorkspaceCanvasNodeOpenRequest {
+        nextRequest(afterID: currentRequest?.id ?? 0, target: target)
+    }
+
+    nonisolated static func nextRequest(
+        afterID currentID: Int,
+        target: WorkspaceCanvasNodeOpenTarget
+    ) -> WorkspaceCanvasNodeOpenRequest {
+        WorkspaceCanvasNodeOpenRequest(
+            id: currentID + 1,
+            target: target
+        )
+    }
+
+    nonisolated static func shouldHandle(
+        _ request: WorkspaceCanvasNodeOpenRequest?,
+        forCanvasID canvasID: String,
+        handledRequestID: Int
+    ) -> Bool {
+        guard let request, request.target.canvasID == canvasID else {
+            return false
+        }
+        return request.id > handledRequestID
+    }
+}
+
+enum WorkspaceTodoPanelOpenRequestPolicy {
+    nonisolated static func nextRequest(
+        after currentRequest: WorkspaceTodoPanelOpenRequest?,
+        workspaceID: String
+    ) -> WorkspaceTodoPanelOpenRequest {
+        WorkspaceTodoPanelOpenRequest(
+            id: (currentRequest?.id ?? 0) + 1,
+            workspaceID: workspaceID
+        )
+    }
+
+    nonisolated static func shouldHandle(
+        _ request: WorkspaceTodoPanelOpenRequest?,
+        forWorkspaceID workspaceID: String,
+        handledRequestID: Int
+    ) -> Bool {
+        guard let request, request.workspaceID == workspaceID else {
+            return false
+        }
+        return request.id > handledRequestID
+    }
+}
+
+enum WorkspaceReentryEntryActionPolicy {
+    nonisolated static let canvasTab = "Canvas"
+    nonisolated static let resourcesTab = "Resources"
+    nonisolated static let snippetsTab = "Snippets"
+
+    nonisolated static func action(
+        for entry: WorkspaceReentryEntryKind,
+        brief: WorkspaceReentryBrief,
+        visibleTaskTitles: [String] = []
+    ) -> WorkspaceReentryEntryAction {
+        switch entry {
+        case .canvas:
+            return WorkspaceReentryEntryAction(
+                isEnabled: true,
+                targetTab: canvasTab,
+                opensTaskPanel: false,
+                statusMessage: nil
+            )
+        case .nextTasks:
+            guard brief.openTaskCount > 0 else {
+                return WorkspaceReentryEntryAction(
+                    isEnabled: false,
+                    targetTab: nil,
+                    opensTaskPanel: false,
+                    statusMessage: "No open workspace tasks"
+                )
+            }
+            if brief.isLargeDataDegraded {
+                return WorkspaceReentryEntryAction(
+                    isEnabled: true,
+                    targetTab: canvasTab,
+                    opensTaskPanel: true,
+                    statusMessage: taskStatusMessageForLargeData(openTaskCount: brief.openTaskCount)
+                )
+            }
+            return WorkspaceReentryEntryAction(
+                isEnabled: true,
+                targetTab: canvasTab,
+                opensTaskPanel: true,
+                statusMessage: taskStatusMessage(
+                    openTaskCount: brief.openTaskCount,
+                    visibleTaskTitles: visibleTaskTitles
+                )
+            )
+        case .resources:
+            return WorkspaceReentryEntryAction(
+                isEnabled: true,
+                targetTab: resourcesTab,
+                opensTaskPanel: false,
+                statusMessage: nil
+            )
+        case .snippets:
+            return WorkspaceReentryEntryAction(
+                isEnabled: true,
+                targetTab: snippetsTab,
+                opensTaskPanel: false,
+                statusMessage: nil
+            )
+        }
+    }
+
+    nonisolated private static func taskStatusMessage(
+        openTaskCount: Int,
+        visibleTaskTitles: [String]
+    ) -> String {
+        let noun = openTaskCount == 1 ? "task" : "tasks"
+        guard !visibleTaskTitles.isEmpty else {
+            return "Showing \(openTaskCount) workspace \(noun)"
+        }
+        return "Showing \(openTaskCount) workspace \(noun): \(visibleTaskTitles.joined(separator: ", "))"
+    }
+
+    nonisolated private static func taskStatusMessageForLargeData(openTaskCount: Int) -> String {
+        let noun = openTaskCount == 1 ? "task" : "tasks"
+        return "Showing \(openTaskCount) workspace \(noun). Details paused for large workspace."
     }
 }
 
@@ -2470,6 +3628,37 @@ struct DashboardCard: View {
     }
 }
 
+struct GlobalLibraryResourceSectionDescriptor: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let targetFilter: ResourceTargetType
+    let pinImported: Bool
+
+    func acceptsDrop(targetType: ResourceTargetType) -> Bool {
+        ResourceDropTargetPolicy.accepts(
+            targetType: targetType.rawValue,
+            targetFilter: self.targetFilter.rawValue
+        )
+    }
+}
+
+enum GlobalLibraryResourceSectionPolicy {
+    static let sections = [
+        GlobalLibraryResourceSectionDescriptor(
+            id: "folders",
+            title: "Folders",
+            targetFilter: .folder,
+            pinImported: false
+        ),
+        GlobalLibraryResourceSectionDescriptor(
+            id: "files",
+            title: "Files",
+            targetFilter: .file,
+            pinImported: false
+        )
+    ]
+}
+
 struct GlobalLibraryView: View {
     let title: String
     let resources: [ResourcePinModel]
@@ -2542,42 +3731,26 @@ struct GlobalLibraryView: View {
                     .pickerStyle(.menu)
                     .frame(width: 220)
                 }
-                ResourceListView(
-                    title: "Folders",
-                    resources: displayResources,
-                    knownResources: knownResources,
-                    scope: .global,
-                    workspaceId: nil,
-                    targetFilter: .folder,
-                    pinImported: false,
-                    onSelect: onSelectResource,
-                    onStatus: onStatus,
-                    onInspect: onInspect,
-                    onRemove: onRemove,
-                    workspaceUsageByResourceID: workspaceUsageByResourceID,
-                    onSelectWorkspace: onSelectWorkspace,
-                    listMinHeight: 122,
-                    listMaxHeight: 240,
-                    compactEmptyState: true
-                )
-                ResourceListView(
-                    title: "Files",
-                    resources: displayResources,
-                    knownResources: knownResources,
-                    scope: .global,
-                    workspaceId: nil,
-                    targetFilter: .file,
-                    pinImported: false,
-                    onSelect: onSelectResource,
-                    onStatus: onStatus,
-                    onInspect: onInspect,
-                    onRemove: onRemove,
-                    workspaceUsageByResourceID: workspaceUsageByResourceID,
-                    onSelectWorkspace: onSelectWorkspace,
-                    listMinHeight: 122,
-                    listMaxHeight: 240,
-                    compactEmptyState: true
-                )
+                ForEach(GlobalLibraryResourceSectionPolicy.sections) { section in
+                    ResourceListView(
+                        title: section.title,
+                        resources: displayResources,
+                        knownResources: knownResources,
+                        scope: .global,
+                        workspaceId: nil,
+                        targetFilter: section.targetFilter,
+                        pinImported: section.pinImported,
+                        onSelect: onSelectResource,
+                        onStatus: onStatus,
+                        onInspect: onInspect,
+                        onRemove: onRemove,
+                        workspaceUsageByResourceID: workspaceUsageByResourceID,
+                        onSelectWorkspace: onSelectWorkspace,
+                        listMinHeight: 122,
+                        listMaxHeight: 240,
+                        compactEmptyState: true
+                    )
+                }
                 Divider()
                 SnippetLibraryView(
                     snippets: snippets,
@@ -2640,10 +3813,13 @@ struct WorkspaceDetailView: View {
     let onRemoveResource: (ResourcePinModel) -> Void
     let onEditSnippet: (SnippetModel) -> Void
     let onDeleteSnippet: (SnippetModel) -> Void
+    let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
+    let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @State private var tab = "Canvas"
     @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
+    @State private var openTodoPanelRequest: WorkspaceTodoPanelOpenRequest?
 
     private var defaultCanvasZoom: Double {
         CanvasZoomBaseline.actualZoom(
@@ -2654,8 +3830,22 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    private var currentWorkspaceResources: [ResourcePinModel] {
-        resources.filter { $0.scope == .workspace && $0.workspaceId == workspace.id }
+    private var workspaceResourceTabResources: [ResourcePinModel] {
+        WorkspaceResourceDisplayPolicy.resources(
+            forWorkspaceID: workspace.id,
+            resources: resources,
+            todos: todos,
+            canvases: canvases,
+            nodes: nodes
+        )
+    }
+
+    private func removeWorkspaceResourceFromResourcesTab(_ resource: ResourcePinModel) {
+        guard WorkspaceResourceRemovalPolicy.canRemoveFromWorkspaceResources(resource) else {
+            onStatus(WorkspaceResourceRemovalPolicy.blockedStatus(for: resource))
+            return
+        }
+        onRemoveResource(resource)
     }
 
     private var workspaceAvailableResources: [ResourcePinModel] {
@@ -2687,7 +3877,12 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceCanvas: CanvasModel? {
-        canvases.first { $0.workspaceId == workspace.id } ?? createdCanvasByWorkspaceId[workspace.id]
+        if let openCanvasNodeRequest,
+           openCanvasNodeRequest.target.workspaceID == workspace.id,
+           let requestedCanvas = canvases.first(where: { $0.id == openCanvasNodeRequest.target.canvasID }) {
+            return requestedCanvas
+        }
+        return canvases.first { $0.workspaceId == workspace.id } ?? createdCanvasByWorkspaceId[workspace.id]
     }
 
     var body: some View {
@@ -2720,13 +3915,14 @@ struct WorkspaceDetailView: View {
                 resourcesByID: resourcesByID,
                 snippetsByID: snippetsByID,
                 onShowCanvas: { tab = "Canvas" },
+                onShowTasks: showWorkspaceTasksFromResumeBrief,
                 onShowResources: { tab = "Resources" },
                 onShowSnippets: { tab = "Snippets" }
             )
 
             switch tab {
             case "Resources":
-                ResourceListView(title: "Workspace Resources", resources: currentWorkspaceResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: onRemoveResource)
+                ResourceListView(title: "Workspace Resources", resources: workspaceResourceTabResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: removeWorkspaceResourceFromResourcesTab, canRemove: WorkspaceResourceRemovalPolicy.canRemoveFromWorkspaceResources)
             case "Snippets":
                 SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
             default:
@@ -2741,6 +3937,10 @@ struct WorkspaceDetailView: View {
                         todoGroups: workspaceTodoGroups,
                         nodes: nodes.filter { $0.canvasId == canvas.id },
                         edges: edges.filter { $0.canvasId == canvas.id },
+                        openTodoPanelRequest: openTodoPanelRequest,
+                        onOpenTodoPanelRequestHandled: handleOpenTodoPanelRequestHandled,
+                        openCanvasNodeRequest: openCanvasNodeRequest,
+                        onOpenCanvasNodeRequestHandled: onOpenCanvasNodeRequestHandled,
                         onStatus: onStatus,
                         onInspect: onInspect,
                         onOpenWorkspace: onSelectWorkspace
@@ -2762,14 +3962,19 @@ struct WorkspaceDetailView: View {
             onCanvasTabActiveChange(tab == "Canvas")
             ensureCanvas()
             markWorkspaceOpened()
+            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: workspace.id) { _, _ in
             onCanvasTabActiveChange(tab == "Canvas")
             ensureCanvas()
             markWorkspaceOpened()
+            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue == "Canvas")
+        }
+        .onChange(of: openCanvasNodeRequest) { _, request in
+            handleOpenCanvasNodeRequest(request)
         }
     }
 
@@ -2811,6 +4016,43 @@ struct WorkspaceDetailView: View {
             modelContext.rollback()
             onStatus(error.localizedDescription)
         }
+    }
+
+    private func showWorkspaceTasksFromResumeBrief() {
+        let action = WorkspaceReentryEntryActionPolicy.action(
+            for: .nextTasks,
+            brief: reentryBrief,
+            visibleTaskTitles: reentryBrief.nextTaskIds.compactMap { workspaceTodosByID[$0]?.title }
+        )
+
+        guard action.isEnabled else {
+            if let statusMessage = action.statusMessage {
+                onStatus(statusMessage)
+            }
+            return
+        }
+        if let targetTab = action.targetTab {
+            tab = targetTab
+        }
+        if action.opensTaskPanel {
+            openTodoPanelRequest = WorkspaceTodoPanelOpenRequestPolicy.nextRequest(
+                after: openTodoPanelRequest,
+                workspaceID: workspace.id
+            )
+        }
+        if let statusMessage = action.statusMessage {
+            onStatus(statusMessage)
+        }
+    }
+
+    private func handleOpenTodoPanelRequestHandled(_ request: WorkspaceTodoPanelOpenRequest) {
+        guard openTodoPanelRequest == request else { return }
+        openTodoPanelRequest = nil
+    }
+
+    private func handleOpenCanvasNodeRequest(_ request: WorkspaceCanvasNodeOpenRequest?) {
+        guard let request, request.target.workspaceID == workspace.id else { return }
+        tab = "Canvas"
     }
 
     private func ensureCanvas() {
