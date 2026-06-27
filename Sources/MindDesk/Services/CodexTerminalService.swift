@@ -17,6 +17,41 @@ struct CodexTerminalLaunchPlan: Equatable, Sendable {
     var usesPTY: Bool
 }
 
+struct CodexTerminalPreparedSession: Equatable, Sendable {
+    let id: UUID
+    let launchPlan: CodexTerminalLaunchPlan
+    let environment: [String: String]
+    let sourcePackageFilePath: String
+    let proposalTemplateFilePath: String
+
+    var sessionDirectoryPath: String {
+        launchPlan.currentDirectoryPath
+    }
+
+    var promptFilePath: String {
+        launchPlan.promptFilePath
+    }
+
+    var openCodexCommand: String {
+        launchPlan.openCodexCommand
+    }
+
+    var openCodexWithPromptCommand: String {
+        launchPlan.openCodexWithPromptCommand
+    }
+
+    var environmentArray: [String] {
+        environment
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+    }
+}
+
+struct CodexTerminalPendingInput: Equatable, Sendable {
+    let id: UUID
+    let text: String
+}
+
 final class CodexTerminalSession {
     private let process: Process
     private let masterHandle: FileHandle
@@ -79,25 +114,9 @@ struct CodexTerminalService {
         prompt: String,
         onOutput: @escaping OutputHandler
     ) throws -> CodexTerminalSession {
-        let sessionDirectory = try Self.makeSessionDirectory()
-        let promptFile = sessionDirectory.appendingPathComponent("minddesk-canvas-prompt.txt", isDirectory: false)
-        try prompt.write(to: promptFile, atomically: true, encoding: .utf8)
-
-        let launchPlan = Self.launchPlan(
-            promptFilePath: promptFile.path,
-            sessionDirectoryPath: sessionDirectory.path
-        )
-        try Self.writeExecutableScript(
-            named: "minddesk-open-codex.sh",
-            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexCommand(workingDirectory: sessionDirectory.path)),
-            in: sessionDirectory
-        )
-        try Self.writeExecutableScript(
-            named: "minddesk-open-codex-with-prompt.sh",
-            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexPromptCommand(promptFilePath: promptFile.path, workingDirectory: sessionDirectory.path)),
-            in: sessionDirectory
-        )
-        try Self.writeZshConfiguration(in: sessionDirectory)
+        let preparedSession = try prepare(prompt: prompt)
+        let sessionDirectory = URL(fileURLWithPath: preparedSession.sessionDirectoryPath, isDirectory: true)
+        let launchPlan = preparedSession.launchPlan
         let outputSink = CodexTerminalOutputSink(handler: onOutput)
 
         var masterFileDescriptor: Int32 = -1
@@ -113,7 +132,7 @@ struct CodexTerminalService {
         process.executableURL = URL(fileURLWithPath: launchPlan.executablePath)
         process.arguments = launchPlan.arguments
         process.currentDirectoryURL = URL(fileURLWithPath: launchPlan.currentDirectoryPath, isDirectory: true)
-        process.environment = Self.environment(sessionDirectoryPath: sessionDirectory.path)
+        process.environment = preparedSession.environment
         process.standardInput = slaveHandle
         process.standardOutput = slaveHandle
         process.standardError = slaveHandle
@@ -147,6 +166,80 @@ struct CodexTerminalService {
             openCodexWithPromptCommand: launchPlan.openCodexWithPromptCommand
         )
         return session
+    }
+
+    func prepare(
+        prompt: String,
+        sourcePackageData: Data? = nil,
+        proposalTemplateJSON: String? = nil
+    ) throws -> CodexTerminalPreparedSession {
+        let sessionDirectory = try Self.makeSessionDirectory()
+        let promptFile = sessionDirectory.appendingPathComponent("minddesk-canvas-prompt.txt", isDirectory: false)
+        try prompt.write(to: promptFile, atomically: true, encoding: .utf8)
+        let sourcePackageFile = sessionDirectory.appendingPathComponent("minddesk-agent-review-source.mip.json", isDirectory: false)
+        let proposalTemplateFile = sessionDirectory.appendingPathComponent("minddesk-proposal-template.json", isDirectory: false)
+        if let sourcePackageData {
+            try sourcePackageData.write(to: sourcePackageFile, options: .atomic)
+        }
+        if let proposalTemplateJSON {
+            try proposalTemplateJSON.write(to: proposalTemplateFile, atomically: true, encoding: .utf8)
+        }
+
+        let launchPlan = Self.launchPlan(
+            promptFilePath: promptFile.path,
+            sessionDirectoryPath: sessionDirectory.path
+        )
+        try Self.writeExecutableScript(
+            named: "minddesk-open-codex.sh",
+            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexCommand(workingDirectory: sessionDirectory.path)),
+            in: sessionDirectory
+        )
+        try Self.writeExecutableScript(
+            named: "minddesk-open-codex-with-prompt.sh",
+            contents: Self.shellScript(command: CanvasCodexCommandBuilder.interactiveCodexPromptCommand(promptFilePath: promptFile.path, workingDirectory: sessionDirectory.path)),
+            in: sessionDirectory
+        )
+        try Self.writeZshConfiguration(in: sessionDirectory)
+
+        return CodexTerminalPreparedSession(
+            id: UUID(),
+            launchPlan: launchPlan,
+            environment: Self.environment(sessionDirectoryPath: sessionDirectory.path),
+            sourcePackageFilePath: sourcePackageFile.path,
+            proposalTemplateFilePath: proposalTemplateFile.path
+        )
+    }
+
+    func updatePreparedSession(
+        _ preparedSession: CodexTerminalPreparedSession,
+        prompt: String,
+        sourcePackageData: Data? = nil,
+        proposalTemplateJSON: String? = nil
+    ) throws {
+        try prompt.write(
+            to: URL(fileURLWithPath: preparedSession.promptFilePath, isDirectory: false),
+            atomically: true,
+            encoding: .utf8
+        )
+        if let sourcePackageData {
+            try sourcePackageData.write(
+                to: URL(fileURLWithPath: preparedSession.sourcePackageFilePath, isDirectory: false),
+                options: .atomic
+            )
+        }
+        if let proposalTemplateJSON {
+            try proposalTemplateJSON.write(
+                to: URL(fileURLWithPath: preparedSession.proposalTemplateFilePath, isDirectory: false),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+    }
+
+    func removePreparedSession(_ preparedSession: CodexTerminalPreparedSession) {
+        try? FileManager.default.removeItem(
+            at: URL(fileURLWithPath: preparedSession.sessionDirectoryPath, isDirectory: true)
+        )
     }
 
     static func launchPlan(promptFilePath: String, sessionDirectoryPath: String) -> CodexTerminalLaunchPlan {

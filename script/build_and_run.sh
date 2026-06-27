@@ -46,7 +46,7 @@ cd "$ROOT_DIR"
 swift build
 BUILD_DIR="$(swift build --show-bin-path)"
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
-RESOURCE_BUNDLE="$BUILD_DIR/${APP_NAME}_${APP_NAME}.bundle"
+SWIFTPM_RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)
 
 rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"
@@ -54,11 +54,13 @@ mkdir -p "$APP_RESOURCES"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
 cp "$SOURCE_RESOURCES/AppIcon.icns" "$APP_RESOURCES/AppIcon.icns"
-if [[ ! -d "$RESOURCE_BUNDLE" ]]; then
-  echo "Missing SwiftPM resource bundle: $RESOURCE_BUNDLE" >&2
+if [[ ! -e "${SWIFTPM_RESOURCE_BUNDLES[0]}" ]]; then
+  echo "Missing SwiftPM resource bundles in: $BUILD_DIR" >&2
   exit 1
 fi
-cp -R "$RESOURCE_BUNDLE" "$APP_RESOURCES/"
+for resource_bundle in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do
+  cp -R "$resource_bundle" "$APP_RESOURCES/"
+done
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

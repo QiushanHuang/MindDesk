@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CI_WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
 RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
+PACKAGE_SCRIPT="$ROOT_DIR/script/package_release.sh"
 
 fail() {
   echo "$1" >&2
@@ -124,6 +125,9 @@ require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/notary-*.json"
 require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/notary-*.stderr"
 require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/codesign-*.txt"
 require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/codesign-*.plist"
+require_contains "$PACKAGE_SCRIPT" 'SWIFTPM_RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)'
+require_contains "$PACKAGE_SCRIPT" 'for resource_bundle in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do'
+require_contains "$PACKAGE_SCRIPT" 'cp -R "$resource_bundle" "$APP_RESOURCES/"'
 
 assert_before "$RELEASE_WORKFLOW" "      - name: Build, sign, notarize, and staple release artifacts" "      - name: Verify notarized release artifacts"
 assert_before "$RELEASE_WORKFLOW" "      - name: Build, sign, notarize, and staple release artifacts" "      - name: Upload release diagnostics"

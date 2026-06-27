@@ -34,6 +34,7 @@ public struct CanvasCodexPromptContext: Equatable, Sendable {
     public var edges: [CanvasCodexPromptEdgeRecord]
     public var selectedNodeIDs: [String]
     public var selectedEdgeIDs: [String]
+    public var proposalTemplateJSON: String?
 
     public init(
         workspaceTitle: String,
@@ -42,7 +43,8 @@ public struct CanvasCodexPromptContext: Equatable, Sendable {
         nodes: [CanvasCodexPromptNodeRecord],
         edges: [CanvasCodexPromptEdgeRecord],
         selectedNodeIDs: [String] = [],
-        selectedEdgeIDs: [String] = []
+        selectedEdgeIDs: [String] = [],
+        proposalTemplateJSON: String? = nil
     ) {
         self.workspaceTitle = workspaceTitle
         self.canvasTitle = canvasTitle
@@ -51,6 +53,7 @@ public struct CanvasCodexPromptContext: Equatable, Sendable {
         self.edges = edges
         self.selectedNodeIDs = selectedNodeIDs
         self.selectedEdgeIDs = selectedEdgeIDs
+        self.proposalTemplateJSON = proposalTemplateJSON
     }
 }
 
@@ -302,6 +305,12 @@ public enum CanvasCodexPromptBuilder {
         User instruction:
         \(bounded(context.userInstruction))
 
+        Proposal Review handoff:
+        - The matching Agent Review source package is available in the Codex working directory as ./minddesk-agent-review-source.mip.json.
+        - A proposal template is available as ./minddesk-proposal-template.json.
+        - If you propose concrete MindDesk changes, copy the proposal context exactly from the template below and return a complete minddesk.proposal.envelope JSON object.
+        \(proposalTemplateText(context.proposalTemplateJSON))
+
         Workspace: \(bounded(context.workspaceTitle))
         Canvas: \(bounded(context.canvasTitle))
         Selected cards: \(context.selectedNodeIDs.map(bounded).joined(separator: ", "))
@@ -351,6 +360,19 @@ public enum CanvasCodexPromptBuilder {
         let cleaned = bounded(value)
         guard cleaned.count > maximumTextExcerptCharacters else { return cleaned.isEmpty ? "(empty)" : cleaned }
         return "\(cleaned.prefix(maximumTextExcerptCharacters))..."
+    }
+
+    private static func proposalTemplateText(_ value: String?) -> String {
+        guard let value,
+              !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return "- Proposal template unavailable in prompt; use the template file if present."
+        }
+        return """
+        Proposal envelope template:
+        ```json
+        \(value)
+        ```
+        """
     }
 }
 

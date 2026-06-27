@@ -5552,6 +5552,10 @@ final class AppBehaviorTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasCodexTerminalView.swift"),
             encoding: .utf8
         )
+        let packageSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Package.swift"),
+            encoding: .utf8
+        )
 
         XCTAssertTrue(canvasSource.contains("case codexAgent"))
         XCTAssertTrue(canvasSource.contains("Image(systemName: \"terminal\")"))
@@ -5560,10 +5564,22 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(canvasSource.contains("runCodexTerminalCommand(_ command: String)"))
         XCTAssertTrue(canvasSource.contains("runCodexTerminalCommandWithPrompt(_ command: String)"))
         XCTAssertTrue(canvasSource.contains("codexSession.reset()"))
-        XCTAssertTrue(sidebarSource.contains("CodexTerminalScreen(output: session.output)"))
+        XCTAssertTrue(sidebarSource.contains("CodexTerminalScreen("))
+        XCTAssertTrue(sidebarSource.contains("descriptor: session.terminalDescriptor"))
+        XCTAssertTrue(sidebarSource.contains("pendingInput: session.pendingInput"))
+        XCTAssertTrue(sidebarSource.contains("proposalPreviewSection"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Preview\", systemImage: \"doc.text.magnifyingglass\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Revise\", systemImage: \"arrow.triangle.2.circlepath\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Review\", systemImage: \"checkmark.seal\")"))
+        XCTAssertTrue(sidebarSource.contains("Label(\"Discard\", systemImage: \"arrow.uturn.backward\")"))
         XCTAssertFalse(sidebarSource.contains("onInput: session.sendInput"))
-        XCTAssertTrue(terminalSource.contains("TerminalScreenRenderer.render(output"))
-        XCTAssertTrue(terminalSource.contains("renderedOutput"))
+        XCTAssertTrue(packageSource.contains("https://github.com/migueldeicaza/SwiftTerm.git"))
+        XCTAssertTrue(terminalSource.contains("import SwiftTerm"))
+        XCTAssertTrue(terminalSource.contains("LocalProcessTerminalView"))
+        XCTAssertTrue(terminalSource.contains("startProcess("))
+        XCTAssertTrue(terminalSource.contains("terminal.send(source: terminal, data:"))
+        XCTAssertTrue(sidebarSource.contains("onOutput: session.captureTerminalOutput"))
+        XCTAssertFalse(terminalSource.contains("TerminalScreenRenderer"))
         XCTAssertTrue(sidebarSource.contains("commandDraft"))
         XCTAssertTrue(sidebarSource.contains("onRunCommand(commandDraft)"))
         XCTAssertTrue(sidebarSource.contains("onRunCommandWithPrompt(commandDraft)"))
@@ -5579,6 +5595,10 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(sessionSource.contains("sendInput"))
         XCTAssertTrue(sessionSource.contains("runCommand("))
         XCTAssertTrue(sessionSource.contains("runCommandWithCanvasPrompt("))
+        XCTAssertTrue(sessionSource.contains("refreshProposalPreview()"))
+        XCTAssertTrue(sessionSource.contains("requestProposalRevision("))
+        XCTAssertTrue(sessionSource.contains("discardProposalPreview()"))
+        XCTAssertTrue(sessionSource.contains("terminalProcessDidTerminate(sessionID:"))
         XCTAssertTrue(sessionSource.contains("interrupt()"))
         XCTAssertFalse(canvasSource.contains("Open Codex CLI"))
         XCTAssertFalse(canvasSource.contains("Opened Terminal with Codex CLI prompt prefilled"))
@@ -5640,7 +5660,7 @@ final class AppBehaviorTests: XCTestCase {
     }
 
     @MainActor
-    func testCodexSessionControllerRunCommandWritesThroughEmbeddedTerminal() throws {
+    func testCodexSessionControllerRunCommandQueuesInputForEmbeddedTerminal() throws {
         let controller = CanvasCodexSessionController()
         controller.start(
             prompt: CanvasCodexPrompt(body: "Controller prompt", wasTruncated: false),
@@ -5651,13 +5671,76 @@ final class AppBehaviorTests: XCTestCase {
         }
 
         controller.runCommand("echo MINDDESK_COMMAND_RUN_OK")
+        XCTAssertEqual(controller.pendingInput?.text, "echo MINDDESK_COMMAND_RUN_OK\n")
 
-        let deadline = Date().addingTimeInterval(4)
-        while Date() < deadline, !controller.output.contains("MINDDESK_COMMAND_RUN_OK") {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        controller.runCommandWithCanvasPrompt("codex")
+        let promptCommand = try XCTUnwrap(controller.pendingInput?.text)
+        XCTAssertTrue(promptCommand.contains("codex \"$(cat -- '"))
+        XCTAssertTrue(promptCommand.contains("minddesk-canvas-prompt.txt"))
+    }
+
+    @MainActor
+    func testCodexSessionControllerRefreshesCurrentPromptAndIgnoresStaleTerminalExit() throws {
+        let controller = CanvasCodexSessionController()
+        controller.start(
+            prompt: CanvasCodexPrompt(body: "Initial prompt", wasTruncated: false),
+            workingDirectory: NSTemporaryDirectory()
+        )
+        let firstSessionID = try XCTUnwrap(controller.terminalDescriptor?.id)
+        controller.reset()
+        controller.start(
+            prompt: CanvasCodexPrompt(body: "Restarted prompt", wasTruncated: false),
+            workingDirectory: NSTemporaryDirectory()
+        )
+        let restartedDescriptor = try XCTUnwrap(controller.terminalDescriptor)
+
+        controller.terminalProcessDidTerminate(sessionID: firstSessionID, exitCode: nil)
+
+        XCTAssertEqual(controller.terminalDescriptor?.id, restartedDescriptor.id)
+        XCTAssertEqual(controller.status, .running)
+
+        controller.runCommandWithCanvasPrompt(
+            "codex",
+            prompt: CanvasCodexPrompt(body: "Updated prompt", wasTruncated: false)
+        )
+
+        XCTAssertEqual(
+            try String(contentsOf: URL(fileURLWithPath: restartedDescriptor.promptFilePath), encoding: .utf8),
+            "Updated prompt"
+        )
+    }
+
+    @MainActor
+    func testCodexSessionControllerBuildsProposalPreviewAndRevisionLoopFromTerminalOutput() throws {
+        let package = makeProposalSourcePackage()
+        let packageData = try JSONEncoder.minddesk.encode(package)
+        let envelopeData = try JSONEncoder.minddesk.encode(makeProposalEnvelope(for: package))
+        let template = MindDeskProposalEnvelopeTemplateBuilder.build(package: package).bodyJSON
+        let controller = CanvasCodexSessionController()
+        controller.start(
+            prompt: CanvasCodexPrompt(body: "Controller prompt", wasTruncated: false),
+            workingDirectory: NSTemporaryDirectory(),
+            sourcePackageData: packageData,
+            proposalTemplateJSON: template
+        )
+        defer {
+            controller.reset()
         }
-        XCTAssertTrue(controller.output.contains("MINDDESK_COMMAND_RUN_OK"))
-        XCTAssertFalse(controller.output.contains("\n%\n"))
+
+        controller.captureTerminalOutput("terminal text\n\(String(decoding: envelopeData, as: UTF8.self))\n")
+        controller.refreshProposalPreview()
+
+        let preview = try XCTUnwrap(controller.proposalPreview)
+        XCTAssertTrue(preview.isReviewable, "\(preview.summaryText)\n\(preview.detailText)")
+        XCTAssertTrue(preview.summaryText.contains("1 proposal"), preview.summaryText)
+        XCTAssertTrue(preview.detailText.contains("Open resource"), preview.detailText)
+
+        controller.requestProposalRevision("Keep the current Canvas structure and add MD path cards.")
+        XCTAssertTrue(controller.pendingInput?.text.contains("Revise the latest minddesk.proposal.envelope") == true)
+        XCTAssertTrue(controller.pendingInput?.text.contains("Keep the current Canvas structure") == true)
+
+        controller.discardProposalPreview()
+        XCTAssertNil(controller.proposalPreview)
     }
 
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {

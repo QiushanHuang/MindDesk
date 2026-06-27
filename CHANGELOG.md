@@ -16,8 +16,9 @@
 - Added editable Canvas Codex prompt groups and presets, with resettable local preferences for common organization, review, summary, and proposal workflows.
 - Hardened the Canvas Codex launch path with an empty temporary session root, short helper scripts for Open Codex and Codex + Prompt, a clean embedded shell prompt, a `service_tier="fast"` CLI override, bounded terminal output retention, and stable prompt-template storage.
 - Removed the fixed Canvas Codex startup model so the embedded Codex terminal can use the user's active Codex account and model selection.
-- Reworked the Canvas Codex sidebar controls around a read-only terminal log, editable command field, and `Run` / `+ Prompt Run` actions so users no longer need to type helper script names into the output area.
-- Added ANSI/VT screen rendering for the Canvas Codex output area so Codex TUI clear-screen, cursor movement, and line rewrite sequences display like a terminal instead of raw log text.
+- Reworked the Canvas Codex sidebar controls around an embedded SwiftTerm-backed terminal, editable command field, and `Run` / `+ Prompt Run` actions so users can type directly or send prepared commands without Terminal.app.
+- Replaced the Canvas Codex text-log renderer with a real PTY terminal view so Codex TUI redraws, cursor movement, selection, and direct keyboard input behave like a terminal.
+- Added a Canvas Codex proposal loop: MindDesk writes a bound Agent Review source package and proposal template into the temporary session, captures Codex terminal output, previews the latest `minddesk.proposal.envelope`, lets users ask Codex for revisions, discard the draft, or open it in Proposal Review.
 
 ### Release-line Note
 - `v2.4.0` is a sibling release on `origin/codex/v2-4-c-lite`, not an ancestor of the current `codex/v3-foundation-p0` branch.

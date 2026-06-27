@@ -1011,6 +1011,7 @@ struct WorkspaceCanvasView: View {
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onOpenWorkspace: (String) -> Void
+    let onReviewAgentProposal: (MindDeskProposalReviewGateResult) -> Void
 
     @State private var selectedNodeIDs: Set<String> = []
     @State private var selectedEdgeIDs: Set<String> = []
@@ -1181,6 +1182,31 @@ struct WorkspaceCanvasView: View {
         CanvasCodexPromptBuilder.prompt(for: codexPromptContext)
     }
 
+    private var currentCodexProposalSourcePackage: MindDeskInterchangePackage {
+        let manifest = ImportExportService().makeManifest(
+            workspaces: workspaces.filter { $0.id == canvas.workspaceId },
+            resources: allResources,
+            snippets: snippets,
+            canvases: [canvas],
+            nodes: workflowNodes,
+            edges: visibleEdges,
+            aliases: [],
+            todoGroups: todoGroups,
+            todos: todos
+        )
+        return ImportExportService().makeAgentReviewPackage(from: manifest)
+    }
+
+    private var currentCodexProposalSourcePackageData: Data? {
+        try? JSONEncoder.minddesk.encode(currentCodexProposalSourcePackage)
+    }
+
+    private var currentCodexProposalTemplateJSON: String {
+        MindDeskProposalEnvelopeTemplateBuilder
+            .build(package: currentCodexProposalSourcePackage)
+            .bodyJSON
+    }
+
     private var codexTemplateGroups: [CanvasCodexPromptTemplateGroup] {
         CanvasCodexPromptTemplateLibrary.decode(codexTemplateLibraryRaw)
     }
@@ -1222,7 +1248,8 @@ struct WorkspaceCanvasView: View {
                 )
             },
             selectedNodeIDs: selectedNodeIDs.sorted(),
-            selectedEdgeIDs: selectedEdgeIDs.sorted()
+            selectedEdgeIDs: selectedEdgeIDs.sorted(),
+            proposalTemplateJSON: currentCodexProposalTemplateJSON
         )
     }
 
@@ -1243,7 +1270,12 @@ struct WorkspaceCanvasView: View {
     }
 
     private func startCodexSession() {
-        codexSession.start(prompt: currentCodexPrompt, workingDirectory: codexWorkingDirectory)
+        codexSession.start(
+            prompt: currentCodexPrompt,
+            workingDirectory: codexWorkingDirectory,
+            sourcePackageData: currentCodexProposalSourcePackageData,
+            proposalTemplateJSON: currentCodexProposalTemplateJSON
+        )
         onStatus("Started embedded Codex terminal.")
     }
 
@@ -1260,7 +1292,12 @@ struct WorkspaceCanvasView: View {
 
     private func runCodexTerminalCommandWithPrompt(_ command: String) {
         ensureCodexSessionStarted()
-        codexSession.runCommandWithCanvasPrompt(command)
+        codexSession.runCommandWithCanvasPrompt(
+            command,
+            prompt: currentCodexPrompt,
+            sourcePackageData: currentCodexProposalSourcePackageData,
+            proposalTemplateJSON: currentCodexProposalTemplateJSON
+        )
         onStatus("Sent command with the current Canvas prompt.")
     }
 
@@ -1284,6 +1321,26 @@ struct WorkspaceCanvasView: View {
         selectedCodexTemplateGroupID = AppPreferenceDefaults.canvasCodexPromptTemplateGroup
         selectedCodexTemplateID = AppPreferenceDefaults.canvasCodexPromptTemplateOption
         onStatus("Reset Canvas Codex prompt templates.")
+    }
+
+    private func previewCodexProposal() {
+        codexSession.refreshProposalPreview()
+        onStatus(codexSession.proposalPreview?.statusText ?? "No proposal preview available.")
+    }
+
+    private func reviseCodexProposal(_ instruction: String) {
+        codexSession.requestProposalRevision(instruction)
+        onStatus("Sent proposal revision request to Codex.")
+    }
+
+    private func discardCodexProposalPreview() {
+        codexSession.discardProposalPreview()
+        onStatus("Discarded Codex proposal preview.")
+    }
+
+    private func reviewCodexProposal(_ gateResult: MindDeskProposalReviewGateResult) {
+        onReviewAgentProposal(gateResult)
+        onStatus("Opened Codex proposal in Proposal Review.")
     }
 
     @discardableResult
@@ -1908,7 +1965,11 @@ struct WorkspaceCanvasView: View {
             onInterrupt: interruptCodexTerminalSession,
             onCloseTerminal: closeCodexTerminalSession,
             onCopyPrompt: copyCodexPrompt,
-            onResetTemplates: resetCodexTemplates
+            onResetTemplates: resetCodexTemplates,
+            onPreviewProposal: previewCodexProposal,
+            onReviseProposal: reviseCodexProposal,
+            onDiscardProposal: discardCodexProposalPreview,
+            onReviewProposal: reviewCodexProposal
         )
     }
 

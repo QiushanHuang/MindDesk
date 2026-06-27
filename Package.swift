@@ -11,6 +11,9 @@ let package = Package(
         .library(name: "MindDeskCore", targets: ["MindDeskCore"]),
         .executable(name: "MindDesk", targets: ["MindDesk"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", from: "1.13.0")
+    ],
     targets: [
         .target(
             name: "MindDeskCore",
@@ -18,7 +21,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "MindDesk",
-            dependencies: ["MindDeskCore"],
+            dependencies: [
+                "MindDeskCore",
+                .product(name: "SwiftTerm", package: "SwiftTerm")
+            ],
             path: "Sources/MindDesk",
             resources: [.copy("Resources")]
         ),

@@ -26,9 +26,14 @@ struct CanvasCodexAgentSidebar: View {
     var onCloseTerminal: () -> Void
     var onCopyPrompt: () -> Void
     var onResetTemplates: () -> Void
+    var onPreviewProposal: () -> Void
+    var onReviseProposal: (String) -> Void
+    var onDiscardProposal: () -> Void
+    var onReviewProposal: (MindDeskProposalReviewGateResult) -> Void
 
     @State private var isEditingTemplates = false
     @State private var commandDraft = CanvasCodexCommandBuilder.interactiveCodexCommandForCurrentDirectory()
+    @State private var revisionDraft = ""
 
     private var selectedGroup: CanvasCodexPromptTemplateGroup? {
         templateGroups.first { $0.id == selectedGroupID } ?? templateGroups.first
@@ -57,8 +62,18 @@ struct CanvasCodexAgentSidebar: View {
 
             Divider()
 
-            CodexTerminalScreen(output: session.output)
+            CodexTerminalScreen(
+                descriptor: session.terminalDescriptor,
+                pendingInput: session.pendingInput,
+                onOutput: session.captureTerminalOutput,
+                onProcessTerminated: session.terminalProcessDidTerminate
+            )
                 .frame(minHeight: 180, maxHeight: .infinity)
+
+            Divider()
+
+            proposalPreviewSection
+                .padding(12)
 
             Divider()
 
@@ -160,10 +175,79 @@ struct CanvasCodexAgentSidebar: View {
 
     private var boundarySection: some View {
         GroupBox("Boundary") {
-            Text("The embedded terminal starts in a temporary session folder with a prompt file and helper scripts. MindDesk does not apply terminal output; use Proposal Review for any proposed changes.")
+            Text("The embedded terminal starts in a temporary session folder with a prompt file, source package, proposal template, and helper scripts. MindDesk does not apply terminal output; use Proposal Review for any proposed changes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var proposalPreviewSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Proposal Preview")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                Spacer()
+                Text(session.proposalPreview?.statusText ?? "No preview")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let preview = session.proposalPreview {
+                Text(preview.summaryText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(preview.detailText)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .lineLimit(5)
+                    .textSelection(.enabled)
+            } else {
+                Text("Use Preview after Codex prints a minddesk.proposal.envelope. You can discard it, ask Codex to revise it, or send it to Proposal Review.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            TextField("Revision request for Codex", text: $revisionDraft, axis: .vertical)
+                .font(.caption)
+                .lineLimit(1...3)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(spacing: 8) {
+                Button(action: onPreviewProposal) {
+                    Label("Preview", systemImage: "doc.text.magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+
+                Button {
+                    onReviseProposal(revisionDraft)
+                } label: {
+                    Label("Revise", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(!session.canUseTerminal || revisionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    if let gateResult = session.proposalPreview?.gateResult {
+                        onReviewProposal(gateResult)
+                    }
+                } label: {
+                    Label("Review", systemImage: "checkmark.seal")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(session.proposalPreview?.isReviewable != true)
+
+                Button(action: onDiscardProposal) {
+                    Label("Discard", systemImage: "arrow.uturn.backward")
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(session.proposalPreview == nil)
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -220,7 +304,7 @@ struct CanvasCodexAgentSidebar: View {
             }
             .buttonStyle(.bordered)
 
-            Text("Edit the command, then use Run or + Prompt Run. After Codex opens, send slash commands such as /model from this field.")
+            Text("Edit the command, then use Run or + Prompt Run. You can also click the terminal and type directly, including slash commands such as /model.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

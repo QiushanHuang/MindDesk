@@ -36,6 +36,9 @@ assert_before() {
 
 require_contains "MINDDESK_APPLICATION_SUPPORT_DIR"
 require_contains "mktemp -d"
+require_contains 'SWIFTPM_RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)'
+require_contains 'for resource_bundle in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do'
+require_contains 'cp -R "$resource_bundle" "$APP_RESOURCES/"'
 require_contains "--ui-smoke|ui-smoke)"
 require_contains "--env \"MINDDESK_APPLICATION_SUPPORT_DIR="
 require_contains 'usage: $0 [run|--debug|--logs|--telemetry|--verify|--verify-bundle|--ui-smoke]'

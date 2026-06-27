@@ -881,7 +881,8 @@ struct ContentView: View {
                     onDeleteSnippet: { snippetToDelete = $0 },
                     openCanvasNodeRequest: openCanvasNodeRequest,
                     onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
-                    onSelectWorkspace: { selection = .workspace($0) }
+                    onSelectWorkspace: { selection = .workspace($0) },
+                    onReviewAgentProposal: openInlineProposalReview
                 )
             } else {
                 ContentUnavailableView("Workspace missing", systemImage: "questionmark.folder")
@@ -1728,6 +1729,22 @@ struct ContentView: View {
                 }
             } catch {
                 setStatus(error.localizedDescription)
+            }
+        }
+    }
+
+    private func openInlineProposalReview(_ gateResult: MindDeskProposalReviewGateResult) {
+        pendingApprovedProposalCopyPathPlans.removeAll()
+        approvedProposalCopyPathConfirmation = nil
+        proposalReviewSheet = ProposalReviewSheetState(gateResult: gateResult)
+        switch gateResult {
+        case .ready(let session):
+            setStatus(ImportExportService.proposalReviewImportReadyStatus(for: session))
+        case .blocked(let report):
+            if let status = ImportExportService.proposalReviewImportBlockedStatus(for: report) {
+                setStatus(status)
+            } else {
+                setStatus("Proposal import blocked: validation did not return an error.")
             }
         }
     }
@@ -3820,6 +3837,7 @@ struct WorkspaceDetailView: View {
     let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
     let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
+    let onReviewAgentProposal: (MindDeskProposalReviewGateResult) -> Void
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
     @State private var tab = WorkspaceDetailTab.defaultTab
@@ -3962,7 +3980,8 @@ struct WorkspaceDetailView: View {
                         onOpenCanvasNodeRequestHandled: onOpenCanvasNodeRequestHandled,
                         onStatus: onStatus,
                         onInspect: onInspect,
-                        onOpenWorkspace: onSelectWorkspace
+                        onOpenWorkspace: onSelectWorkspace,
+                        onReviewAgentProposal: onReviewAgentProposal
                     )
                 } else {
                     ProgressView("Preparing canvas...")
