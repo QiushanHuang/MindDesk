@@ -98,47 +98,31 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(prompt.body.contains("prompt was bounded before opening Codex"))
     }
 
-    func testCanvasCodexCommandBuilderUsesSafeStreamingExecArguments() {
-        let arguments = CanvasCodexCommandBuilder.execArguments(workingDirectory: "/tmp/My Workspace")
+    func testCanvasCodexCommandBuilderUsesSafeInteractiveTerminalCommand() {
+        let command = CanvasCodexCommandBuilder.interactiveTerminalCommand(
+            promptFilePath: "/tmp/My Prompt.txt",
+            workingDirectory: "/tmp/My Workspace"
+        )
 
-        XCTAssertEqual(arguments, [
-            "-c",
-            "service_tier=\"flex\"",
-            "exec",
-            "--json",
-            "--sandbox",
-            "read-only",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--color",
-            "never",
-            "-C",
-            "/tmp/My Workspace",
-            "-"
-        ])
-        XCTAssertTrue(arguments.contains("--json"))
-        XCTAssertTrue(arguments.contains("-c"))
-        XCTAssertTrue(arguments.contains("service_tier=\"flex\""))
-        XCTAssertTrue(arguments.contains("--skip-git-repo-check"))
-        XCTAssertTrue(arguments.contains("--ephemeral"))
-        XCTAssertTrue(arguments.contains("--color"))
-        XCTAssertTrue(arguments.contains("never"))
-        XCTAssertTrue(arguments.contains("-C"))
-        XCTAssertTrue(arguments.contains("/tmp/My Workspace"))
-        XCTAssertEqual(arguments.last, "-")
-        if let colorIndex = arguments.firstIndex(of: "--color"), arguments.indices.contains(colorIndex + 1) {
-            XCTAssertEqual(arguments[colorIndex + 1], "never")
-        } else {
-            XCTFail("Missing --color argument")
-        }
-        XCTAssertFalse(arguments.contains("--ask-for-approval"))
-        XCTAssertFalse(arguments.contains("--full-auto"))
-        XCTAssertFalse(arguments.contains("--dangerously-bypass-approvals-and-sandbox"))
-        XCTAssertFalse(arguments.contains("workspace-write"))
-        XCTAssertFalse(arguments.contains("danger-full-access"))
-        XCTAssertFalse(arguments.contains("--add-dir"))
-        XCTAssertFalse(arguments.contains("apply"))
-        XCTAssertFalse(arguments.contains("resume"))
+        XCTAssertTrue(command.hasPrefix("codex "))
+        XCTAssertTrue(command.contains("-c 'service_tier=\"fast\"'"))
+        XCTAssertTrue(command.contains("--no-alt-screen"))
+        XCTAssertTrue(command.contains("--sandbox read-only"))
+        XCTAssertTrue(command.contains("--ask-for-approval on-request"))
+        XCTAssertTrue(command.contains("-m 'gpt-5.4'"))
+        XCTAssertTrue(command.contains("-C '/tmp/My Workspace'"))
+        XCTAssertTrue(command.contains("\"$(cat -- '/tmp/My Prompt.txt')\""))
+        XCTAssertFalse(command.contains(" exec "))
+        XCTAssertFalse(command.contains("--json"))
+        XCTAssertFalse(command.contains("--skip-git-repo-check"))
+        XCTAssertFalse(command.contains("--ephemeral"))
+        XCTAssertFalse(command.contains("--full-auto"))
+        XCTAssertFalse(command.contains("--dangerously-bypass-approvals-and-sandbox"))
+        XCTAssertFalse(command.contains("workspace-write"))
+        XCTAssertFalse(command.contains("danger-full-access"))
+        XCTAssertFalse(command.contains("--add-dir"))
+        XCTAssertFalse(command.contains(" apply"))
+        XCTAssertFalse(command.contains(" resume"))
     }
 
     func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {

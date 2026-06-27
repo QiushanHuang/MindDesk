@@ -53,7 +53,10 @@ struct CanvasCodexAgentSidebar: View {
 
             Divider()
 
-            CodexSessionOutputWindow(output: session.output)
+            CodexTerminalScreen(
+                output: session.output,
+                onInput: session.sendInput
+            )
                 .frame(minHeight: 180, maxHeight: .infinity)
 
             Divider()
@@ -89,7 +92,7 @@ struct CanvasCodexAgentSidebar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Codex Agent")
                     .font(.headline)
-                Text("In-sidebar read-only session")
+                Text("Embedded interactive terminal")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -156,7 +159,7 @@ struct CanvasCodexAgentSidebar: View {
 
     private var boundarySection: some View {
         GroupBox("Boundary") {
-            Text("Codex receives bounded read-only Canvas context through stdin. This panel does not apply output; use Proposal Review for any proposed MindDesk changes.")
+            Text("The embedded terminal starts Codex with the bounded Canvas prompt in a temporary session folder. MindDesk does not apply terminal output; use Proposal Review for any proposed changes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -167,20 +170,20 @@ struct CanvasCodexAgentSidebar: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Button(action: onRun) {
-                    Label("Run", systemImage: "play.fill")
+                    Label("Start Codex", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(!session.canRun)
 
                 Button(action: onStop) {
-                    Label("Stop", systemImage: "stop.fill")
+                    Label("Interrupt", systemImage: "control")
                         .frame(maxWidth: .infinity)
                 }
                 .disabled(!session.canStop)
             }
             .buttonStyle(.borderedProminent)
 
-            Text("Prompt template plus Canvas context are sent to `codex exec --json` using read-only sandbox defaults.")
+            Text("Starts a real PTY shell, opens interactive Codex by default, and keeps the terminal available for account, model, and command changes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -205,22 +208,6 @@ struct CanvasCodexAgentSidebar: View {
         if !templates.contains(where: { $0.id == selectedTemplateID }) {
             selectedTemplateID = templates.first?.id ?? CanvasCodexPromptTemplateLibrary.defaultTemplateID
         }
-    }
-}
-
-private struct CodexSessionOutputWindow: View {
-    var output: String
-
-    var body: some View {
-        ScrollView {
-            Text(output)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(10)
-        }
-        .background(Color.black.opacity(0.82))
-        .foregroundStyle(.white)
     }
 }
 

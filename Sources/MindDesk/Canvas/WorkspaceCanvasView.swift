@@ -1248,8 +1248,8 @@ struct WorkspaceCanvasView: View {
     }
 
     private func stopCodexSession() {
-        codexSession.stop()
-        onStatus("Stopped in-sidebar Codex session.")
+        codexSession.interrupt()
+        onStatus("Sent interrupt to embedded Codex terminal.")
     }
 
     private func copyCodexPrompt() {
@@ -1357,7 +1357,7 @@ struct WorkspaceCanvasView: View {
             .onDisappear {
                 flushPendingScrollZoomCommit()
                 flushPendingNodeTextCommits()
-                codexSession.stop()
+                codexSession.reset()
             }
             .onChange(of: canvasDefaultZoomPercent) { _, _ in
                 onStatus("Canvas display baseline updated")

@@ -12,7 +12,7 @@ enum CanvasCodexSessionStatus: String, Equatable {
     var title: String {
         switch self {
         case .ready: "Ready"
-        case .running: "Running"
+        case .running: "Terminal"
         case .finished: "Finished"
         case .stopped: "Stopped"
         case .failed: "Failed"
@@ -25,14 +25,13 @@ final class CanvasCodexSessionController: ObservableObject {
     private static let maximumOutputCharacters = 80_000
 
     @Published private(set) var status: CanvasCodexSessionStatus = .ready
-    @Published private(set) var output = "Codex output will appear here.\n"
+    @Published private(set) var output = "Embedded Codex terminal will appear here.\n"
 
-    private let service: CodexProcessService
-    private var session: CodexProcessSession?
-    private var bufferedStandardOutput = ""
+    private let service: CodexTerminalService
+    private var session: CodexTerminalSession?
     private var currentRunID: UUID?
 
-    init(service: CodexProcessService = CodexProcessService()) {
+    init(service: CodexTerminalService = CodexTerminalService()) {
         self.service = service
     }
 
@@ -44,108 +43,87 @@ final class CanvasCodexSessionController: ObservableObject {
         status == .running
     }
 
-    func start(prompt: CanvasCodexPrompt, workingDirectory: String) {
+    func start(prompt: CanvasCodexPrompt, workingDirectory _: String) {
         guard canRun else { return }
         let runID = UUID()
         currentRunID = runID
-        bufferedStandardOutput = ""
         status = .running
-        output = "Starting in-sidebar Codex session...\n\n"
+        output = "Starting embedded terminal...\n\n"
         do {
-            let launchedSession = try service.start(prompt: prompt.body, workingDirectory: workingDirectory) { [weak self] event in
+            let launchedSession = try service.start(prompt: prompt.body) { [weak self] event in
                 Task { @MainActor in
                     self?.handle(event, runID: runID)
                 }
             }
             session = launchedSession
             output = """
-            $ codex -c service_tier="flex" exec --json --sandbox read-only --skip-git-repo-check --ephemeral --color never -C \(launchedSession.sessionDirectoryPath) -
-            Starting in-sidebar Codex session...
+            Embedded terminal started in \(launchedSession.sessionDirectoryPath)
+            Default command:
+            \(launchedSession.startupCommand)
 
             """
+            launchedSession.write("\(launchedSession.startupCommand)\n")
         } catch {
             currentRunID = nil
             status = .failed
-            output += "Could not start Codex: \(error.localizedDescription)\n"
+            appendOutput("Could not start embedded terminal: \(error.localizedDescription)\n")
         }
     }
 
-    func stop() {
+    func sendInput(_ text: String) {
+        session?.write(text)
+    }
+
+    func interrupt() {
         guard canStop else { return }
-        session?.cancel()
-        session = nil
-        currentRunID = nil
-        status = .stopped
-        appendOutput("\nStopped Codex session.\n")
+        session?.interrupt()
+        appendOutput("\n^C\n")
     }
 
     func reset() {
-        if canStop {
-            stop()
-        }
+        session?.close()
+        session = nil
         status = .ready
-        output = "Codex output will appear here.\n"
-        bufferedStandardOutput = ""
+        output = "Embedded Codex terminal will appear here.\n"
         currentRunID = nil
     }
 
-    private func handle(_ event: CodexProcessOutput, runID: UUID) {
+    private func handle(_ event: CodexTerminalOutput, runID: UUID) {
         guard currentRunID == runID else { return }
         switch event {
-        case .standardOutput(let text):
-            appendStandardOutput(text)
-        case .standardError(let text):
-            appendOutput(text)
+        case .text(let text):
+            appendOutput(Self.cleanedTerminalOutput(text))
         case .finished(let statusCode):
-            flushBufferedOutput()
             session = nil
             currentRunID = nil
             status = statusCode == 0 ? .finished : .failed
-            appendOutput("\nCodex exited with status \(statusCode).\n")
+            appendOutput("\nEmbedded terminal exited with status \(statusCode).\n")
         }
-    }
-
-    private func appendStandardOutput(_ text: String) {
-        bufferedStandardOutput += text
-        while let newlineIndex = bufferedStandardOutput.firstIndex(of: "\n") {
-            let line = String(bufferedStandardOutput[..<newlineIndex])
-            bufferedStandardOutput.removeSubrange(...newlineIndex)
-            appendOutput(Self.formattedOutputLine(line))
-        }
-    }
-
-    private func flushBufferedOutput() {
-        guard !bufferedStandardOutput.isEmpty else { return }
-        appendOutput(Self.formattedOutputLine(bufferedStandardOutput))
-        bufferedStandardOutput = ""
     }
 
     private func appendOutput(_ text: String) {
         guard !text.isEmpty else { return }
         output += text
         guard output.count > Self.maximumOutputCharacters else { return }
-        output = "[Earlier Codex output trimmed]\n" + String(output.suffix(Self.maximumOutputCharacters))
+        output = "[Earlier terminal output trimmed]\n" + String(output.suffix(Self.maximumOutputCharacters))
     }
 
-    private static func formattedOutputLine(_ line: String) -> String {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return "\(line)\n"
+    private static func cleanedTerminalOutput(_ text: String) -> String {
+        var cleaned = text
+            .replacingOccurrences(of: "\u{1B}\\][^\u{7}]*(\u{7}|\u{1B}\\\\)", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{1B}\\[[0-?]*[ -/]*[@-~]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{1B}[()][A-Za-z0-9]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\u{1B}", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        while let backspaceIndex = cleaned.firstIndex(of: "\u{8}") {
+            if backspaceIndex > cleaned.startIndex {
+                let previousIndex = cleaned.index(before: backspaceIndex)
+                cleaned.removeSubrange(previousIndex...backspaceIndex)
+            } else {
+                cleaned.remove(at: backspaceIndex)
+            }
         }
-        if let message = object["message"] as? String, !message.isEmpty {
-            return "\(message)\n"
-        }
-        if let delta = object["delta"] as? String, !delta.isEmpty {
-            return delta
-        }
-        if let text = object["text"] as? String, !text.isEmpty {
-            return "\(text)\n"
-        }
-        if let type = object["type"] as? String {
-            return "[\(type)]\n"
-        }
-        return "\(line)\n"
+        return cleaned
     }
 }

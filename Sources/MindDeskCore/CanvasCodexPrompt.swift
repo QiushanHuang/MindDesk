@@ -356,32 +356,20 @@ public enum CanvasCodexPromptBuilder {
 
 public enum CanvasCodexCommandBuilder {
     public static let executableName = "codex"
-    public static let serviceTierOverride = "service_tier=\"flex\""
+    public static let interactiveDefaultModel = "gpt-5.4"
+    public static let serviceTierOverride = "service_tier=\"fast\""
 
-    public static func execArguments(workingDirectory: String) -> [String] {
+    public static func interactiveTerminalCommand(promptFilePath: String, workingDirectory: String) -> String {
         [
-            "-c",
-            serviceTierOverride,
-            "exec",
-            "--json",
-            "--sandbox",
-            "read-only",
-            "--skip-git-repo-check",
-            "--ephemeral",
-            "--color",
-            "never",
-            "-C",
-            resolvedWorkingDirectory(workingDirectory),
-            "-"
-        ]
-    }
-
-    public static func resolvedWorkingDirectory(_ workingDirectory: String) -> String {
-        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty || trimmed == "/" {
-            return NSHomeDirectory()
-        }
-        return trimmed
+            executableName,
+            "-c \(ShellQuoter.singleQuote(serviceTierOverride))",
+            "--no-alt-screen",
+            "--sandbox read-only",
+            "--ask-for-approval on-request",
+            "-m \(ShellQuoter.singleQuote(interactiveDefaultModel))",
+            "-C \(ShellQuoter.singleQuote(workingDirectory))",
+            "\"$(cat -- \(ShellQuoter.singleQuote(promptFilePath)))\""
+        ].joined(separator: " ")
     }
 }
 
