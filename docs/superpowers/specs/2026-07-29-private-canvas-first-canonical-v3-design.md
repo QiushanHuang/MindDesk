@@ -254,11 +254,15 @@ v1b contains no shell. If a helper process is unavoidable, it is a fixed trusted
 
 In v1a, the package, session, and action layers return a structured `featureDisabled` result before performing work. UI visibility is not an authorization boundary.
 
+Here and throughout S0, "package" means an Agent/Review context package. User-initiated portable Manifest import and export remain ordinary local product capabilities and must not be disabled unless a later, separately approved specification changes them.
+
 ## User-Facing Privacy Copy
 
 ### v1a
 
 > **Canvas Review is currently off.** This version does not start an Agent or review helper, generate an AI context package, or provide Canvas content to a model through this feature. MindDesk's normal storage, system backup, sync, and any external services you use remain subject to their own privacy settings.
+
+This v1a statement belongs in release and privacy documentation. It must not create a disabled Codex button, placeholder rail mode, onboarding prompt, or other in-product promise of an unavailable feature.
 
 ### v1b Confirmation
 
@@ -277,6 +281,8 @@ In v1a, the package, session, and action layers return a structured `featureDisa
 ### Outcome Metric
 
 **D7 Meaningful Continuation** is the primary outcome: a project that achieved Meaningful Map Activation is reopened on day 7 and receives a new qualifying manual map action.
+
+S4 must freeze the exact D7 observation window and denominator before Beta; this umbrella design deliberately does not invent those values without cohort evidence.
 
 ### Driver Metric
 
@@ -331,7 +337,7 @@ S0 is the only first implementation specification. It contains:
 
 - Lowest-level `featureDisabled` gates for package, session, and proposal-action paths.
 - Complete absence of Agent/Codex UI, menus, shortcuts, Help, deep-link, and restored state in v1a.
-- Zero context-package encodes, temporary files, helper processes, and Review side effects in v1a.
+- Zero Agent/Review context-package encodes, related temporary files, helper processes, and Review side effects in v1a; ordinary user Manifest import/export is unaffected.
 - An immutable scope identity value and focus revision.
 - Scope invalidation and in-flight cancellation when project focus changes.
 - Release-build negative canary evidence for these claims.
