@@ -1,6 +1,6 @@
 # MindDesk S0 Capability Lockdown and Scope Identity Design
 
-**Status:** Approved for implementation planning after four-seat re-review.
+**Status:** Approved for implementation planning after four-seat re-review and Gate-order corrigendum.
 
 **Parent design:** `2026-07-29-private-canvas-first-canonical-v3-design.md`
 
@@ -356,7 +356,7 @@ Cancellation and thrown-fetch exits are terminal for that exact attempt:
 2. Once cancellation or staleness is known, it starts no later fetch. An already in-flight fetch may return, but its value is discarded.
 3. Cancellation after a successful save never rolls back or deletes persisted data. Work stops; the current scene fingerprint or next focus lookup reconciles the record.
 4. `CancellationError` and stale exits show no old-scope error and do not bind. The registration must already have been detached by transition or be removed by an explicit exact `complete`.
-5. For any non-cancellation fetch error: if slot/focus/fingerprint is stale, stop silently after removing only its own live registration; if still exact, first complete the exact registration, clear that slot, do not call `bind`, preserve current resolution, discard any provisioning context, and do not retry automatically. The existing status/error surface shows a sanitized recoverable message, and only a pending node target with the matching UUID is terminally cleared.
+5. For any non-cancellation fetch error: if slot/focus/fingerprint is stale, stop silently after removing only its own live registration; if still exact, first complete the exact registration, clear that slot, do not call `bind`, preserve current resolution, discard any provisioning context, and do not retry automatically. The existing status/error surface shows a sanitized recoverable message. Provisioning never owns pending-node state. After §8 is introduced, the scene-root node-open coordinator may terminally clear a target for this outcome only when the current four-field pending target exactly equals the target captured for that node-open flow, including `requestID`.
 6. Every exit path proves one of two states: transition already detached the registration, or matched `complete` removed it. No finished operation remains in the live cancellation registry.
 
 Tests inject throws at initial, pre-insert, and post-save fetches, plus cancellation before the second fetch, immediately before insert/save, after successful save but before fresh fetch, and while fresh fetch is in flight.
@@ -518,6 +518,8 @@ enum WorkspaceCanvasNodeOpenRequestDecision: Equatable, Sendable {
 }
 ```
 
+Pending-target storage and every result-to-target clearing decision are introduced together in this section. The §6 provisioning coordinator exposes scope-bound outcomes but never creates, inspects, issues, or clears pending targets.
+
 Every Quick Open or deep target creates a new UUID-bearing pending target. A new target replaces the old target atomically. Lookup/provision completion may issue work only when the current pending target still matches all four fields including `requestID`; an old completion may neither issue from nor clear a newer target.
 
 The scene root focuses, resolves, provisions if appropriate, and binds before request issue. Pending-state decisions are:
@@ -549,12 +551,13 @@ Implementation is planned and reviewed in this dependency order; each gate must 
 1. Classifier, 64 MiB guards, neutral mapping, and permanent lock.
 2. App/runtime removal plus SwiftTerm dependency removal.
 3. Stored historical DTO normalization and wire fixtures.
-4. Primary Canvas resolver, lookup, and provisioning.
+4. Primary Canvas resolver and SwiftData lookup boundary.
 5. Focus/bound scope controller and cancellation lifecycle.
-6. Two-stage node-open request creation and consumption.
-7. Documentation, full regression, Release verifier, and mandatory workflow wiring.
+6. Scene-root Primary Canvas resolution-attempt/slot lifecycle, fingerprint invalidation, binding, missing-Canvas provisioning, and Canvas availability states; this gate neither introduces nor clears pending node targets.
+7. UUID-bearing pending-target creation and atomic replacement, exact provisioning-result correlation and terminal clearing, and scope-bound node-open request issuance and consumption.
+8. Documentation, full regression, final closed-policy sink/codec inventory, Release verifier, and mandatory workflow wiring.
 
-Within Gates 1–7 the order is mandatory: record the intended ledger change, add the focused red test and observe its intended failure, make the smallest production change, run the focused gate green, update the ledger with complete final test names, then compile before proceeding. After red tests are added, the current suite is not expected to equal the 776 baseline.
+Within Gates 1–8 the order is mandatory: record the intended ledger change, add the focused red test and observe its intended failure, make the smallest production change, run the focused gate green, update the ledger with complete final test names, then compile before proceeding. After red tests are added, the current suite is not expected to equal the 776 baseline.
 
 ## Test Design
 
@@ -639,7 +642,7 @@ Tests load them through `Bundle.module`. Oversize and malicious payloads are gen
 - Provisioning uses an isolated clean context, never globally rolls back, and post-success/post-failure fresh fetch covers missing/unique/duplicate with no recursive retry.
 - Every unequal resolution—including missing↔duplicate and changed duplicate payload—rotates scope, clears binding, and invokes old registered cancellations exactly once; duplicate never selects, creates a third record, repairs, rolls back another window, or deletes.
 - Duplicate pauses Canvas while Tasks, resources, snippets, and Overview stay available.
-- Initial/pre-insert/post-save fetch errors and cancellation at every boundary close exactly one registration, never bind stale data, never compensate-delete a successful save, and clear only matching pending UUID state.
+- Initial/pre-insert/post-save fetch errors and cancellation at every boundary close exactly one registration, never bind stale data, and never compensate-delete a successful save.
 - Active provisioning shows `Preparing Canvas…`; terminal missing shows the exact persistent copy and one scoped `Try Again` action, while non-Canvas surfaces remain usable and no automatic retry occurs.
 
 `Tests/MindDeskTests/WorkspaceWindowScopeControllerTests.swift`
@@ -654,7 +657,7 @@ Tests load them through `Bundle.module`. Oversize and malicious payloads are gen
 
 `Tests/MindDeskTests/WorkspaceCanvasNodeOpenRequestTests.swift`
 
-- UUID-bearing pending target precedes focus/lookup/bind; replacement protects against A→B→A/old-completion ABA and old callbacks cannot clear a newer target.
+- UUID-bearing pending target precedes focus/lookup/bind; creation, atomic replacement, and every provisioning-result clear compare the exact captured four-field target, protecting A→B→A so old completions or callbacks cannot issue from or clear a newer target. Only a current exact non-cancellation provisioning error is terminal through this correlation; cancellation and stale outcomes cannot clear it.
 - Missing defers only while accepted provisioning is active; duplicate, target mismatch, and scoped confirmed absence terminally clear the exact pending ID.
 - Request generation requires exact bound Primary Canvas plus scoped `readyOwned`; temporary render absence is `dataNotReady`.
 - Controller-owned sequence starts at 1 per bound scope and resets on rotation. Seeded allocator overflow emits nothing, rotates to nil resolution/unbound, cancels exactly once, and requires fresh lookup.
@@ -750,7 +753,7 @@ The policy also freezes an exact sink/codec inventory as `(relative file, fully 
 
 S0 extracts the inline folder-preview copy closure into the behavior-equivalent named declaration `ResourcePreviewView.copyFolderPreviewItemPath(_:)`; that exact declaration is the only folder-preview clipboard triple. App JSON codec triples are exactly `WorkbenchTagCodec.encode(_:)` with `JSONEncoder().encode`, `WorkbenchTagCodec.decode(_:)` with `JSONDecoder().decode`, `ImportExportService.decodeManifest(from:)` with `JSONDecoder.minddesk.decode`, and `ContentView.exportManifest()` with `JSONEncoder.minddesk.encode`. Core ordinary codec factory declarations `JSONEncoder.minddesk` and `JSONDecoder.minddesk` in `ExportManifest.swift` are also exact allowed triples. Compatibility codec triples are limited to the enumerated retained Core files and their Codable/pure-validation declarations.
 
-The policy enumerates these exact final triples after deleted code is gone; any extra file/declaration/callee triple fails. Gate 2 cannot pass with a placeholder, short-name match, line-number-only rule, or automatically learned allowlist.
+The policy enumerates these exact final triples after Gates 2–7 have completed and the production tree is final; any extra file/declaration/callee triple fails. Gate 2 passes only after its focused deleted-source/runtime-surface and dependency-absence tests are green. Gate 8 freezes and enforces the manually reviewed final inventory against the completed production tree and cannot pass with a placeholder, short-name match, line-number-only rule, or automatically learned or generated allowlist.
 
 The policy enumerates every deleted file path from Architecture §3 and every allowed production root. Each deny/allow/sink rule has a positive fixture and a near-miss negative fixture. The verifier makes no unprovable claim that names alone detect arbitrary renamed behavior; instead, new targets, roots, code objects, legacy DTO app references, encoder/process/clipboard/terminal callpoints, package-workflow calls, or sinks fail closed until explicitly reviewed.
 
