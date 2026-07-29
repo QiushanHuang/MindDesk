@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 import MindDeskCore
 import SwiftData
@@ -431,7 +432,44 @@ struct AliasService {
     }
 }
 
-struct ImportExportService {
+struct ImportExportService: Sendable {
+    struct ManifestURLMetadata: Equatable, Sendable {
+        let byteCount: Int64
+        let deviceID: dev_t
+        let fileID: ino_t
+    }
+
+    struct ManifestURLReadDependency: Sendable {
+        let metadataSize: @Sendable (URL) throws -> ManifestURLMetadata
+        let cappedRead: @Sendable (URL, ManifestURLMetadata, Int) throws -> Data
+
+        static let live = Self(
+            metadataSize: { url in
+                try ImportExportService.liveManifestMetadata(from: url)
+            },
+            cappedRead: { url, expectedMetadata, maximumReadBytes in
+                try ImportExportService.liveManifestCappedRead(
+                    from: url,
+                    expectedMetadata: expectedMetadata,
+                    maximumReadBytes: maximumReadBytes
+                )
+            }
+        )
+    }
+
+    private enum ManifestURLReadFailure: Error, Sendable {
+        case notRegularFile
+        case fileSizeUnavailable
+        case unreadable
+        case oversized
+    }
+
+    private let manifestURLRead: ManifestURLReadDependency
+
+    init(manifestURLRead: ManifestURLReadDependency = .live) {
+        self.manifestURLRead = manifestURLRead
+    }
+
     static let schemaVersion = 2
     static let manifestExportDefaultFilename = "MindDesk-Backup.json"
     static let manifestExportPanelMessage = "Export MindDesk metadata. Bookmark authorization data is not exported."
@@ -488,21 +526,60 @@ struct ImportExportService {
         )
     }
 
+    func decodeManifest(from url: URL) throws -> ExportManifest {
+        let metadata: ManifestURLMetadata
+        do {
+            metadata = try manifestURLRead.metadataSize(url)
+        } catch let failure as ManifestURLReadFailure {
+            throw Self.manifestURLReadError(for: failure)
+        } catch {
+            throw Self.manifestURLReadError(for: .unreadable)
+        }
+        guard metadata.byteCount >= 0 else {
+            throw Self.manifestURLReadError(for: .fileSizeUnavailable)
+        }
+        guard metadata.byteCount <= Int64(ManifestImportLimits.maximumManifestBytes) else {
+            throw Self.manifestURLReadError(for: .oversized)
+        }
+        let (maximumReadBytes, overflow) = ManifestImportLimits.maximumManifestBytes
+            .addingReportingOverflow(1)
+        guard !overflow else {
+            throw Self.manifestURLReadError(for: .unreadable)
+        }
+        let data: Data
+        do {
+            data = try manifestURLRead.cappedRead(url, metadata, maximumReadBytes)
+        } catch let failure as ManifestURLReadFailure {
+            throw Self.manifestURLReadError(for: failure)
+        } catch {
+            throw Self.manifestURLReadError(for: .unreadable)
+        }
+        guard data.count <= ManifestImportLimits.maximumManifestBytes else {
+            throw Self.manifestURLReadError(for: .oversized)
+        }
+        return try decodeManifest(from: data)
+    }
+
     func decodeManifest(from data: Data) throws -> ExportManifest {
-        let decoder = JSONDecoder.minddesk
+        guard data.count <= ManifestImportLimits.maximumManifestBytes else {
+            throw Self.manifestImportSizeError()
+        }
         let classification = MindDeskJSONDocumentClassifier.classify(data)
         switch classification.kind {
-        case .interchangePackage:
-            throw WorkbenchError.invalidManifestReferences("MindDesk interchange packages are read-only review files and cannot be imported as manifests.")
-        case .proposalEnvelope:
-            throw WorkbenchError.invalidManifestReferences("MindDesk proposal envelopes must be reviewed with Review Agent Proposal and cannot be imported as manifests.")
-        case .validationReport:
-            throw WorkbenchError.invalidManifestReferences("MindDesk validation reports are diagnostic files and cannot be imported as manifests.")
+        case .interchangePackage, .proposalEnvelope, .validationReport:
+            do {
+                try rejectLegacyReviewDocument()
+            } catch CanvasReviewCapabilityError.unavailable {
+                throw WorkbenchError.invalidManifestReferences(
+                    "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
+                )
+            }
         case .unknown where classification.hasTopLevelFormat:
             throw WorkbenchError.invalidManifestReferences("MindDesk formatted JSON files that are not manifests cannot be imported as manifests.")
         case .manifest, .unknown:
             break
         }
+        let decoder = JSONDecoder.minddesk
         let manifest: ExportManifest
         do {
             manifest = try decoder.decode(ExportManifest.self, from: data)
@@ -515,6 +592,10 @@ struct ImportExportService {
             throw WorkbenchError.unsupportedManifestVersion(manifest.schemaVersion)
         }
         return manifest
+    }
+
+    private func rejectLegacyReviewDocument() throws -> Never {
+        try CanvasReviewCapabilityLock.requireEnabled()
     }
 
     func makeAgentReviewPackage(
@@ -680,6 +761,103 @@ struct ImportExportService {
 
     private static func importReadFailure(blockedPrefix: String) -> WorkbenchError {
         WorkbenchError.invalidManifestReferences("\(blockedPrefix): file could not be read.")
+    }
+
+    private static func liveManifestMetadata(from url: URL) throws -> ManifestURLMetadata {
+        var metadata = stat()
+        guard Darwin.lstat(url.path, &metadata) == 0 else {
+            throw ManifestURLReadFailure.unreadable
+        }
+        guard (metadata.st_mode & S_IFMT) == S_IFREG else {
+            throw ManifestURLReadFailure.notRegularFile
+        }
+        guard metadata.st_size >= 0 else {
+            throw ManifestURLReadFailure.fileSizeUnavailable
+        }
+        return ManifestURLMetadata(
+            byteCount: Int64(metadata.st_size),
+            deviceID: metadata.st_dev,
+            fileID: metadata.st_ino
+        )
+    }
+
+    private static func liveManifestCappedRead(
+        from url: URL,
+        expectedMetadata: ManifestURLMetadata,
+        maximumReadBytes: Int
+    ) throws -> Data {
+        guard maximumReadBytes > 0 else {
+            throw ManifestURLReadFailure.unreadable
+        }
+        let descriptor = Darwin.open(
+            url.path,
+            O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK
+        )
+        guard descriptor >= 0 else {
+            if errno == ELOOP {
+                throw ManifestURLReadFailure.notRegularFile
+            }
+            throw ManifestURLReadFailure.unreadable
+        }
+        defer { _ = Darwin.close(descriptor) }
+
+        var openedMetadata = stat()
+        guard Darwin.fstat(descriptor, &openedMetadata) == 0 else {
+            throw ManifestURLReadFailure.unreadable
+        }
+        guard (openedMetadata.st_mode & S_IFMT) == S_IFREG else {
+            throw ManifestURLReadFailure.notRegularFile
+        }
+        guard openedMetadata.st_dev == expectedMetadata.deviceID,
+              openedMetadata.st_ino == expectedMetadata.fileID else {
+            throw ManifestURLReadFailure.unreadable
+        }
+        guard openedMetadata.st_size >= 0 else {
+            throw ManifestURLReadFailure.fileSizeUnavailable
+        }
+        let maximumAllowedBytes = maximumReadBytes - 1
+        guard openedMetadata.st_size <= Int64(maximumAllowedBytes) else {
+            throw ManifestURLReadFailure.oversized
+        }
+
+        var data = Data()
+        data.reserveCapacity(min(Int(openedMetadata.st_size), maximumReadBytes))
+        var buffer = [UInt8](repeating: 0, count: min(64 * 1024, maximumReadBytes))
+        while data.count < maximumReadBytes {
+            let requestedBytes = min(buffer.count, maximumReadBytes - data.count)
+            let bytesRead = buffer.withUnsafeMutableBytes { rawBuffer in
+                Darwin.read(descriptor, rawBuffer.baseAddress, requestedBytes)
+            }
+            if bytesRead > 0 {
+                data.append(contentsOf: buffer.prefix(bytesRead))
+                continue
+            }
+            if bytesRead == 0 {
+                break
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw ManifestURLReadFailure.unreadable
+        }
+        return data
+    }
+
+    private static func manifestURLReadError(for failure: ManifestURLReadFailure) -> WorkbenchError {
+        switch failure {
+        case .notRegularFile:
+            WorkbenchError.invalidManifestReferences("Manifest import blocked: choose a regular JSON file.")
+        case .fileSizeUnavailable:
+            WorkbenchError.invalidManifestReferences("Manifest import blocked: file size could not be read.")
+        case .unreadable:
+            WorkbenchError.invalidManifestReferences("Manifest import blocked: file could not be read.")
+        case .oversized:
+            Self.manifestImportSizeError()
+        }
+    }
+
+    private static func manifestImportSizeError() -> WorkbenchError {
+        WorkbenchError.invalidManifestReferences("This JSON file is larger than the 64 MiB import limit.")
     }
 
     private static func validateImportDataSize(

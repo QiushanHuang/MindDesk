@@ -2912,39 +2912,10 @@ final class AppBehaviorTests: XCTestCase {
             guard case WorkbenchError.invalidManifestReferences(let message) = error else {
                 return XCTFail("Expected invalid manifest references error, got \(error)")
             }
-            XCTAssertEqual(message, "MindDesk interchange packages are read-only review files and cannot be imported as manifests.")
-        }
-    }
-
-    func testImportExportServiceRejectsProposalEnvelopeAndValidationReportAsManifestImport() throws {
-        let package = makeProposalSourcePackage()
-        let envelopeData = try JSONEncoder.minddesk.encode(makeProposalEnvelope(for: package))
-        let reportData = try JSONEncoder.minddesk.encode(
-            MindDeskValidationReport(
-                issues: [
-                    MindDeskValidationReportIssue(
-                        source: .proposalEnvelope,
-                        code: "proposal.context.stale",
-                        severity: .error,
-                        message: "Proposal context is stale."
-                    )
-                ],
-                generatedAt: Date(timeIntervalSince1970: 300)
+            XCTAssertEqual(
+                message,
+                "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
             )
-        )
-
-        XCTAssertThrowsError(try ImportExportService().decodeManifest(from: envelopeData)) { error in
-            guard case WorkbenchError.invalidManifestReferences(let message) = error else {
-                return XCTFail("Expected invalid manifest references error, got \(error)")
-            }
-            XCTAssertEqual(message, "MindDesk proposal envelopes must be reviewed with Review Agent Proposal and cannot be imported as manifests.")
-        }
-
-        XCTAssertThrowsError(try ImportExportService().decodeManifest(from: reportData)) { error in
-            guard case WorkbenchError.invalidManifestReferences(let message) = error else {
-                return XCTFail("Expected invalid manifest references error, got \(error)")
-            }
-            XCTAssertEqual(message, "MindDesk validation reports are diagnostic files and cannot be imported as manifests.")
         }
     }
 
@@ -2953,12 +2924,12 @@ final class AppBehaviorTests: XCTestCase {
             (
                 format: MindDeskProposalEnvelope.currentFormat,
                 formatVersion: MindDeskProposalEnvelope.currentFormatVersion,
-                message: "MindDesk proposal envelopes must be reviewed with Review Agent Proposal and cannot be imported as manifests."
+                message: "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
             ),
             (
                 format: MindDeskValidationReport.currentFormat,
                 formatVersion: MindDeskValidationReport.currentFormatVersion,
-                message: "MindDesk validation reports are diagnostic files and cannot be imported as manifests."
+                message: "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
             )
         ]
 

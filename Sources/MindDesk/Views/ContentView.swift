@@ -1683,8 +1683,14 @@ struct ContentView: View {
         guard let url = FileDialogs.openJSON() else { return }
         setStatus("Importing MindDesk manifest...")
         Task { @MainActor in
+            let manifest: ExportManifest
             do {
-                let manifest = try await Self.loadManifest(from: url)
+                manifest = try await Self.loadManifest(from: url)
+            } catch {
+                setStatus(error.localizedDescription)
+                return
+            }
+            do {
                 let summary = try ManifestImportService().importRecords(from: manifest, into: modelContext)
                 let authorizationNote = summary.resources > 0 ? " Resources require reauthorization." : ""
                 setStatus("Imported \(summary.statusText).\(authorizationNote)")
@@ -1751,18 +1757,8 @@ struct ContentView: View {
 
     nonisolated private static func loadManifest(from url: URL) async throws -> ExportManifest {
         try await Task.detached(priority: .userInitiated) {
-            let data = try readManifestData(from: url)
-            return try ImportExportService().decodeManifest(from: data)
+            try ImportExportService().decodeManifest(from: url)
         }.value
-    }
-
-    nonisolated private static func readManifestData(from url: URL) throws -> Data {
-        try readJSONImportData(
-            from: url,
-            blockedPrefix: "Manifest import blocked",
-            maximumBytes: ManifestImportLimits.maximumManifestBytes,
-            maximumBytesDescription: "64 MiB"
-        )
     }
 
     nonisolated private static func loadProposalReviewImport(

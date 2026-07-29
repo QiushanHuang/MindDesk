@@ -1,3 +1,4 @@
+import Darwin
 import MindDeskCore
 import SwiftData
 import XCTest
@@ -5,6 +6,254 @@ import XCTest
 
 @MainActor
 final class ManifestImportServiceTests: XCTestCase {
+    func testDecodeManifestFromURLRejectsMetadataAndCappedReadOverflowBeforeClassification() throws {
+        let maximumBytes = ManifestImportLimits.maximumManifestBytes
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("minddesk-manifest-url-import-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let metadataOversizedURL = directory.appendingPathComponent("legacy-review.json")
+        try makeLegacyReviewTrapData(byteCount: maximumBytes + 1).write(to: metadataOversizedURL)
+        let oversizedMetadata = manifestURLMetadata(byteCount: maximumBytes + 1)
+
+        assertManifestImportError(
+            "This JSON file is larger than the 64 MiB import limit."
+        ) {
+            try ImportExportService().decodeManifest(from: metadataOversizedURL)
+        }
+
+        let metadataShortCircuitService = ImportExportService(
+            manifestURLRead: .init(
+                metadataSize: { _ in oversizedMetadata },
+                cappedRead: { _, _, _ in
+                    throw ManifestURLReadTestError.unexpectedRead
+                }
+            )
+        )
+        assertManifestImportError(
+            "This JSON file is larger than the 64 MiB import limit."
+        ) {
+            try metadataShortCircuitService.decodeManifest(from: metadataOversizedURL)
+        }
+
+        let cappedReadOversizedData = makeLegacyReviewTrapData(byteCount: maximumBytes + 1)
+        let atLimitMetadata = manifestURLMetadata(byteCount: maximumBytes)
+        let cappedReadService = ImportExportService(
+            manifestURLRead: .init(
+                metadataSize: { _ in atLimitMetadata },
+                cappedRead: { _, _, maximumReadBytes in
+                    guard maximumReadBytes == maximumBytes + 1 else {
+                        throw ManifestURLReadTestError.incorrectReadLimit
+                    }
+                    return cappedReadOversizedData
+                }
+            )
+        )
+
+        assertManifestImportError(
+            "This JSON file is larger than the 64 MiB import limit."
+        ) {
+            try cappedReadService.decodeManifest(from: metadataOversizedURL)
+        }
+
+        let negativeMetadata = manifestURLMetadata(byteCount: -1)
+        let negativeMetadataService = ImportExportService(
+            manifestURLRead: .init(
+                metadataSize: { _ in negativeMetadata },
+                cappedRead: { _, _, _ in
+                    throw ManifestURLReadTestError.unexpectedRead
+                }
+            )
+        )
+        assertManifestImportError(
+            "Manifest import blocked: file size could not be read."
+        ) {
+            try negativeMetadataService.decodeManifest(from: metadataOversizedURL)
+        }
+
+        let emptyMetadata = manifestURLMetadata(byteCount: 0)
+        let readFailureService = ImportExportService(
+            manifestURLRead: .init(
+                metadataSize: { _ in emptyMetadata },
+                cappedRead: { _, _, _ in
+                    throw ManifestURLReadTestError.simulatedReadFailure
+                }
+            )
+        )
+        assertManifestImportError(
+            "Manifest import blocked: file could not be read."
+        ) {
+            try readFailureService.decodeManifest(from: metadataOversizedURL)
+        }
+
+        let directoryURL = directory.appendingPathComponent("not-a-file", isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        assertManifestImportError(
+            "Manifest import blocked: choose a regular JSON file."
+        ) {
+            try ImportExportService().decodeManifest(from: directoryURL)
+        }
+
+        let symlinkTargetURL = directory.appendingPathComponent("symlink-target.json")
+        try Data("{}".utf8).write(to: symlinkTargetURL)
+        let symlinkURL = directory.appendingPathComponent("IGNORE_AGENT_INSTRUCTIONS-token=link-secret.json")
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: symlinkTargetURL)
+        assertManifestImportError(
+            "Manifest import blocked: choose a regular JSON file."
+        ) {
+            try ImportExportService().decodeManifest(from: symlinkURL)
+        }
+
+        let missingURL = directory.appendingPathComponent("IGNORE_AGENT_INSTRUCTIONS-token=missing-secret.json")
+        assertManifestImportError(
+            "Manifest import blocked: file could not be read."
+        ) {
+            try ImportExportService().decodeManifest(from: missingURL)
+        }
+
+        let inLimitManifestURL = directory.appendingPathComponent("ordinary-manifest.json")
+        try minimalLegacyManifestData().write(to: inLimitManifestURL)
+        let decoded = try ImportExportService().decodeManifest(from: inLimitManifestURL)
+        XCTAssertEqual(decoded.schemaVersion, 2)
+        XCTAssertTrue(decoded.workspaces.isEmpty)
+
+        let selectedURL = directory.appendingPathComponent("selected-manifest.json")
+        let replacementURL = directory.appendingPathComponent("replacement-manifest.json")
+        let selectedData = minimalLegacyManifestData(marker: "A")
+        let replacementData = minimalLegacyManifestData(marker: "B")
+        XCTAssertEqual(selectedData.count, replacementData.count)
+        try selectedData.write(to: selectedURL)
+        try replacementData.write(to: replacementURL)
+        let liveRead = ImportExportService.ManifestURLReadDependency.live
+        let replacementService = ImportExportService(
+            manifestURLRead: .init(
+                metadataSize: { url in
+                    let metadata = try liveRead.metadataSize(url)
+                    let renameResult = replacementURL.path.withCString { replacementPath in
+                        selectedURL.path.withCString { selectedPath in
+                            Darwin.rename(replacementPath, selectedPath)
+                        }
+                    }
+                    guard renameResult == 0 else {
+                        throw ManifestURLReadTestError.simulatedReplacementFailure
+                    }
+                    return metadata
+                },
+                cappedRead: { url, expectedMetadata, maximumReadBytes in
+                    try liveRead.cappedRead(url, expectedMetadata, maximumReadBytes)
+                }
+            )
+        )
+        assertManifestImportError(
+            "Manifest import blocked: file could not be read."
+        ) {
+            try replacementService.decodeManifest(from: selectedURL)
+        }
+
+        let serviceSource = try repositorySource("Sources/MindDesk/Services/SystemServices.swift")
+        XCTAssertTrue(serviceSource.contains("struct ManifestURLReadDependency: Sendable"))
+        XCTAssertTrue(serviceSource.contains("struct ManifestURLMetadata: Equatable, Sendable"))
+        XCTAssertTrue(serviceSource.contains("static let live = Self("))
+        XCTAssertTrue(serviceSource.contains("private let manifestURLRead: ManifestURLReadDependency"))
+        let metadataSource = try functionSource(
+            startingWith: "private static func liveManifestMetadata(from url: URL)",
+            in: serviceSource
+        )
+        XCTAssertTrue(metadataSource.contains("Darwin.lstat"))
+        XCTAssertTrue(metadataSource.contains("S_IFREG"))
+        let cappedReadSource = try functionSource(
+            startingWith: "private static func liveManifestCappedRead(",
+            in: serviceSource
+        )
+        for required in [
+            "O_NOFOLLOW",
+            "O_CLOEXEC",
+            "Darwin.fstat",
+            "S_IFREG",
+            "openedMetadata.st_dev == expectedMetadata.deviceID",
+            "openedMetadata.st_ino == expectedMetadata.fileID",
+            "maximumReadBytes - 1",
+            "Darwin.read",
+            "Darwin.close"
+        ] {
+            XCTAssertTrue(cappedReadSource.contains(required), "Live capped read omitted \(required)")
+        }
+        let openRange = try XCTUnwrap(cappedReadSource.range(of: "Darwin.open"))
+        let fstatRange = try XCTUnwrap(cappedReadSource.range(of: "Darwin.fstat"))
+        let readRange = try XCTUnwrap(cappedReadSource.range(of: "Darwin.read"))
+        XCTAssertLessThan(openRange.lowerBound, fstatRange.lowerBound)
+        XCTAssertLessThan(fstatRange.lowerBound, readRange.lowerBound)
+    }
+
+    func testDecodeManifestFromDataRejectsOversizeLegacyTrapBeforeClassification() {
+        let maximumBytes = ManifestImportLimits.maximumManifestBytes
+
+        do {
+            let atLimit = makeLegacyReviewTrapData(byteCount: maximumBytes)
+            assertManifestImportError(
+                "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
+            ) {
+                try ImportExportService().decodeManifest(from: atLimit)
+            }
+        }
+
+        do {
+            let oversized = makeLegacyReviewTrapData(byteCount: maximumBytes + 1)
+            assertManifestImportError(
+                "This JSON file is larger than the 64 MiB import limit."
+            ) {
+                try ImportExportService().decodeManifest(from: oversized)
+            }
+        }
+    }
+
+    func testContentViewDelegatesURLManifestLoadingToImportExportService() throws {
+        let contentViewSource = try repositorySource("Sources/MindDesk/Views/ContentView.swift")
+        let loadManifestSource = try functionSource(
+            startingWith: "nonisolated private static func loadManifest(from url: URL)",
+            in: contentViewSource
+        )
+        XCTAssertEqual(
+            normalizedSource(loadManifestSource),
+            normalizedSource("""
+            nonisolated private static func loadManifest(from url: URL) async throws -> ExportManifest {
+                try await Task.detached(priority: .userInitiated) {
+                    try ImportExportService().decodeManifest(from: url)
+                }.value
+            }
+            """)
+        )
+        XCTAssertFalse(contentViewSource.contains("readManifestData(from:"))
+        for forbidden in [
+            "readJSONImportData",
+            "Data(contentsOf:",
+            "FileHandle",
+            "resourceValues",
+            "decodeManifest(from: data)"
+        ] {
+            XCTAssertFalse(loadManifestSource.contains(forbidden), "loadManifest rebuilt the service chain with \(forbidden)")
+        }
+
+        let importManifestSource = try functionSource(
+            startingWith: "private func importManifest()",
+            in: contentViewSource
+        )
+        let normalizedImport = normalizedSource(importManifestSource)
+        XCTAssertTrue(
+            normalizedImport.contains(
+                "let manifest: ExportManifest do { manifest = try await Self.loadManifest(from: url) } catch { setStatus(error.localizedDescription) return } do { let summary = try ManifestImportService().importRecords"
+            )
+        )
+        let importerRange = try XCTUnwrap(
+            importManifestSource.range(of: "ManifestImportService().importRecords")
+        )
+        let beforeImporter = importManifestSource[..<importerRange.lowerBound]
+        let afterImporter = importManifestSource[importerRange.lowerBound...]
+        XCTAssertFalse(beforeImporter.contains("modelContext.rollback()"))
+        XCTAssertEqual(afterImporter.components(separatedBy: "modelContext.rollback()").count - 1, 1)
+    }
+
     func testManifestImportServiceImportsCompleteManifestAndRewritesReferences() throws {
         let container = try makeInMemoryContainer()
         let context = ModelContext(container)
@@ -413,38 +662,6 @@ final class ManifestImportServiceTests: XCTestCase {
         XCTAssertEqual(snippetNode.objectId, importedSnippet.id)
     }
 
-    func testAgentReviewPackageCannotImportAsManifestOrCreateRecords() throws {
-        let container = try makeInMemoryContainer()
-        let context = ModelContext(container)
-        let package = MindDeskInterchangePackage(
-            manifest: makeCompleteManifest(),
-            createdAt: Date(timeIntervalSince1970: 300)
-        )
-        let packageData = try JSONEncoder.minddesk.encode(package)
-
-        XCTAssertThrowsError(
-            try ImportExportService().decodeManifest(from: packageData)
-        ) { error in
-            guard case WorkbenchError.invalidManifestReferences(let message) = error else {
-                return XCTFail("Expected read-only MIP manifest import rejection, got \(error)")
-            }
-            XCTAssertEqual(
-                message,
-                "MindDesk interchange packages are read-only review files and cannot be imported as manifests."
-            )
-        }
-
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WorkspaceModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<ResourcePinModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<SnippetModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CanvasModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CanvasNodeModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<CanvasEdgeModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<FinderAliasRecordModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WorkspaceTodoGroupModel>()), 0)
-        XCTAssertEqual(try context.fetchCount(FetchDescriptor<WorkspaceTodoModel>()), 0)
-    }
-
     private func makeInMemoryContainer() throws -> ModelContainer {
         let schema = Schema([
             WorkspaceModel.self,
@@ -459,6 +676,106 @@ final class ManifestImportServiceTests: XCTestCase {
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
+    private func makeLegacyReviewTrapData(
+        byteCount: Int,
+        format: String = "minddesk.interchange.package"
+    ) -> Data {
+        let prefix = Data("{\"format\":\"\(format)\",\"padding\":\"".utf8)
+        let suffix = Data("\"}".utf8)
+        precondition(byteCount >= prefix.count + suffix.count)
+        var data = prefix
+        data.append(Data(repeating: UInt8(ascii: "x"), count: byteCount - prefix.count - suffix.count))
+        data.append(suffix)
+        return data
+    }
+
+    private func minimalLegacyManifestData(marker: String? = nil) -> Data {
+        let markerField = marker.map { "\"marker\": \"\($0)\"," } ?? ""
+        return Data("""
+        {
+          \(markerField)
+          "schemaVersion": 2,
+          "exportedAt": "1970-01-01T00:00:00Z",
+          "workspaces": [],
+          "resources": [],
+          "snippets": [],
+          "canvases": [],
+          "nodes": [],
+          "edges": [],
+          "aliases": []
+        }
+        """.utf8)
+    }
+
+    private func manifestURLMetadata(byteCount: Int) -> ImportExportService.ManifestURLMetadata {
+        .init(byteCount: Int64(byteCount), deviceID: 0, fileID: 0)
+    }
+
+    private func repositorySource(_ relativePath: String) throws -> String {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return try String(
+            contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+            encoding: .utf8
+        )
+    }
+
+    private func functionSource(startingWith signature: String, in source: String) throws -> String {
+        guard let signatureRange = source.range(of: signature),
+              let openingBrace = source[signatureRange.lowerBound...].firstIndex(of: "{") else {
+            throw ManifestSourceTestError.functionNotFound(signature)
+        }
+        var depth = 0
+        var cursor = openingBrace
+        while cursor < source.endIndex {
+            switch source[cursor] {
+            case "{":
+                depth += 1
+            case "}":
+                depth -= 1
+                if depth == 0 {
+                    return String(source[signatureRange.lowerBound...cursor])
+                }
+            default:
+                break
+            }
+            cursor = source.index(after: cursor)
+        }
+        throw ManifestSourceTestError.unbalancedFunction(signature)
+    }
+
+    private func normalizedSource(_ source: String) -> String {
+        source.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    private func assertManifestImportError<T>(
+        _ expectedMessage: String,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        operation: () throws -> T
+    ) {
+        XCTAssertThrowsError(try operation(), file: file, line: line) { error in
+            guard case WorkbenchError.invalidManifestReferences(let message) = error else {
+                return XCTFail("Expected invalid manifest references error, got \(error)", file: file, line: line)
+            }
+            XCTAssertEqual(message, expectedMessage, file: file, line: line)
+        }
+    }
+
+    private enum ManifestURLReadTestError: Error, Sendable {
+        case incorrectReadLimit
+        case simulatedReadFailure
+        case simulatedReplacementFailure
+        case unexpectedRead
+    }
+
+    private enum ManifestSourceTestError: Error {
+        case functionNotFound(String)
+        case unbalancedFunction(String)
     }
 
     private func makeCompleteManifest() -> ExportManifest {
