@@ -1,6 +1,6 @@
 # MindDesk S0 Capability Lockdown and Scope Identity Design
 
-**Status:** Approved for implementation planning after four-seat re-review and Gate-order corrigendum.
+**Status:** Approved for implementation after four-seat amendment review.
 
 **Parent design:** `2026-07-29-private-canvas-first-canonical-v3-design.md`
 
@@ -356,7 +356,7 @@ Cancellation and thrown-fetch exits are terminal for that exact attempt:
 2. Once cancellation or staleness is known, it starts no later fetch. An already in-flight fetch may return, but its value is discarded.
 3. Cancellation after a successful save never rolls back or deletes persisted data. Work stops; the current scene fingerprint or next focus lookup reconciles the record.
 4. `CancellationError` and stale exits show no old-scope error and do not bind. The registration must already have been detached by transition or be removed by an explicit exact `complete`.
-5. For any non-cancellation fetch error: if slot/focus/fingerprint is stale, stop silently after removing only its own live registration; if still exact, first complete the exact registration, clear that slot, do not call `bind`, preserve current resolution, discard any provisioning context, and do not retry automatically. The existing status/error surface shows a sanitized recoverable message. Provisioning never owns pending-node state. After §8 is introduced, the scene-root node-open coordinator may terminally clear a target for this outcome only when the current four-field pending target exactly equals the target captured for that node-open flow, including `requestID`.
+5. For any non-cancellation fetch error: if slot/focus/fingerprint is stale, stop silently after removing only its own live registration; if still exact, first complete the exact registration, clear that slot, do not call `bind`, preserve current resolution, discard any provisioning context, and do not retry automatically. The existing status/error surface shows a sanitized recoverable message. Provisioning never owns node-target state. After §8 is introduced, the scene-root node-open coordinator may terminally clear a target for this outcome only when the current four-field active target exactly equals the target captured for that node-open flow, including `requestID`.
 6. Every exit path proves one of two states: transition already detached the registration, or matched `complete` removed it. No finished operation remains in the live cancellation registry.
 
 Tests inject throws at initial, pre-insert, and post-save fetches, plus cancellation before the second fetch, immediately before insert/save, after successful save but before fresh fetch, and while fresh fetch is in flight.
@@ -518,30 +518,42 @@ enum WorkspaceCanvasNodeOpenRequestDecision: Equatable, Sendable {
 }
 ```
 
-Pending-target storage and every result-to-target clearing decision are introduced together in this section. The §6 provisioning coordinator exposes scope-bound outcomes but never creates, inspects, issues, or clears pending targets.
+The §6 provisioning coordinator exposes scope-bound outcomes but never creates, inspects, issues, or clears node targets. The unique window controller instead owns one continuous active-intent flow through the entire pending and issued lifetime:
 
-Every Quick Open or deep target creates a new UUID-bearing pending target. A new target replaces the old target atomically. Lookup/provision completion may issue work only when the current pending target still matches all four fields including `requestID`; an old completion may neither issue from nor clear a newer target.
+```text
+idle
+pending(exact four-field target, optional exact launch correlation)
+issued(exact four-field target, exact bound request, exact ownership evidence)
+```
 
-The scene root focuses, resolves, provisions if appropriate, and binds before request issue. Pending-state decisions are:
+A pending launch correlation is either `starting(launchID, exact focus, exact fingerprint)` or `accepted(operationID)`. The adapter never stores a parallel correlation: it invokes controller methods that atomically install, upgrade, hand off, or clear this one field. Before asking Gate 6 to register a launch, it installs a fresh `starting` nonce only if the target/focus/fingerprint are still exact. Success upgrades that exact nonce to the returned operation ID. A still-current registration failure clears only its exact nonce, retains the target, and presents a sanitized recoverable status with explicit retry; it is not fabricated as a `missing` terminal outcome. A synchronously stale failure changes no current flow or status.
 
-- `missing` while an accepted provisioning operation remains active: defer and keep the exact pending ID.
-- `duplicate`, target Canvas mismatch, or a scoped ownership lookup returning `definitelyAbsentOrCrossCanvas`: terminal reject and clear only the matching pending ID.
-- `dataNotReady`: defer; a missing render-dictionary entry alone is never proof of absence.
-- `readyOwned` under the exact bound scope: ask the controller's checked factory to issue the bound request, then clear the matching pending target.
+Every Quick Open or deep target creates a new UUID-bearing target. Claiming a target atomically replaces the entire prior flow, including any deferred issued request and operation correlation. Revoking an older issued request does not advance `lastConsumedSequence`, change selection/viewport, or clear the new flow; a late callback for that request is only an unissued/replaced rejection. Lookup/provision completion may issue work only when the active flow is still the exact pending target across all four fields including `requestID`.
 
-The ownership decision comes from a scoped lookup completed for the exact bound identity. `missing` without active provisioning is unavailable and terminal for that pending target. A new target can never clear or be cleared by an older target's callback.
+For cross-workspace Quick Open, the adapter first claims the target and then changes selection. It does not launch a parallel lookup: the one scene-observation reducer performs the focus/lookup exactly once. If the target already names the current workspace and selection/fingerprint observation does not change, one explicit fresh lookup is permitted. A later user selection of another workspace, Home, or nil terminates the exact active flow; a transition into the active target's own workspace preserves it.
 
-The unique window controller owns request allocation/consumption state. The request type and a controller extension implementing its checked factory live in the same file so the request initializer remains `fileprivate`. On each new bound scope, `nextSequence = 1`, `lastConsumedSequence = nil`, and no request is issued; every scope rotation discards all three values. The factory records the one current issued request and uses `addingReportingOverflow(1)` before allocation. If a next value cannot be represented, it emits no request and performs a controller transition to a new same-workspace revision with `primaryResolution = nil`, no binding, and normal exactly-once cancellation; a fresh lookup is required. It never leaves `primaryResolution == unique` with `boundCanvas == nil`. Overflow tests seed the internal pure allocator through `@testable import`, never by issuing `UInt64.max` requests.
+The scene root focuses, resolves, provisions if appropriate, and binds before request issue. A cross-workspace claim waits for the selection observation before installing its starting nonce; a same-workspace claim with unchanged observation may install one nonce for its explicit fresh launch. Active-flow decisions are:
 
-Consumption checks in fixed order: full identity, exact currently issued sequence/replay, then readiness.
+- `missing` while an accepted provisioning operation remains active: defer and keep the exact pending flow.
+- `duplicate`, target Canvas mismatch, or a scoped ownership lookup returning `definitelyAbsentOrCrossCanvas`: terminal reject and clear only the matching flow.
+- ownership `readyOwned` under the exact bound identity and exact node-observation fingerprint: transition `pending → issued`, retaining the complete target beside the request, storing `ready(full request, full scope, nodeObservationFingerprint)` evidence, and clearing only the no-longer-needed accepted-operation correlation. Repeated evaluation of the same issued flow/evidence is idempotent and allocates no second sequence.
+- render `dataNotReady`: retain the complete issued flow unchanged; a missing render-dictionary entry or zero surface alone is never proof of absence.
 
-- Full identity mismatch returns `.rejectAndConsume` and does not mutate the receiving scope's issued state or `lastConsumedSequence`.
-- A sequence that was never issued, was replaced, or is already consumed returns `.rejectAndConsume` without advancing.
-- Exact issued request plus `.dataNotReady` returns `.defer` with zero state change.
-- Exact issued request plus `.definitelyAbsentOrCrossCanvas` updates `lastConsumedSequence`, clears that issued request, and returns `.rejectAndConsume`.
-- Exact issued request plus `.readyOwned` updates `lastConsumedSequence`, clears that issued request, and returns `.accept`.
+The ownership decision comes from one fresh read-only context completed for the exact bound identity. `missing` without active provisioning is unavailable and terminal for that pending flow. The node observation uses a cardinality-preserving fingerprint of stable-sorted raw `(nodeID, canvasID)` pairs with count and length prefixes, retaining blanks and duplicates. On any changed node observation, the controller synchronously changes exact issued evidence to `dirty(full request, full scope, newFingerprint)` before starting the fresh lookup. While dirty, every render/surface callback can only defer; it can never reuse older `readyOwned` evidence. A fresh result commits only if target, request, scope, and fingerprint still match: confirmed absence consumes the exact flow, ready ownership installs `ready` for that generation and may continue to render readiness, and a fetch throw retains pending unchanged or retains issued dirty with sanitized recoverable status. A new target can never clear or be cleared by an older callback.
 
-The caller clears only the exact request that produced `.accept` or `.rejectAndConsume`; `.defer` retains it. S0 does not implement the final S2 window chooser, Back navigation, unobscured target placement, or accessibility focus transfer.
+The request type and controller checked-factory extension live in the same file so the request initializer remains `fileprivate`. On each new bound scope, `nextSequence = 1`, `lastConsumedSequence = nil`, and no request is issued. A same-workspace internal rotation—including fingerprint/query reconciliation or allocator overflow—resets sequence/issued/consumed state but preserves the newest active intent: an unconsumed issued flow is demoted back to its exact pending target without advancing counters, and the one reducer or explicit overflow recovery starts one lookup and installs a new correlation only if that target is still current. If a newer claim already exists, rotation never resurrects the older target. A workspace/Home/nil switch away from the active target clears the flow.
+
+The factory records the one current issued flow and uses `addingReportingOverflow(1)` before allocation. If a next value cannot be represented, it emits no request, demotes the still-current target to pending, and performs a controller transition to a new same-workspace revision with `primaryResolution = nil`, no binding, and normal exactly-once cancellation; a fresh lookup is required. It never leaves `primaryResolution == unique` with `boundCanvas == nil`. Overflow tests seed the internal pure allocator through `@testable import`, never by issuing `UInt64.max` requests.
+
+Consumption checks in fixed order: full identity, exact current issued-flow request/sequence, then readiness.
+
+- Full identity mismatch returns `.rejectAndConsume` and does not mutate the receiving scope's current flow or `lastConsumedSequence`.
+- A sequence that was never issued, was revoked by a newer claim/rotation, or is already consumed returns `.rejectAndConsume` without advancing or clearing the current flow.
+- Exact issued flow plus `.dataNotReady` returns `.defer` with zero state change only when its stored ready evidence matches the full current request/scope/node fingerprint; dirty, missing, or stale evidence also defers and can never accept.
+- Exact issued flow plus `.definitelyAbsentOrCrossCanvas` updates `lastConsumedSequence`, atomically clears that exact request and originating target, and returns `.rejectAndConsume`.
+- Exact issued flow plus `.readyOwned` updates `lastConsumedSequence`, atomically clears that exact request and originating target, and returns `.accept`.
+
+The caller removes only the exact presented request that produced `.accept` or `.rejectAndConsume`; `.defer` retains it. S0 does not implement the final S2 window chooser, Back navigation, unobscured target placement, or accessibility focus transfer.
 
 ## Implementation Compile Gates
 
@@ -657,12 +669,12 @@ Tests load them through `Bundle.module`. Oversize and malicious payloads are gen
 
 `Tests/MindDeskTests/WorkspaceCanvasNodeOpenRequestTests.swift`
 
-- UUID-bearing pending target precedes focus/lookup/bind; creation, atomic replacement, and every provisioning-result clear compare the exact captured four-field target, protecting A→B→A so old completions or callbacks cannot issue from or clear a newer target. Only a current exact non-cancellation provisioning error is terminal through this correlation; cancellation and stale outcomes cannot clear it.
-- Missing defers only while accepted provisioning is active; duplicate, target mismatch, and scoped confirmed absence terminally clear the exact pending ID.
-- Request generation requires exact bound Primary Canvas plus scoped `readyOwned`; temporary render absence is `dataNotReady`.
-- Controller-owned sequence starts at 1 per bound scope and resets on rotation. Seeded allocator overflow emits nothing, rotates to nil resolution/unbound, cancels exactly once, and requires fresh lookup.
-- Identity mismatch, unissued/replaced sequence, and replay reject without advancing the receiving scope.
-- `.dataNotReady` retains request and counters; `readyOwned` accept and scoped `definitelyAbsentOrCrossCanvas` rejection advance and consume.
+- One UUID-bearing active target precedes focus/lookup/bind and remains paired with any issued request until exact terminal consumption. Pending launch uses an exact provisional nonce upgraded to an accepted operation ID; a current registration failure retains the target with recoverable retry, while stale failure mutates nothing. A new claim atomically replaces correlation and revokes an older deferred issued request, protecting A→B→A so old work cannot issue, accept, or clear a newer target.
+- Missing defers only while accepted provisioning is active; duplicate, target mismatch, scoped confirmed absence, and a current exact non-cancellation provisioning error terminally clear only the exact active flow. Cancellation and stale outcomes cannot clear it.
+- Request generation requires exact bound Primary Canvas plus scoped ownership `readyOwned`; temporary render absence is `dataNotReady` and retains both request and originating target. Node changes synchronously dirty generation-bound ownership evidence before fresh lookup; throw keeps it dirty, and no render event may reuse older ready evidence.
+- Controller-owned sequence starts at 1 per bound scope and resets on rotation. A matching same-workspace rotation demotes the newest unconsumed issued flow to pending; switching away clears it. Seeded allocator overflow emits nothing, preserves that target as pending, rotates to nil resolution/unbound, cancels exactly once, and requires one fresh lookup.
+- Identity mismatch, unissued/revoked sequence, and replay reject without advancing or mutating the receiving scope's current flow.
+- Exact `.dataNotReady` retains the issued flow and counters; `readyOwned` accept and scoped `definitelyAbsentOrCrossCanvas` rejection atomically advance and consume the exact request plus originating target.
 
 ### Zero-Side-Effect Evidence Matrix
 
@@ -707,17 +719,20 @@ Add:
 The verifier CLI is:
 
 ```text
-script/verify_s0_private_canvas.sh --repo-root DIR --binary FILE [--app-bundle DIR]
+script/verify_s0_private_canvas.sh --repo-root DIR --package-manifest-only
+script/verify_s0_private_canvas.sh --repo-root DIR --scratch-path DIR --configuration release --build-description FILE --evidence-dir DIR --binary FILE [--app-bundle DIR]
 ```
 
-`--repo-root` and `--binary` are mandatory. Packaging must also pass `--app-bundle`. The verifier starts with `set -euo pipefail`; a missing tool, nonzero pipeline component, invalid/truncated JSON, unreadable path, symlink traversal, or incomplete enumeration is failure. It sources the read-only shared policy and:
+`--repo-root` is mandatory. Outside package-manifest-only mode, `--scratch-path`, exact `--configuration release`, `--build-description`, private `--evidence-dir`, and `--binary` are all mandatory; packaging also passes `--app-bundle`. The scratch is an absolute, private, newly created non-symlink directory outside the repository. The build description is the sole regular non-symlink Release `description.json` under that scratch and is captured from the same build that produced the binary. On its first successful call, the verifier atomically creates deterministic `normalized-build-plan.json` and `source-policy-evidence.json` in an initially empty evidence directory; every later unsigned, signed, extracted, or mounted call for that build uses the same evidence directory, recomputes into temporary files, and requires byte equality without overwriting. These two canonical files contain normalized build/policy facts, not volatile paths, symbol addresses, signatures, or raw binary/bundle hashes; provenance and the pre-sign/final manifests bind those bytes separately. The verifier starts with `set -euo pipefail`; a missing tool, nonzero pipeline component, invalid/truncated JSON, unreadable path, symlink traversal, or incomplete enumeration is failure. It sources the read-only shared policy and:
 
-- Parses `swift package show-dependencies --format json` structurally and requires the graph to contain only the root package with zero external dependency nodes/identities/URLs. Optional `Package.resolved` must be absent; any future external dependency requires a new approved specification.
-- Parses `swift package describe --type json`; every production target source/resource root must match an approved scanned root. A new or relocated production root fails closed until policy and fixtures are reviewed.
+- Before any SwiftPM command, physically and NUL-safely enumerates the repository root without following symlinks. Exactly one regular non-symlink `Package.swift` must exist. Every other root basename matching `Package@swift-*.swift` is forbidden whether regular, symlinked, tracked, untracked, or ignored—including the supported MAJOR, MAJOR.MINOR, and MAJOR.MINOR.PATCH forms—because SwiftPM may select a version-specific manifest instead of `Package.swift`. The gate parses the sole manifest through the Swift compiler frontend without evaluating it and permits only the manually frozen `PackageDescription` declaration tree. `--package-manifest-only` performs exactly this preflight, and a failure occurs before any mocked or real `swift package`, `swift build`, or `swift test` invocation.
+- Runs every `swift package` metadata command with the same explicit repository package path and Release scratch, never default `.build`. It parses `show-dependencies --format json` structurally and requires the graph to contain only the root package with zero external dependency nodes/identities/URLs. Optional `Package.resolved` must be absent; any future external dependency requires a new approved specification.
+- Parses `describe --type json` plus the strict captured SwiftPM build description. It requires the expected Release modules, build configuration, compiler executable, source/object/output paths, and command graph; every path is physically contained in either an approved repository production root or that exact scratch. The description hash and all input/generated-source hashes are rechecked before and after verifier metadata/AST work.
+- Reconstructs compiler-frontend AST invocations from the exact `swiftCommands`/`swiftFrontendCommands` in that build description, changing only the reviewed non-codegen AST-output flags. It normalizes volatile repository/scratch/SDK paths before policy comparison and rejects missing, duplicate, contradictory, or unknown commands. Thus source policy evidence and the shipped build use one build plan and one scratch.
 - Runs `nm -a "$binary" | "$(xcrun --find swift-demangle)"` and applies exact runtime-symbol stems while allowing only the fully enumerated stored DTO/raw enum/pure-validator stems below.
 - Runs `strings -a` over the binary and every regular file in the app bundle, applying exact removed UI/runtime markers.
 - Uses `otool -L` only as supporting dependency evidence, never as its only static-link check.
-- Scans only approved production roots: `Sources/MindDesk`, `Sources/MindDeskCore`, `Package.swift`, and production app Resources. It does not scan tests, specs, other docs, changelog, or release history.
+- Scans approved repository production roots plus every production input recorded by the exact build plan. Repository inputs are limited to `Sources/MindDesk`, `Sources/MindDeskCore`, `Package.swift`, and production app Resources. Scratch inputs are limited to manually frozen normalized SwiftPM DerivedSources/templates and compiler/macro-synthesized declarations; unknown generated files, imports, declarations, call edges, or external callees fail. It does not scan tests, specs, other docs, changelog, or release history.
 - Rejects exact deleted paths/tokens, direct Canvas Agent-package encoding, exact active Agent AppStorage consumers, and any `Sources/MindDesk` reference to historical MIP/proposal/report DTOs. App code may refer only to `MindDeskJSONDocumentClassifier`, `MindDeskJSONDocumentClassification`, `MindDeskJSONDocumentKind`, `CanvasReviewCapabilityLock`, and `CanvasReviewCapabilityError` for the bounded rejection branch.
 
 When `--app-bundle` is present, `Info.plist`'s `CFBundleExecutable` and `--binary` must resolve to the same regular `Contents/MacOS/MindDesk` file inside the bundle. S0 permits no other bundled code object: any additional file under `Contents/MacOS`, `Contents/Frameworks`, `Contents/PlugIns`, `Contents/XPCServices`, a helper location, or any Mach-O/executable file elsewhere under `Contents` fails. Any symlink or unhandled file type fails. The sole main code object receives dependency, `nm`, demangle, and `strings` checks; all non-code regular files receive `strings` checks. Self-tests include hidden helper, framework, plug-in, XPC, executable-in-Resources, Mach-O-without-executable-bit, and symlink fixtures.
@@ -749,7 +764,19 @@ No wildcard such as `MindDeskAgent*`, “stored DTO,” or “pure validator” 
 
 Within those allowed types, source policy permits stored properties, explicit all-value initializers, compiler/Codable `init(from:)` and `encode(to:)`, the frozen Proposal decode-limit logic, named pure validation/sanitization, and `MindDeskProposalContextFreshness` comparison only. It explicitly rejects member declarations or references containing `.current`, `defaultGuide`, live `Manifest`/model initializers, package/report/catalog builders, `MindDeskExtensionCapabilitySearch`, `MindDeskProposalReviewPolicy`, `MindDeskProposalManifestDigest`, `MindDeskInterchangePackageValidationReport`, `MindDeskProposalValidationReport`, `MindDeskExtensionCapabilityCatalogValidationReport`, or `MindDeskAgentIntegrationContractValidationReport`.
 
-The policy also freezes an exact sink/codec inventory as `(relative file, fully qualified enclosing type and declaration signature, normalized callee token)` triples after runtime deletion; a short overloaded function name is not sufficient. `Process`/`openpty` have zero allowed production callpoints. `TerminalService`/`AppleScriptRunner` are allowed only in their existing `SystemServices.swift` declarations and the ordinary `SnippetLibraryView.openTerminal(_:)` / `SnippetLibraryView.run(_:)` callpoints. `ClipboardService.copy` is allowed only in direct-user `ContentView.copySnippet(_:)`, `ContentView.copyResourcePath(_:)`, `ResourceListView.performResourceAction(_:action:)`, `ResourcePreviewView.performResourceAction(_:)`, `SnippetLibraryView.copy(_:)`, `SnippetLibraryView.run(_:)`, `WorkspaceCanvasView.open(_:)`, and `WorkspaceCanvasView.copyNodePayload(_:)`.
+The policy also freezes an exact sink/codec inventory as `(relative file, fully qualified enclosing type and declaration signature, resolved normalized callee)` triples after runtime deletion; a short overloaded function name is not sufficient. The closed inventory covers all of these families, including imported C symbols and alternate spellings:
+
+- Foundation file output: `Data`/`NSData`/`String` writes, `OutputStream` open/write, `FileHandle` write/truncate/update operations, and every mutating `FileManager` create/copy/move/replace/remove/trash/link/symbolic-link/attribute/temporary-item operation;
+- Darwin/POSIX mutation: `open`/`openat`/`creat`, `write`/`pwrite`/`writev`, `truncate`/`ftruncate`, rename/link/symlink/unlink/remove, mkdir/rmdir, chmod/chown/time/xattr mutation, mkstemp/mkdtemp/mknod/mkfifo, copyfile/clonefile, writable/shared mapping, `fcntl`, and direct `syscall` routes;
+- process and terminal: `Process`, `NSTask`, `posix_spawn*`, `fork`, `vfork`, every `exec*`, `system`, `popen`, and `openpty`;
+- UI/system and dynamic bridges: raw pasteboard writes, `NSAppleScript`, Apple Event/OSA/ScriptingBridge APIs, Finder/workspace launches, URL opening, argv/environment access, and `dlopen`/`dlsym` or equivalent dynamic symbol invocation;
+- codecs and outbound clients: every JSON/property-list/archive encoder or decoder plus `URLSession`, Network-framework, socket, and equivalent network APIs.
+
+Each family has resolved-AST positive and near-miss-negative fixtures plus complete normalized undefined/external binary-symbol evidence where static linkage can hide a call. The policy freezes the complete approved system/framework import set and resolved external-system callee inventory from the final production build. It also freezes normalized SwiftPM-generated sources such as `resource_bundle_accessor.swift`, every generated-source provenance/template hash, expanded macro body, property-wrapper/accessor synthesis, and compiler-synthesized declaration/call edge visible in the exact build-plan AST. A new or tampered generated file, macro use/expansion, synthesized external call, import, or external callee fails; fixtures modify a generated source after build, add an unknown DerivedSources file, and introduce an unapproved macro/synthesized sink.
+
+External sinks alone are not the authority boundary. Starting at every external sensitive sink triple, the policy manually freezes the reverse-reachable local effect graph: every local gateway declaration, every call edge into or between gateways, every permitted root user/persistence/import entrypoint, and every effectful closure/function-value injection edge. This includes Finder/alias/resource import/export, persistence/save/defaults/file gateways, terminal/AppleScript/URL, clipboard, and any wrapper that transitively reaches them. A new call to an existing wrapper therefore fails even when it adds no import or external callee. The verifier derives candidate edges from the exact expanded AST but compares them to the manually reviewed graph; it never auto-learns approval. Fixtures add a new caller of each existing gateway, an extra wrapper layer, an escaping closure, overload/typealias indirection, and a local-to-local-to-sink path.
+
+An incomplete AST, unresolved/dynamic external or effect-graph call target, unknown generated input, or new production root fails closed. APIs not explicitly needed have zero allowed production callpoints. `Process`/spawn/fork/vfork/exec/system/popen/openpty, network, Apple Event alternatives, dynamic loading, and POSIX mutators have zero allowed production callpoints. `TerminalService`/`AppleScriptRunner` are allowed only in their existing `SystemServices.swift` declarations and the ordinary `SnippetLibraryView.openTerminal(_:)` / `SnippetLibraryView.run(_:)` callpoints. `ClipboardService.copy` is allowed only in direct-user `ContentView.copySnippet(_:)`, `ContentView.copyResourcePath(_:)`, `ResourceListView.performResourceAction(_:action:)`, `ResourcePreviewView.performResourceAction(_:)`, `SnippetLibraryView.copy(_:)`, `SnippetLibraryView.run(_:)`, `WorkspaceCanvasView.open(_:)`, and `WorkspaceCanvasView.copyNodePayload(_:)`.
 
 S0 extracts the inline folder-preview copy closure into the behavior-equivalent named declaration `ResourcePreviewView.copyFolderPreviewItemPath(_:)`; that exact declaration is the only folder-preview clipboard triple. App JSON codec triples are exactly `WorkbenchTagCodec.encode(_:)` with `JSONEncoder().encode`, `WorkbenchTagCodec.decode(_:)` with `JSONDecoder().decode`, `ImportExportService.decodeManifest(from:)` with `JSONDecoder.minddesk.decode`, and `ContentView.exportManifest()` with `JSONEncoder.minddesk.encode`. Core ordinary codec factory declarations `JSONEncoder.minddesk` and `JSONDecoder.minddesk` in `ExportManifest.swift` are also exact allowed triples. Compatibility codec triples are limited to the enumerated retained Core files and their Codable/pure-validation declarations.
 
@@ -757,17 +784,19 @@ The policy enumerates these exact final triples after Gates 2–7 have completed
 
 The policy enumerates every deleted file path from Architecture §3 and every allowed production root. Each deny/allow/sink rule has a positive fixture and a near-miss negative fixture. The verifier makes no unprovable claim that names alone detect arbitrary renamed behavior; instead, new targets, roots, code objects, legacy DTO app references, encoder/process/clipboard/terminal callpoints, package-workflow calls, or sinks fail closed until explicitly reviewed.
 
-`script/test_verify_s0_private_canvas.sh` sources the same policy and supplies positive and negative fixtures for every rule, dependency/target JSON, forbidden/allowed source, demangled symbols, binary/resource strings, argument validation, paths containing spaces, and unknown production roots.
+`script/test_verify_s0_private_canvas.sh` sources the same policy and supplies positive and negative fixtures for every rule, dependency/target/build-description JSON, generated/macro evidence, effect-graph edges, forbidden/allowed source, demangled/undefined symbols, binary/resource strings, argument validation, paths containing spaces/newlines/control bytes, nonnumeric `Package@swift-*.swift` names, and unknown production/scratch roots. It proves a malformed or mismatched scratch/build description and any generated-source or local-wrapper escape fail before evidence is accepted.
 
 ### Mandatory Release Wiring
 
-1. `script/package_release.sh` finishes every non-signature bundle mutation, runs the verifier with repo root/build binary/app bundle, and records a sorted path/type/size/SHA-256 manifest. It recomputes that manifest immediately before codesign and requires equality. Between these checks and the post-sign check, only codesign, notarization submission, and staple operations are allowed.
-2. After codesign/notarization/staple, the package script reruns the full verifier on the actual bundle. It then creates the distributable, computes its SHA-256, extracts/mounts that exact artifact into a fresh directory, reruns the full bundle verifier there, and records the artifact digest. Upload/publish receives only that same digest-checked artifact path; replacement or mutation fails.
-3. `.github/workflows/ci.yml` runs `bash -n` on policy/verifier/self-test scripts, runs verifier self-tests, and explicitly verifies a direct Release binary. Its ad-hoc packaging smoke passes through both package-script gates and final artifact re-verification.
-4. `.github/workflows/release.yml` runs policy/verifier/self-test syntax and self-tests pre-sign; formal packaging uses `package_release.sh`, and no sign/upload can run before pre-sign, post-staple, and extracted-final-artifact verification all pass.
-5. `script/test_release_workflow_guards.sh` asserts this exact ordering and injects failures for a missing/failing `nm`, demangler, JSON parser, `file`, `otool`, `strings`, and hash tool; malformed/truncated JSON; unreadable file; incomplete traversal; verifier-after mutation; hidden helper/framework/plug-in/XPC/resource executable/symlink; binary replacement; and upload of a path or digest other than the verified artifact.
+1. `script/package_release.sh` first captures the full source HEAD and requires the strict clean-worktree/unchanged-HEAD guard plus package-manifest-only gate. It creates one private unique `mktemp -d` Release scratch and one initially empty private evidence directory, uses that same explicit scratch for build, `--show-bin-path`, every SwiftPM metadata command, build-description parsing, and exact-plan AST work, and never reads default `.build`. It captures the strict build description and normalized build/source-policy evidence hashes, records and directly verifies the fresh binary hash, copies that exact file into the bundle, finishes every non-signature bundle mutation, requires the copied hash to remain equal, and only then invokes full bundle verification with the same scratch, build description, and evidence directory. `build-provenance.json` records schema `1`, full source HEAD, Release configuration, normalized build-plan/source-policy evidence digests, scratch/unsigned-bundle binary equality, and the pre-sign bundle-manifest digest. All are rechecked before scratch/evidence cleanup and output exposure.
+2. The pre-sign manifest is recomputed immediately before codesign and must remain byte-equal. Only codesign and stapling may mutate the app between the pre-sign and final-app manifests; creation of a notary transport archive, submission/polling, and read-only verification are permitted but cannot mutate it. Notarization JSON must have an object root, no duplicate keys, required string `id`/`status`, and exact accepted status; missing/wrong types or malformed/truncated content fail. After mode-specific final app state, the package script verifies signature/ticket policy, reruns the full source/binary/bundle verifier with the same scratch, build description, and evidence directory, and records the final-app manifest.
+3. The exact ZIP is inspected, extracted fresh, and reverified with that same scratch, build description, and evidence directory; the exact DMG is finalized, mounted read-only, and reverified with them as well. For each delivered inner app, both modes rerun strict `codesign --verify`; notarized mode additionally reruns app-level `stapler validate` and Gatekeeper assessment. The outer notarized DMG receives its own codesign/stapler/Gatekeeper checks. S0/source-policy verification and final-app-manifest equality are required in addition to, never instead of, signature/ticket checks. Post-packaging xattr/signature corruption fails. Upload/publish receives only those same digest-checked paths.
+4. `.github/workflows/ci.yml` and `.github/workflows/release.yml` capture full HEAD before direct Release build, use one private scratch/build description/evidence directory for build and verifier, record the direct binary digest, and recheck clean tree/full HEAD after direct verification and before/after packaging/output exposure. CI's ad-hoc smoke and release's formal package both use the package script's separate fresh scratch and evidence directory tied to that same unchanged HEAD; no credentials/sign/upload occur before all guards pass.
+5. `script/test_release_workflow_guards.sh` asserts this exact ordering and proves mocked SwiftPM is never invoked when the sole-manifest gate fails. Fixtures include valid and nonnumeric/control-character `Package@swift-*.swift` files in ignored/symlink forms; a pre-populated or mutated default `.build`; mismatched/reused scratch or build description; a no-op build; generated-source/macro/build-plan tampering; new local effect-gateway callers; replacement between fresh build/hash/bundle copy; direct/package HEAD drift; malformed/duplicate-key/wrong-type notarization JSON; and signature/ticket/xattr damage after ZIP or DMG packaging. It also injects failures for required tools, malformed proof JSON, unreadable/incomplete traversal, verifier-after mutation, hidden code/symlink, binary replacement, and upload of any path, byte, or digest other than the verified outputs.
 
-Legacy rejection tests use an isolated `mktemp -d` directory and compare before/after snapshots so no terminal directory, helper script, context package, or proposal file can appear.
+The artifact directory contains strict `verified-artifacts.json`, `SHA256SUMS.txt`, `build-provenance.json`, `normalized-build-plan.json`, `source-policy-evidence.json`, `pre-sign.bundle.manifest.json`, and `final-app.bundle.manifest.json`. The verified JSON binds the full source HEAD, exact two payloads, and every other proof file by artifact-relative path and lowercase SHA-256; checksums agree with that non-self set. The verified JSON and checksum file cannot self-hash, so the sole workflow proof step separately emits and immediately rechecks their own digests. Upload and release steps consume only exact path+digest outputs for both payloads and all proof files, never globs.
+
+Legacy rejection tests use an isolated `mktemp -d` directory, register fail-safe cleanup before the first fixture write, and compare before/after snapshots so no terminal directory, helper script, context package, or proposal file can appear.
 
 ## Documentation
 
@@ -796,25 +825,59 @@ S0 is complete only when fresh evidence shows:
 6. In-limit legacy Review rejection has zero persistence/file/process/input/clipboard/state side effects; oversize input exits before classification and lock.
 7. Duplicate Primary Canvas performs no selection, third provisioning, repair, rollback, merge, or deletion.
 8. Old-window, old-focus, old-resolution, old-Canvas, and mismatched request results cannot commit.
-9. Packaging, CI, and release guards prove pre-sign, post-staple, and extracted-final-artifact verification cannot be skipped; the uploaded path and digest equal the verified artifact.
+9. Packaging, CI, and release guards bind direct and packaged builds to the same unchanged full HEAD while preserving separate scratch/build-description/evidence-directory/binary evidence; pre-sign, post-staple, and extracted/mounted inner-app source-policy plus signature/ticket verification cannot be skipped; every uploaded payload/proof path and digest equals the verified bytes.
 10. `git diff --check` and the scoped source canary report clean.
 
 A clean-room verification run uses a newly created temporary directory for side-effect evidence and includes, at minimum:
 
 ```bash
-swift test
-swift test -c release
-swift build -c release
+set -euo pipefail
+S0_CLEAN_HEAD="$(git rev-parse HEAD)"
+S0_CLEAN_DEBUG=
+S0_CLEAN_RELEASE=
+S0_CLEAN_BUILD=
+S0_CLEAN_EVIDENCE=
+s0_cleanup_design() {
+  for path in "$S0_CLEAN_DEBUG" "$S0_CLEAN_RELEASE" "$S0_CLEAN_BUILD" "$S0_CLEAN_EVIDENCE"; do
+    [ -z "$path" ] && continue
+    case "$path" in
+      /tmp/minddesk-s0-design-debug.??????|/tmp/minddesk-s0-design-release.??????|/tmp/minddesk-s0-design-build.??????|/tmp/minddesk-s0-design-evidence.??????) ;;
+      *) return 1 ;;
+    esac
+    if [ -e "$path" ] || [ -L "$path" ]; then
+      [ -d "$path" ] && [ ! -L "$path" ] || return 1
+      rm -rf -- "$path"
+    fi
+  done
+}
+trap s0_cleanup_design EXIT
+S0_CLEAN_DEBUG="$(mktemp -d /tmp/minddesk-s0-design-debug.XXXXXX)"
+S0_CLEAN_RELEASE="$(mktemp -d /tmp/minddesk-s0-design-release.XXXXXX)"
+S0_CLEAN_BUILD="$(mktemp -d /tmp/minddesk-s0-design-build.XXXXXX)"
+S0_CLEAN_EVIDENCE="$(mktemp -d /tmp/minddesk-s0-design-evidence.XXXXXX)"
+script/verify_s0_private_canvas.sh --repo-root "$PWD" --package-manifest-only
+swift test --scratch-path "$S0_CLEAN_DEBUG"
+swift test -c release --scratch-path "$S0_CLEAN_RELEASE"
+swift build -c release --scratch-path "$S0_CLEAN_BUILD"
+S0_CLEAN_BIN_DIR="$(swift build -c release --scratch-path "$S0_CLEAN_BUILD" --show-bin-path)"
+S0_CLEAN_BUILD_DESC="$(find -P "$S0_CLEAN_BUILD" -type f -path '*/release/description.json' -print -quit)"
+test -n "$S0_CLEAN_BUILD_DESC"
+S0_CLEAN_BINARY_SHA256="$(shasum -a 256 "$S0_CLEAN_BIN_DIR/MindDesk" | awk '{print $1}')"
 bash -n script/s0_private_canvas_policy.sh
 bash -n script/verify_s0_private_canvas.sh
 bash -n script/test_verify_s0_private_canvas.sh
 script/test_verify_s0_private_canvas.sh
-script/verify_s0_private_canvas.sh --repo-root "$PWD" --binary .build/release/MindDesk
+script/verify_s0_private_canvas.sh --repo-root "$PWD" --scratch-path "$S0_CLEAN_BUILD" --configuration release --build-description "$S0_CLEAN_BUILD_DESC" --evidence-dir "$S0_CLEAN_EVIDENCE" --binary "$S0_CLEAN_BIN_DIR/MindDesk"
 script/test_release_workflow_guards.sh
+test "$S0_CLEAN_HEAD" = "$(git rev-parse HEAD)"
 git diff --check
+printf '%s  %s\n' "$S0_CLEAN_BINARY_SHA256" "$S0_CLEAN_BIN_DIR/MindDesk"
+shasum -a 256 "$S0_CLEAN_BUILD_DESC" "$S0_CLEAN_EVIDENCE/normalized-build-plan.json" "$S0_CLEAN_EVIDENCE/source-policy-evidence.json"
+s0_cleanup_design
+trap - EXIT
 ```
 
-The package-release smoke adds `--app-bundle` through `script/package_release.sh`; reviewers must inspect the actual built binary path rather than assuming it if SwiftPM layout differs.
+The package-release smoke uses its own new scratch/build description and adds `--app-bundle` through `script/package_release.sh`; reviewers record the direct binary digest above and inspect the actual built binary path rather than assuming SwiftPM layout.
 
 ## Release Stops
 

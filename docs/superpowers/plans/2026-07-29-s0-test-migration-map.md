@@ -1,0 +1,646 @@
+# MindDesk S0 Test Migration Map
+
+**Status:** Approved with the S0 implementation plan after four-seat review.
+
+This companion is the count-bearing appendix for `2026-07-29-s0-capability-lockdown-scope-identity-implementation.md`. It covers all 776 baseline tests across the eight test files and defines the only approved one-to-one migration names. All entries exist in both Debug and Release unless a later Gate 0 observation proves otherwise.
+
+## Arithmetic Contract
+
+- Gate 0 baseline: `776 Debug / 776 Release`.
+- Complete inventoried baseline: `776 = 233 retired + 44 migrated + 499 retained`.
+- The 499 retained rows comprise 53 named body/source-canary edits plus 446 unchanged/set-complement rows: Core 13, Proposal 3, Validation 2, and App 35 edited rows.
+- Baseline obligations after retirement and count-neutral migration, before net-new tests: `776 - 233 = 543` in each configuration.
+- Approved net-new inventory: `123 Debug / 123 Release`.
+- Final expected equations: `final_debug = 543 + 123 = 666`; `final_release = 543 + 123 = 666`.
+- A migrated row replaces exactly one origin with exactly one destination and is never counted as added.
+- A semantic reversal, split, or merge is recorded as real retired and added rows.
+- In `AppBehaviorTests`, any Gate 0 baseline name not listed under retired, migrated, or retained-with-body-edit below is retained unchanged. That set-complement rule is exact against the committed Gate 0 name snapshot; it is not permission to omit a changed test from the ledger.
+
+Reason codes: `G2-RUNTIME` removes Review/Codex/SwiftTerm runtime or product surface; `G3-AUTH` removes live/current/default authority; `G3-WIRE` preserves strict stored historical wire behavior; `G3-PURE` preserves package-independent Proposal validation/freshness; `G3-MANIFEST` preserves ordinary Manifest validation; `G7-STATE` replaces the old Int request policy with the UUID state machine.
+
+## CoreBehaviorTests.swift — 376 Baseline
+
+### Retired — 38
+
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptBuilderIncludesReadOnlyProposalBoundary`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptBuilderForcesPreviewableProposalEnvelopeForCustomPromptRuns`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptBuilderBoundsOversizedCanvasContext`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexCommandBuilderUsesSafeInteractiveTerminalCommand`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testProposalEnvelopeExtractorFindsLatestEnvelopeInTerminalTranscript`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptTemplateLibraryFallsBackToDefaultsForInvalidOrEmptyStorage`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptTemplateLibraryPersistsEditedTemplateAndResolvesInstruction`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptTemplateLibraryStoresMaximumEditableTemplateSet`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCanvasCodexPromptTemplateLibraryDeduplicatesDecodedIdentifiers`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCustomGuidancePresentationReportsBlankAsNotIncluded`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCustomGuidancePresentationReportsIncludedCountAndBoundaryWithoutEchoingInput`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testCustomGuidancePresentationBoundsBeforeCountingAndDoesNotEchoTruncatedInput`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogIncludesRequiredHumanAndAgentTopics`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpTopicReaderSectionsArePresentationOnlyAndExcludedFromMIPHelpTopics`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogSearchRanksTitleAndKeywordMatchesDeterministically`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogSearchFindsHumanAndAIRetrievalQueries`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testAgentReviewPackageHelpTopicsAreCuratedSearchableAndBudgeted`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogSearchFindsCustomAgentGuidanceQueries`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogSearchIndexesAgentRelatedObjectRefsAndCapabilityIDs`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogCapabilitySearchResultsExposeWireTermsInVisibleTopicText`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogSearchFindsProposalReviewWorkflowQueries`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpCatalogAgentTopicsStayReadOnlyAndReviewOriented`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testHelpAgentTopicsDoNotPresentReviewContextAsSideEffectAuthorization`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testAgentHelpAndMIPTopicsRequireProposalReviewPlusOutOfSheetImmediateConfirmationForSideEffects`
+- Gate 2, `G2-RUNTIME`: `CoreBehaviorTests.testAgentHelpTopicsUseValidationReportAsCanonicalDiagnostics`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testAgentGuideSafetyTextNamesEverySideEffectClass`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testAgentGuideConfirmStepNamesEverySideEffectClass`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testAgentGuideUsesValidationReportAsCanonicalDiagnostics`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testAgentGuideDefaultCustomPromptGuidanceNamesProposalJSONFieldTerminology`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testInterchangePackageIncludesAgentGuideAndSafetyPolicy`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testInterchangePackageDescribesPrivacyBoundaries`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testInterchangePackageDecodingRecomputesDerivedAdvisoryFields`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testInterchangePackageSummarizesValidationIssuesForReview`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testInterchangeExternalActionPolicySnapshotMatchesWorkbenchPolicy`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testExternalActionPolicyKeepsAgentDefaultsReadOnlyAndConfirmable`
+- Gate 3, `G3-AUTH`: `CoreBehaviorTests.testExternalActionPolicySeparatesUserGesturesFromAgentActions`
+- Gate 8, retired-current-doc contract: `CoreBehaviorTests.testAgentReviewHelpTopicsContractIsDocumentedForHumansAndAgents`
+
+### Migrated — 5
+
+- `CoreBehaviorTests.testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode` → `MindDeskJSONDocumentClassifierTests.testClassifiesManifestAndRecognizedLegacyReviewFormatsWithoutFullDecode`
+- `CoreBehaviorTests.testMindDeskJSONDocumentKindRejectsNestedAndConflictingMarkers` → `MindDeskJSONDocumentClassifierTests.testRejectsNestedAndConflictingTopLevelMarkers`
+- `CoreBehaviorTests.testInterchangePackageWrapsManifestWithoutChangingManifestPayload` → `LegacyReviewWireCompatibilityTests.testLegacyInterchangePackageRoundTripPreservesManifestPayload`
+- `CoreBehaviorTests.testInterchangePackageValidationReportsStructuredManifestIssuesAndStaleSummary` → `LegacyReviewWireCompatibilityTests.testStoredInterchangePackageValidationDetectsStaleSummary`
+- `CoreBehaviorTests.testInterchangePackageValidationRejectsUnsupportedFormatVersion` → `LegacyReviewWireCompatibilityTests.testStoredInterchangePackageValidationRejectsUnsupportedFormatVersion`
+
+### Retained with body edit — 13
+
+- Gate 2: `CoreBehaviorTests.testWorkspaceCanvasTodoPreferenceKeysAreStable`; remove the Agent guidance key assertion.
+- Gate 2: `CoreBehaviorTests.testAppPreferenceDefaultsRestoreGlobalSettingsAndClearObsoleteViewState`; old raw keys remain cleanup-only.
+- Gate 2: `CoreBehaviorTests.testAppSettingsResetDescriptorCoversEveryResettablePreferenceAndObsoleteKey`; removed keys leave the resettable set.
+- Gate 2: `CoreBehaviorTests.testAppSettingsResetDescriptorBuildsReviewableSummaryFromResetItems`; retain ordinary settings only.
+- Gate 2: `CoreBehaviorTests.testAppSettingsResetDescriptorExplainsScopeAndProtectedUserData`; remove retired capability copy.
+- Gate 2: `CoreBehaviorTests.testAppPreferenceDefaultsRestoreWritesDescriptorDefaultValues`; removed keys use obsolete cleanup only.
+- Gate 2: `CoreBehaviorTests.testHelpTopicReaderPolicyDoesNotChangeSearchableOrEncodedHelpTopicBody`; use an ordinary Help topic/query.
+- Gate 2: `CoreBehaviorTests.testSettingsDefaultsHelpExplainsResetAllSettingsScopeAndProtectedData`; remove Agent guidance copy/query.
+- Gate 2: `CoreBehaviorTests.testHelpCatalogSearchResponseEncodesBoundedReadOnlySummaries`; use an ordinary Help query.
+- Gate 2: `CoreBehaviorTests.testHelpCatalogSearchTokenizesPunctuationDelimitedQueries`; retain ordinary punctuation cases only.
+- Gate 2: `CoreBehaviorTests.testHelpCatalogSearchRoutesChecklistQueriesToPrimaryTopics`; retain Settings/Canvas rows only.
+- Gate 3: `CoreBehaviorTests.testExternalActionPolicyNamesModalConfirmationSeparatelyFromUserMediation`; retain direct-user command/Terminal/URL/file/clipboard policy only.
+- Gate 8: `CoreBehaviorTests.testSettingsResetDescriptorContractIsDocumentedInFeatureChecklist`; retain ordinary reset documentation only.
+
+The other 320 `CoreBehaviorTests` names are the exact Gate 0 set complement and remain unchanged. Gate 3 also removes the now-unused private test helpers `normalizedText(_:)` and `containsWholeWord(_:in:)`; helpers do not affect test arithmetic.
+
+## ProposalReviewTests.swift — 54 Baseline
+
+### Retired — 21
+
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testCopyPathPlannerCreatesApprovedResourcePinPlansOnly`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testCopyPathPlannerDoesNotExposePlansBeforeApprovalOrAfterReviewEnds`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateCreatesPendingReviewSessionForValidPackageProposal`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIAcceptsValidRawPackageProposal`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateCreatesPendingReviewOnlyForMatchingRawPackageWithoutValidationErrors`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIBlocksLegacyRawGuideAndPromptTerminologyDrift`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIBlocksForgedRawAgentIntegrationContractAuthority`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIBlocksRawContractMissingProposalReferenceSchemaFields`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIBlocksMissingRawAuthorityMirrors`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateDataAPIBlocksDecodeLimitedProposalEnvelopeWithValidationReport`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateBlocksStaleProposalContextWithValidationReport`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateBlocksManifestExportedAtMismatch`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateBlocksPackageValidationErrorsBeforeReviewSession`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateBlocksSemanticInvalidDecodedInputsBeforeReviewSession`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalReviewGateBlocksEnvelopeLimitViolationsWithValidationReport`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalEnvelopeTemplateBuilderCopiesContextAndOmitsRawPackageContent`
+- Gate 2, `G2-RUNTIME`: `ProposalReviewTests.testProposalEnvelopeTemplateIsBlockedByReviewGateUntilAgentAddsProposals`
+- Gate 3, `G3-AUTH`: `ProposalReviewTests.testProposalOperationKindsMapToExpectedExternalActions`
+- Gate 3, `G3-AUTH`: `ProposalReviewTests.testProposalOperationRiskTiersMatchPolicyForEveryKindAndActor`
+- Gate 3, `G3-AUTH`: `ProposalReviewTests.testProposalReviewStateMachineMatchesDirectUserTransitionMatrix`
+- Gate 3, `G3-AUTH`: `ProposalReviewTests.testProposalReviewStateMachineRejectsEveryAgentTransition`
+
+### Migrated — 15
+
+- `ProposalReviewTests.testProposalEnvelopeRoundTripsWithContextAndOperations` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeFixtureRoundTripsContextAndOperations`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsMissingCurrentContextBindingFields` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsMissingRequiredContextBindingFieldsWithSanitizedError`
+- `ProposalReviewTests.testProposalEnvelopeRoundTripsHeterogeneousOperationPayloads` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeFixtureRoundTripsHeterogeneousOperationPayloads`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsProseCitationStringsForJSONReferences` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsProseReferenceShorthandWithSanitizedError`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsUnsupportedFormatAndVersion` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsUnsupportedFormatAndVersion`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsProposalCountAboveLimitBeforeValidation` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsProposalCountAboveLimitBeforeSemanticValidation`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsNestedCollectionCountsAboveLimitBeforeValidation` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsNestedCollectionCountsAboveLimitBeforeSemanticValidation`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsOversizedPayloadTextWithoutReplayingRawPayload` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsOversizedPayloadTextWithoutReplayingRawPayload`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsOversizedPayloadBeforeMalformedNestedPayloadFields` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeReportsPayloadLimitBeforeMalformedNestedFieldsWithoutReplayingRawPayload`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsMissingOperationPayloadKey` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsMissingOperationPayloadKey`
+- `ProposalReviewTests.testProposalEnvelopeDecodeRejectsUnknownRawValueEnums` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEnvelopeDecodeRejectsUnknownRawValueEnumsWithoutReplayingRawValues`
+- `ProposalReviewTests.testProposalContextDigestDecodeRejectsInvalidDigestPayloads` → `LegacyReviewWireCompatibilityTests.testLegacyProposalContextDigestDecodeRejectsInvalidDigestPayloads`
+- `ProposalReviewTests.testWorkbenchObjectReferenceDecodeRejectsEmptyIDs` → `LegacyReviewWireCompatibilityTests.testLegacyWorkbenchObjectReferenceDecodeRejectsEmptyIDs`
+- `ProposalReviewTests.testProposalEnvelopeEvidenceReferencesAcceptManifestObjectKinds` → `LegacyReviewWireCompatibilityTests.testLegacyProposalEvidenceReferencesRoundTripEveryHistoricalObjectKind`
+- `ProposalReviewTests.testCopyPathV0TargetsOnlyResourcePinsInSchemaAndContract` → `ProposalReviewTests.testProposalEnvelopeValidationAllowsCopyPathTargetsOnlyForResourcePins`
+
+### Retained — 18
+
+- `ProposalReviewTests.testProposalEnvelopeValidationAcceptsValidEnvelope`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsEmptyProposalAndMissingOperationPayload`
+- `ProposalReviewTests.testProposalEnvelopeValidationReportsMissingRequiredIDsAndCollections`
+- `ProposalReviewTests.testProposalEnvelopeValidationRequiresKindSpecificOperationPayloads`
+- `ProposalReviewTests.testProposalEnvelopeValidationRequiresTargetsForTargetBasedOperations`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsCopyPathTargetsThatAreNotResourcePins`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsMetaActionsAndApprovedAgentCreators`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsDuplicateExternalIDs`
+- `ProposalReviewTests.testProposalEnvelopeValidationNormalizesIDsBeforeDuplicateChecks`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsOversizedCollections`
+- Same name, body edit at Gate 3: `ProposalReviewTests.testProposalEnvelopeValidationRejectsOversizedTextWithoutReportingRawPayload`; remove deleted report-builder assertions.
+- Same name, body edit at Gate 3: `ProposalReviewTests.testProposalEnvelopeValidationRejectsUnexpectedOperationPayloadFieldsWithoutReportingRawPayload`; remove deleted report-builder assertions.
+- Same name, body edit at Gate 3: `ProposalReviewTests.testProposalEnvelopeValidationRejectsUnknownRawPayloadKeysWithoutReportingRawPayload`; remove deleted report-builder assertions.
+- `ProposalReviewTests.testProposalEnvelopeValidationAllowsOnlyKindSpecificPayloadFields`
+- `ProposalReviewTests.testProposalEnvelopeValidationReportsCurrentContextMismatches`
+- `ProposalReviewTests.testProposalEnvelopeValidationRejectsCreatedBeforeCurrentPackage`
+- `ProposalReviewTests.testProposalContextDigestValidationAndFreshness`
+- `ProposalReviewTests.testProposalContextFreshnessDetectsPackageAndSchemaMismatches`
+
+## AgentIntegrationContractTests.swift — 45 Baseline
+
+### Retired — 39
+
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentHandoffPromptBuilderPublishesCodexPromptWithoutRawManifestData`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentHandoffPromptBuilderRespectsMaximumBodyBytesWithSafetyBoundary`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentWorkflowSearchResponseCombinesHelpAndCapabilitySummariesWithoutAuthorization`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentWorkflowSearchResponseCanBeBuiltFromPackageContext`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentWorkflowSearchRequestIsCodableAndBuildsPackageBoundResponse`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentWorkflowSearchRequestCapsLargeLimitsBeforeBuildingResponse`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentWorkflowSearchRequestNormalizesAndCapsQueryBeforeBuildingResponse`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentReviewPackageReadinessSummarizesValidationCapabilitiesAndSafetyBoundary`
+- Gate 2, `G2-RUNTIME`: `AgentIntegrationContractTests.testAgentReviewPackageReadinessExcludesRawPackageAndManifestContent`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentIntegrationContractPublishesFormatsPromptsWorkflowAndReferenceSchemas`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testProposalEnvelopeContractListsEveryRequiredContextWireField`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testProposalEvidenceReferenceSchemaMatchesCitationReferenceKinds`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentReferenceSchemasDescribeProposalJSONObjectReferences`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAdvertisedProposalReferenceShapeMatchesEncodedWorkbenchObjectReference`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogPublishesStableOperationCapabilities`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogPublishesProposalOnlyActionRegistry`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogSearchDiscoversCapabilitiesByOperationPayloadTargetAndAction`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogSearchIsBoundedStableAndCanHideMetaActions`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogSearchSummaryEncodesReadOnlyNonAuthorizingResult`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogSearchResponseEncodesBoundedReadOnlySummaries`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilitySearchRequestIsCodableAndBuildsBoundedResponse`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogKeepsMetaActionsNonProposableAndSideEffectsNonAuthorizing`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentOperationContractAndCapabilityDecodeLegacyPayloadShape`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentOperationContractAndCapabilityDecodeMissingPayloadFieldSchemasFromAllowedFields`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentOperationContractPublishesDeterministicPayloadFieldSchemas`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testExtensionCapabilityCatalogPublishesDeterministicPayloadFieldSchemas`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testInterchangePackageEmbedsExtensionCapabilitiesAndRecomputesOnDecode`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentIntegrationContractBuildsStableProposalContextFromPackage`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testTypedExportManifestWireMetadataDoesNotChangeProposalDigest`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testInterchangePackageEmbedsAgentIntegrationContractAndRecomputesOnDecode`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testInterchangePackageEncodingNormalizesUnwrappedCustomGuidanceBeforeBuildingContract`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentIntegrationContractValidationRejectsUnsupportedPackageAndPolicyDrift`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsStaleAndUnresolvedReferences`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationAcceptsManifestObjectKindsAsEvidence`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsAmbiguousDuplicateManifestReferences`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsUnresolvedTargetsAndWorkingDirectories`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsNonFolderWorkingDirectoryResources`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testPackageAwareProposalValidationAcceptsFolderWorkingDirectoryResources`
+- Gate 3, `G3-AUTH`: `AgentIntegrationContractTests.testAgentIntegrationContractKeepsDefaultAgentReadOnlyButAllowsSideEffectProposalsOnlyAsProposal`
+
+### Migrated — 5
+
+- `AgentIntegrationContractTests.testExtensionCapabilityCatalogValidationReportsContractAndPolicyDrift` → `LegacyReviewWireCompatibilityTests.testStoredExtensionCapabilityCatalogValidationDetectsContractAndPolicyDrift`
+- `AgentIntegrationContractTests.testTypedExportManifestWireMetadataDoesNotChangeValidationReportSemantics` → `ValidationReportTests.testTypedExportManifestWireMetadataDoesNotChangeManifestValidationReportSemantics`
+- `AgentIntegrationContractTests.testInterchangePackageInitializesInvalidGeometryManifestWithoutCrashing` → `ValidationReportTests.testManifestValidationReportHandlesInvalidGeometryWithoutCrashing`
+- `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsSameManifestFromDifferentPackageCreatedAt` → `LegacyReviewWireCompatibilityTests.testProposalContextFreshnessRejectsDifferentPackageCreatedAt`
+- `AgentIntegrationContractTests.testPackageAwareProposalValidationRejectsSameSecondSameManifestReplayFromDifferentPackageInstance` → `LegacyReviewWireCompatibilityTests.testProposalContextFreshnessRejectsDifferentPackageInstanceID`
+
+### Retained — 1
+
+- `AgentIntegrationContractTests.testProposalOperationTargetsStayLimitedToActionableWorkbenchObjectKinds`
+
+## ValidationReportTests.swift — 46 Baseline
+
+### Retired — 31
+
+- `ValidationReportTests.testValidationReportRoundTripsAndRecomputesSummaryOnDecode`
+- `ValidationReportTests.testValidationReportEncodingRecomputesSummaryAndRedactionPolicyFromCanonicalFields`
+- `ValidationReportTests.testValidationReportRedactionPolicyDecodesLegacyShapeWithCurrentNonManifestDefaults`
+- `ValidationReportTests.testProposalValidationReportMapsStableCodesAndPreservesOrder`
+- `ValidationReportTests.testProposalValidationReportMapsEveryIssueToStableCode`
+- `ValidationReportTests.testProposalValidationReportRedactsWebURLReferenceIDs`
+- `ValidationReportTests.testProposalValidationReportTokenizesReferenceIDsAndOwners`
+- `ValidationReportTests.testProposalValidationReportTokenizesUnsupportedRawFormats`
+- `ValidationReportTests.testProposalValidationReportTokenizesUnsafeProposalIDsInOwnersAndDetails`
+- `ValidationReportTests.testProposalValidationReportTokenizesUnsafeOperationIDsInOwners`
+- `ValidationReportTests.testProposalValidationReportCanBeBuiltFromPackageAwareValidation`
+- `ValidationReportTests.testProposalValidationReportAddsLocatorDetailsForProposalAndOperationIssues`
+- `ValidationReportTests.testPackageAwareProposalValidationReportAddsLocatorDetailsForReferenceIssues`
+- `ValidationReportTests.testProposalValidationReportMapsUnsupportedWorkingDirectoryResourceToStableCode`
+- `ValidationReportTests.testProposalValidationReportMapsPackageInstanceContextMismatchToSpecificField`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportMapsPolicyAndContractDrift`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportMapsContextAndBindingFieldDriftToSpecificFields`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportTokenizesUnexpectedProposalBindingFields`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportDoesNotReplayGuideOrPromptMismatchText`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportMapsEveryIssueToStableCode`
+- `ValidationReportTests.testAgentIntegrationContractValidationReportTokenizesUnsupportedRawFormats`
+- `ValidationReportTests.testExtensionCapabilityCatalogValidationReportMapsEveryIssueToStableCode`
+- `ValidationReportTests.testExtensionCapabilityCatalogValidationReportTokenizesRawCapabilityIDs`
+- `ValidationReportTests.testAgentIntegrationContractValidationRejectsEveryAgentFacingContractDrift`
+- `ValidationReportTests.testInterchangePackageEmbedsValidationReportAndRecomputesOnDecode`
+- `ValidationReportTests.testEncodedInterchangePackageValidationReportUsesSameFreshSummarySnapshotAsWirePayload`
+- `ValidationReportTests.testEncodedInterchangePackageValidationReportIgnoresStaleDerivedFieldsForValidManifest`
+- `ValidationReportTests.testEncodedInterchangePackageCanonicalizesMutableFormatFieldsForAgentFacingWire`
+- `ValidationReportTests.testInterchangePackageValidationReportAggregatesPackageAndManifestIssues`
+- `ValidationReportTests.testInterchangePackageValidationReportAggregatesContractIssuesWhenPackageWrapperIsSupported`
+- `ValidationReportTests.testInterchangePackageValidationReportAggregatesCapabilityCatalogIssuesWhenPackageWrapperIsSupported`
+
+### Migrated — 9
+
+- `ValidationReportTests.testDecodingUnsupportedFormatsDoesNotReplayRawFormatText` → `LegacyReviewWireCompatibilityTests.testStoredWireDecodersRejectUnsupportedFormatsWithoutReplayingRawText`
+- `ValidationReportTests.testInterchangePackageValidationReportMapsUnsupportedManifestFieldValueToStableDiagnostic` → `ValidationReportTests.testManifestValidationReportMapsUnsupportedFieldValueToStableDiagnostic`
+- `ValidationReportTests.testInterchangePackageValidationReportRedactsRawUnsupportedManifestFieldValues` → `ValidationReportTests.testManifestValidationReportRedactsRawUnsupportedFieldValues`
+- `ValidationReportTests.testInterchangePackageValidationReportTokenizesSuspiciousManifestTypeDetails` → `ValidationReportTests.testManifestValidationReportTokenizesSuspiciousTypeDetails`
+- `ValidationReportTests.testInterchangePackageValidationReportMapsCommonManifestStructuralIssuesWithoutFallbackDuplicates` → `ValidationReportTests.testManifestValidationReportMapsCommonStructuralIssuesWithoutFallbackDuplicates`
+- `ValidationReportTests.testInterchangePackageValidationReportMapsSemanticManifestIssuesWithoutFallback` → `ValidationReportTests.testManifestValidationReportMapsSemanticIssuesWithoutFallback`
+- `ValidationReportTests.testInterchangePackageValidationReportDoesNotReplayManifestLegacyProse` → `ValidationReportTests.testManifestValidationReportDoesNotReplayLegacyProse`
+- `ValidationReportTests.testInterchangePackageValidationReportUsesSpecificActualKeysForManifestNumericDetails` → `ValidationReportTests.testManifestValidationReportUsesSpecificActualKeysForNumericDetails`
+- `ValidationReportTests.testInterchangePackageValidationReportMapsBoundsTextPathCanvasEdgeAndTodoIssuesWithoutFallback` → `ValidationReportTests.testManifestValidationReportMapsBoundsTextPathCanvasEdgeAndTodoIssuesWithoutFallback`
+
+### Retained — 6
+
+- `ValidationReportTests.testValidationReportIssueRoundTripsWithStableMachineReadableShape`
+- `ValidationReportTests.testValidationReportIssueDecodeRejectsUnknownSourceWithoutReplayingRawValue`
+- Same name, body edit at Gate 3: `ValidationReportTests.testValidationReportDecodeReencodeDoesNotLaunderRawManifestIssuePayloads`; replace `.current` fixture dependencies with literal stored values.
+- Same name, body edit at Gate 3: `ValidationReportTests.testValidationReportDecodeReencodeRedactsInstructionOverridePhrasesWithoutSecrets`; replace `.current` fixture dependencies with literal stored values.
+- `ValidationReportTests.testManifestValidationReportIssuesCanBeBuiltWithoutInterchangePackageWrapper`
+- `ValidationReportTests.testManifestOnlyValidationReportReturnsOnlyManifestIssuesAndPreservesSanitizedLocators`
+
+## AppBehaviorTests.swift — 218 Baseline
+
+### Retired — 85
+
+The following product-surface/runtime tests retire at Gate 2 unless marked Gate 7.
+
+- `AppBehaviorTests.testWorkbenchMenuDescriptorPublishesAgentReviewPackageExportEntry`
+- `AppBehaviorTests.testProposalReviewOpenStepsChooseEnvelopeBeforeSourcePackage`
+- `AppBehaviorTests.testHelpCenterSettingsAndMIPHelpTopicsShareAgentBoundaryPolicy`
+- `AppBehaviorTests.testImportExportServicePublishesDistinctAgentReviewExportDescriptor`
+- `AppBehaviorTests.testImportExportServiceAgentReviewDisclosureNamesSensitiveMetadataAndAuthorityLimits`
+- `AppBehaviorTests.testDataSettingsShowsAgentReviewPackageBoundariesAsReviewableRows`
+- `AppBehaviorTests.testAgentReviewPackageSettingsDisclosureExplainsHelpTopicsAuthorityBoundary`
+- `AppBehaviorTests.testAgentReviewExportConfirmationMentionsHelpTopicsRetrievalBoundary`
+- `AppBehaviorTests.testCustomGuidanceSettingsDisclosureNamesAuthorityBoundary`
+- `AppBehaviorTests.testCustomGuidanceSettingsViewUsesCorePresentationModelWithoutEchoingGuidance`
+- `AppBehaviorTests.testCustomGuidanceDataSettingsShowsStatusAndBudgetWithoutEchoingInput`
+- `AppBehaviorTests.testCustomGuidanceSettingsHelpExportAndWrapperShareAuthorityBoundary`
+- `AppBehaviorTests.testCustomGuidanceWrapperPlacesFullBoundaryBeforeUserText`
+- `AppBehaviorTests.testAgentReviewExportPrivacyDisclosureNamesCustomGuidanceBoundary`
+- `AppBehaviorTests.testAgentReviewExportPrivacyDisclosureNamesIncludedSensitiveMetadataTypes`
+- `AppBehaviorTests.testAgentReviewExportPrivacyDisclosureNamesNeverIncludedDataTypes`
+- `AppBehaviorTests.testSettingsDefaultsHelpTopicExplainsCustomGuidanceExportBoundary`
+- `AppBehaviorTests.testAgentReviewDisclosureExplainsScopeCommandFocusAndCustomGuidanceLimit`
+- `AppBehaviorTests.testImportExportServiceBuildsAgentReviewPackageFromManifest`
+- `AppBehaviorTests.testImportExportServiceAddsCustomGuidanceToAgentReviewPackage`
+- `AppBehaviorTests.testImportExportServiceTreatsAdversarialCustomGuidanceAsUntrustedText`
+- `AppBehaviorTests.testImportExportServiceTrimsBlankAndBoundsCustomGuidance`
+- `AppBehaviorTests.testEncodedAgentReviewPackagePreservesCustomGuidanceOnDecode`
+- `AppBehaviorTests.testDecodedLegacyCustomGuidanceWrapperIsNormalizedBeforeRewrapping`
+- `AppBehaviorTests.testDecodedMultipleCustomGuidanceEntriesCollapseToSingleBoundedPayload`
+- `AppBehaviorTests.testEncodedAgentReviewPackageKeepsAdversarialCustomGuidanceWrappedOnDecode`
+- `AppBehaviorTests.testEncodedAgentReviewPackageBoundsCustomGuidanceAndKeepsAuthorityFieldsCanonical`
+- `AppBehaviorTests.testImportExportServiceEncodesAgentReviewPackageAsTopLevelMIP`
+- `AppBehaviorTests.testEncodedAgentReviewPackageIncludesSearchableHelpTopicsForAIRetrieval`
+- `AppBehaviorTests.testEncodedAgentReviewHelpTopicsAreSearchableByRuntimeFieldNames`
+- `AppBehaviorTests.testEncodedAgentReviewHelpTopicsStayStaticAndDoNotCopyManifestOrCustomGuidanceText`
+- `AppBehaviorTests.testDecodedAgentReviewPackageFallsBackToStaticHelpTopicsWhenMissingOrTampered`
+- `AppBehaviorTests.testDecodedAgentReviewPackageRegeneratesHelpTopicsAndGuideDefaultsPreservingOnlyWrappedCustomGuidance`
+- `AppBehaviorTests.testEncodedAgentReviewPackageDoesNotReplayRawLegacyValidationIssueText`
+- `AppBehaviorTests.testEncodedAgentReviewPackageRebuildsLegacyValidationIssuesAndDoesNotReplayTamperedRawText`
+- `AppBehaviorTests.testImportExportServiceFormatsAgentReviewExportStatusWithValidationSummary`
+- `AppBehaviorTests.testImportExportServiceFormatsAgentReviewExportStatusFromIssuesNotStaleSummary`
+- `AppBehaviorTests.testImportExportServiceAgentReviewExportStatusIsSuccessAndValidationOnly`
+- `AppBehaviorTests.testImportExportServiceFormatsAgentReviewExportStatusIgnoresStaleInvalidSummary`
+- `AppBehaviorTests.testImportExportServiceRejectsInterchangePackageAsManifestImport`
+- `AppBehaviorTests.testImportExportServiceRejectsFormattedNonManifestDocumentsAsManifestImport`
+- `AppBehaviorTests.testImportExportServiceDecodesProposalReviewImportIntoReadySession`
+- `AppBehaviorTests.testProposalReviewReadyStatusUsesIssuesNotStaleSummary`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWithForgedCapabilityPolicyRows`
+- `AppBehaviorTests.testImportExportServiceAcceptsLegacyProposalSourcePackageWithoutPayloadFieldSchemas`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWithForgedPayloadFieldSchemas`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWithForgedAgentIntegrationContractPolicyRows`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWithForgedTopLevelAuthorityPolicyRows`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWithForgedValidationReport`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWhenSourceValidationReportIsMissing`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWhenSourceAuthorityMirrorsAreMissing`
+- `AppBehaviorTests.testImportExportServiceProposalReviewImportUsesRawDataGate`
+- `AppBehaviorTests.testImportExportServiceRejectsManifestAsProposalReviewImportInputs`
+- `AppBehaviorTests.testImportExportServiceSanitizesProposalReviewJSONDecodeFailures`
+- `AppBehaviorTests.testImportExportServiceRejectsDefaultProposalImportByteCapsBeforeDecodeWithSanitizedMessages`
+- `AppBehaviorTests.testImportExportServiceRejectsOversizedProposalEnvelopeDataBeforeDecode`
+- `AppBehaviorTests.testImportExportServiceRejectsOversizedProposalSourcePackageDataBeforeDecode`
+- `AppBehaviorTests.testProposalReviewImportBlockedStatusDoesNotReplayRawAdversarialText`
+- `AppBehaviorTests.testProposalReviewImportBlockedStatusSanitizesUnsafeMessageAndLocationFallbacks`
+- `AppBehaviorTests.testProposalReviewImportBlockedStatusShowsSafeExternalActionPolicyPackageLocator`
+- `AppBehaviorTests.testImportExportServiceReadJSONImportDataRejectsProposalEnvelopeAboveByteCap`
+- `AppBehaviorTests.testImportExportServiceReadJSONImportDataRejectsProposalSourcePackageAboveByteCap`
+- `AppBehaviorTests.testWorkspaceCanvasCodexPanelStartsEmbeddedTerminalWithoutOpeningTerminalApp`
+- `AppBehaviorTests.testCodexTerminalLaunchPlanUsesInteractivePTYAndPromptFile`
+- `AppBehaviorTests.testCodexTerminalServiceStartsPTYAndAcceptsInput`
+- `AppBehaviorTests.testCodexSessionControllerRunCommandQueuesInputForEmbeddedTerminal`
+- `AppBehaviorTests.testCodexSessionControllerRefreshesCurrentPromptAndIgnoresStaleTerminalExit`
+- `AppBehaviorTests.testCodexSessionControllerBuildsProposalPreviewAndRevisionLoopFromTerminalOutput`
+- Gate 7, `G7-STATE`: `AppBehaviorTests.testQuickOpenWebCardOpenActionClearsPendingRequestOnBlockedResult`
+- Gate 7, `G7-STATE`: `AppBehaviorTests.testQuickOpenWebCardOpenActionKeepsPendingRequestOnReadyResult`
+- Gate 7, `G7-STATE`: `AppBehaviorTests.testWorkspaceCanvasNodeOpenRequestPolicyHandlesOnlyNewCurrentCanvasRequests`
+- `AppBehaviorTests.testApprovedProposalCopyPathConfirmationUsesCurrentResourceDisplayPath`
+- `AppBehaviorTests.testApprovedProposalCopyPathConfirmationRedactsUnsafeResourceDisplayName`
+- `AppBehaviorTests.testApprovedProposalCopyPathConfirmationFailsClosedForMissingOrBlankCurrentResource`
+- `AppBehaviorTests.testApprovedProposalCopyPathBannerOnlyAppearsAfterReviewSheetCloses`
+- `AppBehaviorTests.testApprovedProposalCopyPathConfirmationRejectsNonResourcePinTargets`
+- `AppBehaviorTests.testApprovedProposalCopyPathExecutionRequiresImmediateConfirmation`
+- `AppBehaviorTests.testApprovedProposalCopyPathExecutionFailsClosedForInvalidConfirmationPayload`
+- `AppBehaviorTests.testAgentReviewHandoffPromptPresentationUsesPackagePromptWithoutExportPath`
+- `AppBehaviorTests.testAgentReviewExportBannerReadinessSummaryShowsCountsWithoutRawPackageContentOrAuthorization`
+- `AppBehaviorTests.testAgentReviewExportStatusAndReadinessUseValidationReportNotLegacyValidationIssues`
+- `AppBehaviorTests.testAgentReviewHandoffPromptCopyRequiresUserInitiatedAction`
+- `AppBehaviorTests.testAgentReviewHandoffPromptCopyIsExplicitAndPromptOmitsRawPackageData`
+- `AppBehaviorTests.testAgentReviewProposalTemplateCopyRequiresUserInitiatedAction`
+- `AppBehaviorTests.testAgentReviewProposalTemplateCopyProvidesEmptyScaffoldBlockedByReviewGateWithoutRawPackageData`
+
+### Migrated — 9
+
+- `AppBehaviorTests.testSettingsAgentFacingSideEffectCopyRequiresProposalReviewPlusOutOfSheetImmediateConfirmation` → `AppBehaviorTests.testSettingsDirectUserSideEffectCopyRequiresExplicitImmediateConfirmation`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalReviewImportWhenContextIsStale` → `LegacyReviewWireCompatibilityTests.testProposalContextFreshnessRejectsStalePackageIdentity`
+- `AppBehaviorTests.testImportExportServiceBlocksProposalPayloadOutsideKindAllowlistWithoutReplayingRawFields` → `LegacyReviewWireCompatibilityTests.testProposalEnvelopeValidationRejectsUnexpectedPayloadFieldsWithoutReplayingRawValues`
+- `AppBehaviorTests.testImportExportServiceBlocksDecodeLimitedProposalEnvelopeWithoutDecodingAdversarialExtraProposal` → `LegacyReviewWireCompatibilityTests.testProposalEnvelopeDecodeRejectsProposalCountLimitBeforeDecodingAdversarialTrailingProposal`
+- `AppBehaviorTests.testImportExportServiceBlocksOversizedProposalPayloadBeforeMalformedNestedPayloadFields` → `LegacyReviewWireCompatibilityTests.testProposalEnvelopeDecodeRejectsPayloadTextLimitBeforeMalformedNestedFields`
+- `AppBehaviorTests.testImportExportServiceMapsEveryProposalDecodeLimitToSanitizedBlockedReport` → `LegacyReviewWireCompatibilityTests.testProposalEnvelopeDecodeLimitsProduceSanitizedDiagnostics`
+- `AppBehaviorTests.testImportExportServiceRejectsProposalEnvelopeAndValidationReportAsManifestImport` → `LegacyReviewImportRejectionTests.testInLimitProposalEnvelopeAndValidationReportUsePermanentLockAndNeutralManifestError`
+- `AppBehaviorTests.testWorkspaceCanvasLookupLimitsExistingCanvasFetch` → `WorkspacePrimaryCanvasIntegrationTests.testLookupDescriptorUsesExactWorkspaceStableSortAndFetchLimitTwo`
+- `AppBehaviorTests.testWorkspaceCanvasLookupFetchesOnlyRequestedWorkspace` → `WorkspacePrimaryCanvasIntegrationTests.testLookupExcludesForeignWorkspacesAndMapsScopedIDsThroughResolver`
+
+### Retained-with-body-edit or mandatory source-canary update
+
+- `AppBehaviorTests.testQuickOpenDirectOpenActionRoutesWorkspaceResourceAndSnippetByObjectType`
+- `AppBehaviorTests.testHelpCenterWindowDescriptorPublishesMainMenuHelpEntry`
+- `AppBehaviorTests.testMacOSHelpMenuOpensStandaloneHelpCenterAndSettingsReusesTopics`
+- `AppBehaviorTests.testHelpCenterSelectionNormalizesUnknownSelectionToFirstVisibleTopic`
+- `AppBehaviorTests.testHelpCenterSelectionPreservesSelectionWhenStillVisible`
+- `AppBehaviorTests.testHelpCenterSelectionClearsWhenSearchHasNoVisibleTopics`
+- `AppBehaviorTests.testHelpCenterRowSelectionTagUsesStringTopicID`
+- `AppBehaviorTests.testHelpCenterReaderSectionsUseCorePresentationPolicy`
+- `AppBehaviorTests.testSettingsResetAllCopyUsesSharedDescriptorForReviewableSummary`
+- `AppBehaviorTests.testSettingsResetAllFlowConfirmsBeforeRestoringDefaults`
+- `AppBehaviorTests.testGlobalLibraryOnlyHelpExplainsTodoDataIsExcluded`
+- `AppBehaviorTests.testGlobalLibraryOnlyScopeDisclosureUsesTaskAndTodoTermsConsistently`
+- `AppBehaviorTests.testImportExportServiceFormatsManifestImportValidationFailureWithoutRawIssueText`
+- `AppBehaviorTests.testImportExportServiceRejectsUnknownFormattedJSONAsManifestImport`
+- `AppBehaviorTests.testImportExportServiceDecodesTypedManifestDirectly`
+- `AppBehaviorTests.testImportExportServiceRejectsUnsupportedTypedManifestWireVersion`
+- `AppBehaviorTests.testImportExportServiceReadJSONImportDataSanitizesUnreadableFileErrors`
+- `AppBehaviorTests.testImportExportServiceStillDecodesLegacyManifestDirectly`
+- `AppBehaviorTests.testWorkspaceDetailTabDefaultsToCanvasAndFollowsWorkspaceOpenPreference`
+- `AppBehaviorTests.testTerminalPrefillAppleScriptTypesCommandWithoutRunningIt`
+- `AppBehaviorTests.testCommandSnippetOpenTerminalRoutesThroughPrefillService`
+- `AppBehaviorTests.testCommandRunFailureFallbackCopiesCommandPrefillsTerminalAndKeepsOpenFallback`
+- `AppBehaviorTests.testQuickOpenWebCardDeepLinkPolicyTargetsOwningCanvasNode`
+- `AppBehaviorTests.testQuickOpenWebCardDeepLinkPolicyRejectsMissingOrInvalidWebCards`
+- `AppBehaviorTests.testQuickOpenWebCardDeepLinkPolicyReportsSpecificBlockedReasons`
+- `AppBehaviorTests.testQuickOpenWebCardDeepLinkBlockedStatusDoesNotReplayRawValues`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicyKeepsOnlyNavigableWebCards`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicyKeepsURLSubtitleSeparateFromLocationContext`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicyRejectsInvalidObjectIDBeforeBodyFallback`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicyRejectsIncompatibleNodeTypes`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicyPreservesDuplicateURLCardsWithStableTieBreak`
+- `AppBehaviorTests.testQuickOpenWebCardRecordPolicySortsByTitleSubtitleThenID`
+- `AppBehaviorTests.testQuickOpenWebCardDeepLinkPolicyRejectsMissingWorkspace`
+- `AppBehaviorTests.testCanvasInspectorOpensOnlyFromCardInfoButton`
+- `AppBehaviorTests.testCanvasInspectorVisibilityDefaultsClosedAndTogglesManually`
+
+The other 89 retained `AppBehaviorTests` names are the exact Gate 0 set complement and must remain byte-for-byte named unless separately entered as a migration before implementation.
+
+## ManifestImportServiceTests.swift — 7 Baseline
+
+### Migrated — 1
+
+- `ManifestImportServiceTests.testAgentReviewPackageCannotImportAsManifestOrCreateRecords` → `LegacyReviewImportRejectionTests.testInLimitLegacyReviewDocumentCannotImportAsManifestOrCreateRecords`
+
+### Retained — 6
+
+- `ManifestImportServiceTests.testManifestImportServiceImportsCompleteManifestAndRewritesReferences`
+- `ManifestImportServiceTests.testManifestImportServiceImportsLegacyV1ManifestWithoutTodoCollectionsAsEmpty`
+- `ManifestImportServiceTests.testExportedManifestJSONCanBeDecodedAndImportedIntoEmptyStore`
+- `ManifestImportServiceTests.testManifestImportServiceRejectsInvalidManifestBeforeInsertingRecords`
+- `ManifestImportServiceTests.testManifestImportServiceBlocksCrossWorkspacePrivateCanvasReferencesBeforeInsertingRecords`
+- `ManifestImportServiceTests.testManifestImportServiceAllowsGlobalResourcesAndSnippetsOnWorkspaceCanvas`
+
+## PersistentStoreBootstrapIntegrationTests.swift — 11 Baseline
+
+### Retained — 11
+
+All 11 Gate 0 names are retained unchanged. This file is inventoried to prove that the S0 removals do not silently reduce persistence/bootstrap coverage.
+
+## ProposalReviewPresentationTests.swift — 19 Baseline
+
+### Retired — 19
+
+All 19 retire at Gate 2 with `G2-RUNTIME` and no replacement:
+
+- `ProposalReviewPresentationTests.testReadyPresentationSummarizesProposalOperationsAndSafeReviewActions`
+- `ProposalReviewPresentationTests.testGateReadyResultBuildsReadOnlyReadySheetState`
+- `ProposalReviewPresentationTests.testReadyPresentationRedactsUnsafeEnvelopeAndPackageIDsFromSummary`
+- `ProposalReviewPresentationTests.testReadyPresentationValidationSummaryComesFromIssuesNotStaleSummary`
+- `ProposalReviewPresentationTests.testReadyPresentationTransitionsOnlyThroughDirectUserReviewActions`
+- `ProposalReviewPresentationTests.testReadyPresentationActionBoundaryExplainsApprovalIsNotAuthorization`
+- `ProposalReviewPresentationTests.testApprovedPresentationSurfacesCopyPathPlanWithoutAddingSheetCopyAction`
+- `ProposalReviewPresentationTests.testReadyPresentationShowsEvidenceReferencesCapabilityPolicyAndPayloadFieldNamesSafely`
+- `ProposalReviewPresentationTests.testReadyPresentationRedactsUnsafeAgentFreeTextWithoutHidingSafeMetadata`
+- `ProposalReviewPresentationTests.testReadyPresentationRedactsInstructionOverrideTextWithoutBlockingReview`
+- `ProposalReviewPresentationTests.testReadyPresentationRedactsLineBreaksWithoutBroadInstructionWordBlocks`
+- `ProposalReviewPresentationTests.testReadyPresentationRedactsInstructionLikeReferenceIDsWithoutRedactingStableIDs`
+- `ProposalReviewPresentationTests.testGateBlockedResultBuildsLimitedDiagnosticSheetState`
+- `ProposalReviewPresentationTests.testBlockedPresentationLimitsIssuesAndDoesNotReplayUnsafeDetails`
+- `ProposalReviewPresentationTests.testBlockedPresentationRedactsUnsafeMessagesAndRejectsRawFilesystemLocations`
+- `ProposalReviewPresentationTests.testBlockedPresentationFallsBackToSafeFieldWhenPathIsUnsafe`
+- `ProposalReviewPresentationTests.testBlockedPresentationShowsSourceSeverityAndSafeDetailsWithoutUnsafeValues`
+- `ProposalReviewPresentationTests.testBlockedPresentationOnlyShowsWellFormedOpaqueTokens`
+- `ProposalReviewPresentationTests.testBlockedPresentationDoesNotExposeReviewActions`
+
+## Net-New Tests
+
+This section is completed before four-seat approval. Every entry must have a complete final name, one owning task, and Debug/Release availability. No implementation may silently add, merge, split, or rename a row; amend this map through a new four-seat judgment first.
+
+All 123 rows below are required in both Debug and Release and may not be conditionally compiled or skipped.
+
+### Task 1 / Gate 1A — 11 added
+
+- `CanvasReviewCapabilityLockTests.testRequireEnabledAlwaysThrowsUnavailable`
+- `CanvasReviewCapabilityLockTests.testUnavailableMessageIsGenericAndContainsNoRecoveryInstruction`
+- `CanvasReviewCapabilityLockTests.testCapabilityLockSourceContainsNoReopenMechanism`
+- `MindDeskJSONDocumentClassifierTests.testClassifierSourceDoesNotReferenceHistoricalDTOCurrentFormats`
+- `MindDeskJSONDocumentClassifierTests.testDuplicateSameValueFormatIsAmbiguous`
+- `MindDeskJSONDocumentClassifierTests.testNonStringFormatIsAmbiguous`
+- `MindDeskJSONDocumentClassifierTests.testDuplicateSchemaVersionMarkersAreUnknown`
+- `MindDeskJSONDocumentClassifierTests.testNestedHistoricalFormatMarkerIsIgnored`
+- `MindDeskJSONDocumentClassifierTests.testTrailingJSONContentIsUnknown`
+- `MindDeskJSONDocumentClassifierTests.testDepthLimitAcceptsMaximumAndRejectsOneBeyondMaximum`
+- `MindDeskJSONDocumentClassifierTests.testMarkerTokenLimitAcceptsMaximumAndRejectsOneBeyondMaximum`
+
+### Task 2 / Gate 1B — 7 added
+
+- `ManifestImportServiceTests.testDecodeManifestFromURLRejectsMetadataAndCappedReadOverflowBeforeClassification`
+- `ManifestImportServiceTests.testDecodeManifestFromDataRejectsOversizeLegacyTrapBeforeClassification`
+- `ManifestImportServiceTests.testContentViewDelegatesURLManifestLoadingToImportExportService`
+- `LegacyReviewImportRejectionTests.testAmbiguousFormatMarkersRejectWithoutEnteringCapabilityLock`
+- `LegacyReviewImportRejectionTests.testNestedHistoricalMarkersRejectWithoutEnteringCapabilityLock`
+- `LegacyReviewImportRejectionTests.testInvalidAndTrailingJSONRejectWithoutEnteringCapabilityLock`
+- `LegacyReviewImportRejectionTests.testPrivateLegacyRejectionBranchCallsOnlyPermanentLockWithoutHistoricalDecode`
+
+### Task 3 / Gate 2A — 5 added
+
+- `CoreBehaviorTests.testCanvasEdgeAnimationInteractionPolicyIsDeclaredOutsideCanvasCodexPrompt`
+- `AppBehaviorTests.testClipboardServiceUsesPerInstanceWriterWithoutGlobalTestOverride`
+- `AppBehaviorTests.testDirectUserResourceCopyPathWritesOnlyAfterExplicitAction`
+- `AppBehaviorTests.testDirectUserSnippetCopyWritesBodyOnlyAfterExplicitAction`
+- `AppBehaviorTests.testFolderPreviewCopyUsesNamedDirectUserClipboardRoute`
+
+### Task 4 / Gate 2B — 11 added
+
+- `S0SurfaceAbsenceTests.testDeletedReviewRuntimePathsAndResourceMarkersAreAbsent`
+- `S0SurfaceAbsenceTests.testPackageManifestAndResolutionContainNoSwiftTermOrExternalPackageDependency`
+- `S0SurfaceAbsenceTests.testApplicationMenusCommandsFocusedValuesAndShortcutsContainNoReviewEntryPoints`
+- `S0SurfaceAbsenceTests.testCanvasRailToolbarSheetBannerAndSessionPlumbingContainNoReviewEntryPoints`
+- `S0SurfaceAbsenceTests.testSettingsHelpAndResourceSurfacesContainNoReviewDefaultsOrActions`
+- `S0SurfaceAbsenceTests.testReviewDeepLinksAndRestoreConsumersAreAbsent`
+- `S0SurfaceAbsenceTests.testObsoleteReviewPreferenceKeysAppearOnlyInCleanupData`
+- `S0SurfaceAbsenceTests.testProductionSourcesContainNoSwiftTermOpenPTYOrProcessStartTokens`
+- `S0SurfaceAbsenceTests.testAppSourcesReferenceHistoricalReviewTypesOnlyThroughClassifierAndPermanentLock`
+- `S0SurfaceAbsenceTests.testValidationDisplayTextSanitizerUsesOnlyNeutralPlainStringContracts`
+- `S0SurfaceAbsenceTests.testOrdinaryManifestClipboardFinderTerminalInspectorHelpOverviewAndCanvasSurfacesRemain`
+
+### Task 5 / Gate 3 — 3 added
+
+- `LegacyReviewWireCompatibilityTests.testRawReviewStateAndEventValuesRoundTripWithoutTransitionPolicy`
+- `LegacyReviewWireCompatibilityTests.testLegacyInterchangePackageRoundTripPreservesAllStoredFieldsAndDeliberatelyNonCurrentValues`
+- `LegacyReviewWireCompatibilityTests.testStoredAgentContractAndCapabilityCodableRejectMissingRequiredFields`
+
+### Task 6 / Gate 4A — 6 added
+
+- `WorkspacePrimaryCanvasResolverTests.testZeroRecordsResolveToMissing`
+- `WorkspacePrimaryCanvasResolverTests.testOneNonblankRecordResolvesToUnique`
+- `WorkspacePrimaryCanvasResolverTests.testTwoRecordsResolveToStableDuplicateWithoutSelectingOne`
+- `WorkspacePrimaryCanvasResolverTests.testThreeRecordsResolveToStableDuplicate`
+- `WorkspacePrimaryCanvasResolverTests.testBlankCanvasIDFailsClosedAsDuplicateCollision`
+- `WorkspacePrimaryCanvasResolverTests.testRepeatedCanvasIDsRemainRepeatedDuplicateEvidence`
+
+### Task 7 / Gate 4B — 4 added
+
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintIsOrderIndependentAndEncodesRecordCountAndByteLengths`
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintDistinguishesSingleRepeatedAndBlankCanvasIDs`
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintDistinguishesConcatenationCollisions`
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintChangesWhenOnlyThirdCanvasChangesBeyondLookupFetchLimit`
+
+### Task 8 / Gate 5A — 9 added
+
+- `WorkspaceWindowScopeControllerTests.testTwoControllersHaveDistinctWindowSessionIDsAndContentViewOwnsOneStableStateObject`
+- `WorkspaceWindowScopeControllerTests.testFocusStartsWithNilResolutionAndRepeatingWorkspaceIsIdempotent`
+- `WorkspaceWindowScopeControllerTests.testFocusAToBToACreatesFreshRevisions`
+- `WorkspaceWindowScopeControllerTests.testInitialUniqueMissingAndDuplicateBindingsUseSameRevisionWithUniqueOnlyBound`
+- `WorkspaceWindowScopeControllerTests.testStaleBindReturnsStaleWithoutChangingControllerState`
+- `WorkspaceWindowScopeControllerTests.testEqualResolutionRebindIsIdempotent`
+- `WorkspaceWindowScopeControllerTests.testEveryUnequalResolutionIncludingChangedDuplicatePayloadRotatesRevision`
+- `WorkspaceWindowScopeControllerTests.testExactInvalidationRotatesToNilResolutionWhileStaleInvalidationIsNoOp`
+- `WorkspaceWindowScopeControllerTests.testScopeIdentitiesRemainAppOnlyNonCodableAndControllerConstructed`
+
+### Task 9 / Gate 5B — 6 added
+
+- `WorkspaceWindowScopeControllerTests.testPendingFocusOperationCanRegisterBeforeCanvasBinding`
+- `WorkspaceWindowScopeControllerTests.testStaleRegistrationCancelsSynchronouslyOnceAndReturnsNil`
+- `WorkspaceWindowScopeControllerTests.testCompletionRequiresExactOperationIDAndScopeAndMismatchRemovesNothing`
+- `WorkspaceWindowScopeControllerTests.testCompletedOperationReceivesZeroCancellationAfterLaterTransition`
+- `WorkspaceWindowScopeControllerTests.testFocusResolutionInvalidationAndClearDetachInstallThenCancelExactlyOnce`
+- `WorkspaceWindowScopeControllerTests.testReentrantCancellationObservesOnlyInstalledStateAndCannotRerunDetachedRegistry`
+
+### Task 10 / Gate 6A — 12 added
+
+- `WorkspacePrimaryCanvasIntegrationTests.testLaunchInstallsOneSlotBeforeZeroLatencyWorkerCanCommit`
+- `WorkspacePrimaryCanvasIntegrationTests.testRegistrationFailureCancelsWorkerFinishesStartGateAndInstallsNoSlot`
+- `WorkspacePrimaryCanvasIntegrationTests.testImmediatelyStaleRegistrationCallbackLetsWorkerTerminateWithoutLeak`
+- `WorkspacePrimaryCanvasIntegrationTests.testInvalidationBeforeStartGateOpensLeavesNoTaskSlotOrRegistration`
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintInvalidationCancelsExactSlotOnceAndLaunchesOneFreshInitialAttempt`
+- `WorkspacePrimaryCanvasIntegrationTests.testAToBToAUsesFreshRequestIDsAndOldAttemptCannotTouchCurrentSlot`
+- `WorkspacePrimaryCanvasIntegrationTests.testSameFingerprintReplacementCancelsDisplacedTaskOnceCompletesOldRegistrationAndPreservesReplacement`
+- `WorkspacePrimaryCanvasIntegrationTests.testFailedReplacementPreservesExistingSlot`
+- `WorkspacePrimaryCanvasIntegrationTests.testSupersededAndFailedCompletionCannotBindCancelOrClearReplacement`
+- `WorkspacePrimaryCanvasIntegrationTests.testTerminalSuccessCompletesThenClearsThenBindsWithoutSuspension`
+- `WorkspacePrimaryCanvasIntegrationTests.testPreInsertToPostSaveHandoffKeepsOperationTaskAndRegistrationWithFreshRequestID`
+- `WorkspacePrimaryCanvasIntegrationTests.testSlotTaskAndCancellationCallbackDoNotRetainController`
+
+### Task 11 / Gate 6B — 8 added
+
+- `WorkspacePrimaryCanvasIntegrationTests.testInitialLookupRequiresExactAttemptFocusAndFingerprintAndClearsBeforeBind`
+- `WorkspacePrimaryCanvasIntegrationTests.testMissingInitialResultProvisionsUsingFocusReturnedByBind`
+- `WorkspacePrimaryCanvasIntegrationTests.testPreInsertUniqueOrDuplicateBindsWithoutInsert`
+- `WorkspacePrimaryCanvasIntegrationTests.testConsecutiveMissingPerformsExactlyOneAtomicInsertAndSave`
+- `WorkspacePrimaryCanvasIntegrationTests.testProvisioningUsesIsolatedAutosaveDisabledContextWithoutSavingOrRollingBackSceneChanges`
+- `WorkspacePrimaryCanvasIntegrationTests.testPostSaveHandoffKeepsOperationWithFreshRequestIDAndDifferentContext`
+- `WorkspacePrimaryCanvasIntegrationTests.testSuccessfulSaveReconcilesMissingUniqueAndDuplicateWithoutRetryRepairOrDeletion`
+- `WorkspacePrimaryCanvasIntegrationTests.testFailedSaveDiscardsProvisioningContextAndReconcilesOnceWithoutRetry`
+
+### Task 12 / Gate 6C — 13 added
+
+- `WorkspacePrimaryCanvasIntegrationTests.testCurrentInitialPreInsertAndPostSaveErrorsSanitizePreserveResolutionAndCloseExactSlot`
+- `WorkspacePrimaryCanvasIntegrationTests.testStaleNonCancellationErrorIsSilentAndCannotAlterCurrentState`
+- `WorkspacePrimaryCanvasIntegrationTests.testCancellationAtEveryProvisioningBoundaryClosesExactWorkWithoutOutcomeOrCompensation`
+- `WorkspacePrimaryCanvasIntegrationTests.testFingerprintChangeBetweenSaveAndHandoffStopsOldPhaseAndLaunchesOnlyFreshInitialLookup`
+- `WorkspacePrimaryCanvasIntegrationTests.testTerminalResolutionAndRecoverableErrorOutcomesEmitOnlyAfterExactCleanup`
+- `WorkspacePrimaryCanvasIntegrationTests.testSceneObservationClearsForNilNonWorkspaceAndMissingWorkspaceSelection`
+- `WorkspacePrimaryCanvasIntegrationTests.testSceneObservationLaunchesOnceForNewWorkspaceNoOpsWhenEqualAndInvalidatesOnceWhenFingerprintChanges`
+- `WorkspacePrimaryCanvasIntegrationTests.testSceneObservationAToHomeToAUsesFreshFocusWhileViewIdentityKeepsWindowIDAndSecondWindowDiffers`
+- `WorkspacePrimaryCanvasIntegrationTests.testCanvasRenderingRequiresFullBoundIdentityFailsClosedDuringQueryMergeAndLetsObservationReconcileDrift`
+- `WorkspacePrimaryCanvasIntegrationTests.testPreparingCanvasAppearsOnlyDuringAcceptedProvisioningAndNeverDuringInitialLookup`
+- `WorkspacePrimaryCanvasIntegrationTests.testTerminalMissingShowsExactCopyAndOneFreshScopedTryAgainWithoutAutomaticRetry`
+- `WorkspacePrimaryCanvasIntegrationTests.testDuplicateShowsExactPausedCopyWithoutSelectionInsertionOrBlockingNonCanvasSurfaces`
+- `WorkspacePrimaryCanvasIntegrationTests.testInitialFetchErrorShowsSanitizedNonBusyUnavailableStateWithoutAutomaticRetry`
+
+### Task 13 / Gate 7A — 14 added
+
+- `WorkspaceCanvasNodeOpenRequestTests.testNewTargetAtomicallyReplacesPendingCorrelationAndRevokesOlderDeferredIssuedRequest`
+- `WorkspaceCanvasNodeOpenRequestTests.testTargetCorrelationTransfersInitialToProvisioningAndReusesProvisioningOperationAcrossPreAndPostSave`
+- `WorkspaceCanvasNodeOpenRequestTests.testTargetLaunchHandshakeRetainsCurrentTargetOnRegistrationFailureWhileStaleFailureMutatesNothing`
+- `WorkspaceCanvasNodeOpenRequestTests.testTerminalIssueOrClearRequiresExactOperationIDAndFourFieldTarget`
+- `WorkspaceCanvasNodeOpenRequestTests.testExactRecoverableErrorClearsWhileCancellationAndStaleOutcomesRetainTarget`
+- `WorkspaceCanvasNodeOpenRequestTests.testPendingOrDeferredIssuedTargetReassociatesAcrossSameWorkspaceObservationRotationAndOnlyNewestAToBToAOutcomeMayIssueOrClear`
+- `WorkspaceCanvasNodeOpenRequestTests.testSequenceStartsAtOneAndRotationResetsRequestStateWhileMatchingActiveTargetReentersPending`
+- `WorkspaceCanvasNodeOpenRequestTests.testIdentityMismatchRejectsWithoutMutatingReceivingScope`
+- `WorkspaceCanvasNodeOpenRequestTests.testUnissuedReplacedAndReplayedSequencesRejectWithoutAdvancing`
+- `WorkspaceCanvasNodeOpenRequestTests.testDataNotReadyRetainsIssuedFlowWhileReadyOwnedAndConfirmedAbsenceConsumeExactTarget`
+- `WorkspaceCanvasNodeOpenRequestTests.testAllocatorOverflowEmitsNothingInvalidatesOnceAndStartsOneCorrelatedFreshLookup`
+- `WorkspaceCanvasNodeOpenRequestTests.testCrossWorkspaceQuickOpenClaimsTargetThenUsesOneObservationDrivenLookupAndArrayLookupIsNotAuthorizationEvidence`
+- `WorkspaceCanvasNodeOpenRequestTests.testMissingDefersOnlyDuringAcceptedProvisioningWhileInactiveMissingDuplicateAndTargetMismatchClearExactTarget`
+- `WorkspaceCanvasNodeOpenRequestTests.testLegacyIntRequestTargetPolicyAndCanvasConsumerSymbolsAreAbsent`
+
+### Task 14 / Gate 7B — 9 added
+
+- `WorkspaceCanvasNodeOpenRequestTests.testOwnershipLookupRequiresUniqueCanvasWorkspaceAndNodeMatchesWithBothFetchLimitsTwo`
+- `WorkspaceCanvasNodeOpenRequestTests.testOwnershipLookupTreatsZeroCrossCanvasAndCollisionEvidenceAsDefinitelyAbsent`
+- `WorkspaceCanvasNodeOpenRequestTests.testOwnershipLookupIsSynchronousMainActorFreshReadOnlyAndCreatesNoTaskOrCancellationRegistration`
+- `WorkspaceCanvasNodeOpenRequestTests.testOwnershipLookupThrowRetainsPendingOrDirtyIssuedFlowAndNeverReusesOldReadyEvidence`
+- `WorkspaceCanvasNodeOpenRequestTests.testOwnershipResultCommitsOnlyForExactBoundIdentityAndCurrentFourFieldTarget`
+- `WorkspaceCanvasNodeOpenRequestTests.testSameWorkspaceRotationRestoresDeferredIssuedTargetWhileWorkspaceSwitchAndOwnershipDriftPreventOldConsumption`
+- `WorkspaceCanvasNodeOpenRequestTests.testMissingRenderEntryAndZeroSurfaceDeferWhileNodeChangesDirtyAndRerunExactOwnershipBeforeConfirmedDeletionConsumes`
+- `WorkspaceCanvasNodeOpenRequestTests.testAcceptAloneChangesSelectionAndViewportWhileRejectConsumesWithoutCounterMutation`
+- `WorkspaceCanvasNodeOpenRequestTests.testDeferredIssuedFlowRetainsOriginatingTargetAndEmitsNoDeletedStatus`
+
+### Task 15 / Gate 8A — 5 added
+
+- `CoreBehaviorTests.testCanvasReviewOffNoticeHasExactApprovedDocumentationPlacement`
+- `CoreBehaviorTests.testCurrentCapabilityDocumentationContainsNoActionableAgentCodexOrProposalReviewInstructions`
+- `CoreBehaviorTests.testV3ReleaseNotesPlaceRetiredAgentMaterialBelowSingleHistoricalBoundary`
+- `S0SurfaceAbsenceTests.testCanvasReviewOffNoticeIsAbsentFromProductSourcesDefaultHelpOnboardingMenusAndRails`
+- `AppBehaviorTests.testWorkspaceOverviewRouteRendersCurrentOverviewWhenCanvasIsUnavailable`
+
+### Added-test total
+
+`123 Debug / 123 Release`, yielding the reviewed target equation `776 - 233 + 123 = 666` in each configuration.
+
+## Gate 0 Reconciliation Checks
+
+Before implementation, enumerate the committed Gate 0 test names and prove:
+
+1. every origin above exists exactly once;
+2. the eight file totals equal 776;
+3. classification totals equal `233 retired + 44 migrated + 499 retained`;
+4. no migrated destination duplicates another destination or added name;
+5. the complete suite total is 776 in both configurations;
+6. every unchanged test is present in the exact per-file Gate 0 set complement, with no unledgered disappearance or duplicate destination.
