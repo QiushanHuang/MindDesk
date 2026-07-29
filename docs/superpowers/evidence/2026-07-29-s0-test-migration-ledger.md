@@ -1,6 +1,6 @@
 # MindDesk S0 Test Migration Ledger
 
-**Status:** Gate 0 baselines verified; reviewed classifications frozen; per-gate RED/GREEN evidence pending.
+**Status:** Gate 0 baselines and Gate 1A implementation evidence verified locally; four-seat Gate 1A code review and commit pending. Later gates remain pending.
 
 **Scope:** S0 capability lockdown and scope identity for the private Canvas-first route. This ledger is the count-bearing execution record for the approved implementation plan and migration map. It does not authorize WCF projection, Review, schema repair, or ResearchVault work.
 
@@ -28,6 +28,48 @@ The summary lines were, respectively, `Executed 776 tests, with 0 failures (0 un
 ## Evidence Update Protocol
 
 Only evidence/state cells change during implementation; names, classifications, origin/destination pairs, and configuration obligations stay frozen unless a fresh four-seat review amends the approved map. Before each behavior slice: record intended rows, observe the named RED for the intended reason, implement the minimum change, run focused Debug and Release GREEN, run the gate compile/full-suite checks, then append command and commit evidence. A required or unledgered skip is a release stop.
+
+## Gate 1A Evidence
+
+**Base HEAD:** `7526812b8e1b1689c4a135d0f006380897c4b0bb`.
+
+**Toolchain:** Apple Swift 6.3.3 (`swiftlang-6.3.3.1.3`, `clang-2100.1.1.101`), target `arm64-apple-macosx26.0`.
+
+### TDD Trace
+
+| Slice | Command | Observed evidence |
+| --- | --- | --- |
+| A001 missing API | `swift test --filter CanvasReviewCapabilityLockTests` | Exit 1 in 2.16 s before the placeholder existed: compile errors named missing `CanvasReviewCapabilityError` and `CanvasReviewCapabilityLock`. This first invocation did not capture a wall-clock timestamp; its ordered command transcript precedes the timestamped placeholder RED below. |
+| A001 placeholder | `swift build`, then `swift test --filter CanvasReviewCapabilityLockTests.testRequireEnabledAlwaysThrowsUnavailable` | Full product target compiled; at 2026-07-29T15:48:50Z / 2026-07-29T23:48:50+0800 the test exited 1 with three exact cast/equality failures because the private placeholder error was not `.unavailable`. |
+| A001–A003 permanent lock | `swift test --filter CanvasReviewCapabilityLockTests`; `swift test -c release --filter CanvasReviewCapabilityLockTests` | Final focused Debug and Release each executed 3/0/0 at 2026-07-29T16:06:56Z–16:06:57Z / 2026-07-30T00:06:56+0800–00:06:57+0800. The placeholder was removed; the exact copy and declaration-shape canary passed. |
+| M001–M002 migration | `swift test --filter MindDeskJSONDocumentClassifierTests`; `swift test -c release --filter MindDeskJSONDocumentClassifierTests` before net-new classifier cases | Destination characterization executed 2/0/0 in each configuration at 2026-07-29T15:55:41Z and 15:56:10Z; both origin names were absent and both destination names unique. |
+| A004 DTO decoupling | `swift test --filter MindDeskJSONDocumentClassifierTests.testClassifierSourceDoesNotReferenceHistoricalDTOCurrentFormats` | At 2026-07-29T15:56:39Z the source assertion exited 1 because all three qualified historical DTO factories remained and all three private literals were absent. After the literal-only change, Debug and Release were GREEN at 15:57:10Z and 15:59:00Z. |
+| A005–A008 characterization | Each exact test was added and run individually with `swift test --filter <complete-test-name>` | A005, A006, A007 and A008 were honest characterization GREEN at 2026-07-29T15:59:32Z, 16:00:03Z, 16:00:29Z and 16:00:49Z. No RED was claimed. |
+| A009 transactional/Unicode RED | `swift test --filter MindDeskJSONDocumentClassifierTests.testTrailingJSONContentIsUnknown` | At 2026-07-29T16:02:58Z, exit 1 with nine assertions exposing partial `hasTopLevelFormat`, invalid UTF-8/lone-surrogate acceptance, and valid surrogate-pair rejection. |
+| A010 depth RED | `swift test --filter MindDeskJSONDocumentClassifierTests.testDepthLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | At 2026-07-29T16:03:27Z, exit 1 with six assertions: 64 object/array/mixed payload containers were rejected and 65-layer failures leaked format state. |
+| A011 scalar-cap RED | `swift test --filter MindDeskJSONDocumentClassifierTests.testMarkerTokenLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | At 2026-07-29T16:04:07Z, exit 1 with four assertions exposing combining-scalar bypass, surrogate-pair rejection, and over-limit format-state leakage. |
+| A004–A011 final classifier | `swift test --filter MindDeskJSONDocumentClassifierTests`; `swift test -c release --filter MindDeskJSONDocumentClassifierTests` | Final focused Debug and Release each executed 10/0/0 at 2026-07-29T16:05:25Z and 16:06:56Z. |
+
+### Fresh Build and Full-Suite Evidence
+
+| Configuration | Exact command | UTC interval | Local interval | Observed | Failures | Skips | Complete output SHA-256 | Scratch disposition |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |
+| Debug build | `swift build --scratch-path /tmp/minddesk-s0-g1a-build-debug.20260730T0008` | 2026-07-29T16:08:17Z → 16:08:34Z | 2026-07-30T00:08:17+0800 → 00:08:34+0800 | Build exit 0 | 0 | N/A | `2d52d4d1cf6296065fbc4b368b6d453e8af2459b61d9f29a375dd3b21a66b0df` | Fresh scratch and complete log safely deleted after hashing |
+| Release build | `swift build -c release --scratch-path /tmp/minddesk-s0-g1a-build-release.20260730T0008` | 2026-07-29T16:08:52Z → 16:09:56Z | 2026-07-30T00:08:52+0800 → 00:09:56+0800 | Build exit 0 | 0 | N/A | `51e16f42e0224e03f42a58e14608af3a6fe2c5fc813010a3dab5bb9665489136` | Separate fresh scratch and complete log safely deleted after hashing |
+| Debug full suite | `swift test --scratch-path /tmp/minddesk-s0-g1a-full-debug.20260730T0010` | 2026-07-29T16:10:09Z → 16:10:32Z | 2026-07-30T00:10:09+0800 → 00:10:32+0800 | 787 | 0 | 0 | `45010860e64adfb3596a05a4af300816d709e0b7658f2c7a3bf181df52de995a` | Independent fresh scratch and complete log safely deleted after hashing |
+| Release full suite | `swift test -c release --scratch-path /tmp/minddesk-s0-g1a-full-release.20260730T0010` | 2026-07-29T16:10:43Z → 16:12:04Z | 2026-07-30T00:10:43+0800 → 00:12:04+0800 | 787 | 0 | 0 | `da1034655036b5368e626bfc63d4276c81914af1a334eb407bc0830db90ae16e` | Separate independent fresh scratch and complete log safely deleted after hashing |
+
+The test arithmetic at this gate is `776 + 11 = 787`; M001 and M002 are count-neutral and Gate 1A retires no tests. No skip summary, `XCTSkip`, required skip, or unledgered test name was present.
+
+### Tested Code/Test Basis
+
+| Path | SHA-256 |
+| --- | --- |
+| `Sources/MindDeskCore/CanvasReviewCapabilityLock.swift` | `53f231a4660a30d32effcbc8e1d5ed536452b922d51a5f6f5e8e430fa7eaa899` |
+| `Sources/MindDeskCore/MindDeskJSONDocumentKind.swift` | `a0949acb5e4101059fbf36450388b3a1a7198b126d1b207b23840847497c8d54` |
+| `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `f5e2d4dfb04d1262a11ece5f5187720bc0d2cbb0bc40c18c05a0bed5a43e6b24` |
+| `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `bac1a5320562df845404efdb27f665447abaee32ef40b5b3bf709b6151c8e2aa` |
+| `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `886e4282dab8d00775d62ed22c3df06bc8ff19bd2b1d4f21e89f48381ef6206f` |
 
 ## Retired Baseline Tests — 233
 
@@ -275,8 +317,8 @@ Each row preserves one baseline obligation. The origin disappears only when the 
 
 | ID | Origin file | Complete origin | Destination file | Complete destination | Debug | Release | Evidence-based reason | Execution state |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M001 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode` | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testClassifiesManifestAndRecognizedLegacyReviewFormatsWithoutFullDecode` | Required | Required | Reviewed one-to-one preservation in approved map L66; count-neutral | Frozen at Gate 0; replacement RED/GREEN evidence pending |
-| M002 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testMindDeskJSONDocumentKindRejectsNestedAndConflictingMarkers` | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testRejectsNestedAndConflictingTopLevelMarkers` | Required | Required | Reviewed one-to-one preservation in approved map L67; count-neutral | Frozen at Gate 0; replacement RED/GREEN evidence pending |
+| M001 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode` | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testClassifiesManifestAndRecognizedLegacyReviewFormatsWithoutFullDecode` | Required | Required | Reviewed one-to-one preservation in approved map L66; count-neutral | Gate 1A verified: origin absent, destination unique; Debug/Release characterization and final focused suites GREEN; count-neutral |
+| M002 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testMindDeskJSONDocumentKindRejectsNestedAndConflictingMarkers` | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testRejectsNestedAndConflictingTopLevelMarkers` | Required | Required | Reviewed one-to-one preservation in approved map L67; count-neutral | Gate 1A verified: origin absent, destination unique; Debug/Release characterization and final focused suites GREEN; count-neutral |
 | M003 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testInterchangePackageWrapsManifestWithoutChangingManifestPayload` | `Tests/MindDeskCoreTests/LegacyReviewWireCompatibilityTests.swift` | `LegacyReviewWireCompatibilityTests.testLegacyInterchangePackageRoundTripPreservesManifestPayload` | Required | Required | Reviewed one-to-one preservation in approved map L68; count-neutral | Frozen at Gate 0; replacement RED/GREEN evidence pending |
 | M004 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testInterchangePackageValidationReportsStructuredManifestIssuesAndStaleSummary` | `Tests/MindDeskCoreTests/LegacyReviewWireCompatibilityTests.swift` | `LegacyReviewWireCompatibilityTests.testStoredInterchangePackageValidationDetectsStaleSummary` | Required | Required | Reviewed one-to-one preservation in approved map L69; count-neutral | Frozen at Gate 0; replacement RED/GREEN evidence pending |
 | M005 | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testInterchangePackageValidationRejectsUnsupportedFormatVersion` | `Tests/MindDeskCoreTests/LegacyReviewWireCompatibilityTests.swift` | `LegacyReviewWireCompatibilityTests.testStoredInterchangePackageValidationRejectsUnsupportedFormatVersion` | Required | Required | Reviewed one-to-one preservation in approved map L70; count-neutral | Frozen at Gate 0; replacement RED/GREEN evidence pending |
@@ -326,17 +368,17 @@ Each row adds one in Debug and one in Release after its named RED and GREEN are 
 
 | ID | Task / gate | Destination file | Complete test name | Debug | Release | Origin | Evidence-based reason | Execution state |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A001 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testRequireEnabledAlwaysThrowsUnavailable` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L467 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A002 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testUnavailableMessageIsGenericAndContainsNoRecoveryInstruction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L468 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A003 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testCapabilityLockSourceContainsNoReopenMechanism` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L469 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A004 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testClassifierSourceDoesNotReferenceHistoricalDTOCurrentFormats` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L470 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A005 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDuplicateSameValueFormatIsAmbiguous` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L471 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A006 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testNonStringFormatIsAmbiguous` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L472 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A007 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDuplicateSchemaVersionMarkersAreUnknown` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L473 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A008 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testNestedHistoricalFormatMarkerIsIgnored` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L474 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A009 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testTrailingJSONContentIsUnknown` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L475 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A010 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDepthLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L476 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A011 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testMarkerTokenLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L477 | Frozen at Gate 0; RED/GREEN evidence pending |
+| A001 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testRequireEnabledAlwaysThrowsUnavailable` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L467 | Gate 1A verified: missing-symbol compile RED, placeholder exact-error assertion RED, final Debug/Release GREEN |
+| A002 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testUnavailableMessageIsGenericAndContainsNoRecoveryInstruction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L468 | Gate 1A verified: exact generic copy GREEN in focused Debug/Release and full 787/0/0 suites |
+| A003 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/CanvasReviewCapabilityLockTests.swift` | `CanvasReviewCapabilityLockTests.testCapabilityLockSourceContainsNoReopenMechanism` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L469 | Gate 1A verified: exact minimal declaration-shape canary GREEN; placeholder and reopen mechanisms absent |
+| A004 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testClassifierSourceDoesNotReferenceHistoricalDTOCurrentFormats` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L470 | Gate 1A verified: three-factory source assertion RED, then file-private literal Debug/Release GREEN |
+| A005 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDuplicateSameValueFormatIsAmbiguous` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L471 | Gate 1A verified: honest characterization GREEN; final focused Debug/Release and full suites GREEN |
+| A006 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testNonStringFormatIsAmbiguous` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L472 | Gate 1A verified: honest characterization GREEN across null/bool/number/object/array; final suites GREEN |
+| A007 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDuplicateSchemaVersionMarkersAreUnknown` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L473 | Gate 1A verified: honest characterization GREEN for duplicate/missing/non-integer markers; final suites GREEN |
+| A008 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testNestedHistoricalFormatMarkerIsIgnored` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L474 | Gate 1A verified: honest characterization GREEN for all three nested historical literals; final suites GREEN |
+| A009 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testTrailingJSONContentIsUnknown` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L475 | Gate 1A verified: transactional/UTF-8/surrogate assertion RED, strict shared lexer GREEN in Debug/Release/full suites |
+| A010 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testDepthLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L476 | Gate 1A verified: object/array/mixed 64/65 assertion RED, single-increment depth GREEN in all suites |
+| A011 | Task 1 / Gate 1A | `Tests/MindDeskCoreTests/MindDeskJSONDocumentClassifierTests.swift` | `MindDeskJSONDocumentClassifierTests.testMarkerTokenLimitAcceptsMaximumAndRejectsOneBeyondMaximum` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L477 | Gate 1A verified: raw/escaped/combining/surrogate scalar-cap assertion RED, 256/257 GREEN in all suites |
 | A012 | Task 2 / Gate 1B | `Tests/MindDeskTests/ManifestImportServiceTests.swift` | `ManifestImportServiceTests.testDecodeManifestFromURLRejectsMetadataAndCappedReadOverflowBeforeClassification` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L481 | Frozen at Gate 0; RED/GREEN evidence pending |
 | A013 | Task 2 / Gate 1B | `Tests/MindDeskTests/ManifestImportServiceTests.swift` | `ManifestImportServiceTests.testDecodeManifestFromDataRejectsOversizeLegacyTrapBeforeClassification` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L482 | Frozen at Gate 0; RED/GREEN evidence pending |
 | A014 | Task 2 / Gate 1B | `Tests/MindDeskTests/ManifestImportServiceTests.swift` | `ManifestImportServiceTests.testContentViewDelegatesURLManifestLoadingToImportExportService` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L483 | Frozen at Gate 0; RED/GREEN evidence pending |
@@ -462,18 +504,21 @@ Each row adds one in Debug and one in Release after its named RED and GREEN are 
 | Gate | UTC/local timestamp | Source commit | Commands and observed result | Rows updated | Evidence / limitations |
 | --- | --- | --- | --- | --- | --- |
 | 0 | Debug 2026-07-29T14:59:11Z–14:59:39Z; Release 2026-07-29T15:00:04Z–15:01:32Z (Asia/Shanghai +0800) | `77eb34b4b6a36ddb5becffe6e3fd9176adc72818` | Fresh Debug and separately built fresh Release suites: 776/0/0 each | Inventory frozen: R001–R233, M001–M044, A001–A123 | Console-log SHA-256 values above; ephemeral scratch/log bytes were safely removed after hashes and summaries were emitted |
-| 1–8 | Pending | Pending | Pending | Pending | Pending |
+| 1A | Final evidence 2026-07-29T16:05:25Z–16:12:04Z (2026-07-30T00:05:25+0800–00:12:04+0800); earlier RED trace above | Base `7526812b8e1b1689c4a135d0f006380897c4b0bb`; tested file hashes above | Focused lock 3/0/0 and classifier 10/0/0 in Debug/Release; fresh builds exit 0; independent full suites 787/0/0 each; `git diff --check` clean | M001–M002, A001–A011 | Complete output hashes and scratch disposition above; implementation review/commit pending, so no future commit SHA is asserted |
+| 1B–8 | Pending | Pending | Pending | Pending | Pending |
 
 ## Evidence and Limitations
 
 - Gate 0 proves only the pre-implementation Debug/Release baseline and the exact naming arithmetic. It does not prove future S0 behavior, release policy, signing, notarization, performance, or final count.
 - Complete ephemeral logs were hashed and summarized before cleanup but are not checked-in artifacts; the command transcript plus this ledger records their digests.
 - No production source, test source, package/workflow configuration, experiment, run, artifact registry, or ResearchVault content changed during Gate 0.
+- Gate 1A changed only its five approved code/test paths plus this ledger. It proves the permanent lock and bounded classifier contract, not Task 2 import limits/error mapping or later runtime removal.
+- The initial missing-symbol compile RED was observed and transcript-bound, but its first invocation did not capture a wall-clock timestamp; the later placeholder and all classifier RED/GREEN/final commands are timestamped above. No timestamp was invented.
 - Final Debug and Release evidence must be collected independently at Gate 8D from the approved clean-room flow.
 - Any mismatch between this ledger and the approved map is a release stop and requires correction plus four-seat re-review.
 
 ## Next Actions
 
-1. Mechanically reconcile this ledger against the approved map and current eight-file baseline.
-2. Complete a four-seat Gate 0 evidence review and commit only this ledger.
-3. Begin Task 1 / Gate 1A with named RED tests; do not reinterpret frozen classifications.
+1. Complete the four-seat Gate 1A code/evidence review against the tested file hashes.
+2. Commit only the six approved Task 1 paths with `feat: permanently close canvas review capability` and verify the committed tree is clean.
+3. Begin Task 2 / Gate 1B from the committed Gate 1A base; do not reinterpret frozen classifications.

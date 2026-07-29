@@ -280,67 +280,6 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(Set(bounded[0].templates.map(\.id)).count, bounded[0].templates.count)
     }
 
-    func testMindDeskJSONDocumentKindClassifiesManifestMIPProposalAndValidationReportWithoutFullDecode() throws {
-        let manifestData = try JSONSerialization.data(withJSONObject: [
-            "schemaVersion": 999,
-            "workspaces": "not decoded by classifier"
-        ])
-        let typedManifestData = try JSONSerialization.data(withJSONObject: [
-            "format": "minddesk.export.manifest",
-            "formatVersion": 1,
-            "schemaVersion": 999,
-            "workspaces": "not decoded by classifier"
-        ])
-        let packageData = try JSONSerialization.data(withJSONObject: [
-            "format": MindDeskInterchangePackage.currentFormat,
-            "manifest": ["schemaVersion": 2]
-        ])
-        let proposalData = try JSONSerialization.data(withJSONObject: [
-            "format": MindDeskProposalEnvelope.currentFormat,
-            "schemaVersion": 2,
-            "proposals": "not decoded by classifier"
-        ])
-        let validationReportData = try JSONSerialization.data(withJSONObject: [
-            "format": MindDeskValidationReport.currentFormat,
-            "issues": "not decoded by classifier"
-        ])
-        let foreignData = try JSONSerialization.data(withJSONObject: [
-            "format": "foreign.document",
-            "schemaVersion": 2
-        ])
-        let foreignClassification = MindDeskJSONDocumentClassifier.classify(foreignData)
-        let typedManifestClassification = MindDeskJSONDocumentClassifier.classify(typedManifestData)
-        let malformedData = Data("{".utf8)
-
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(manifestData), .manifest)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(typedManifestData), .manifest)
-        XCTAssertEqual(typedManifestClassification.kind, .manifest)
-        XCTAssertTrue(typedManifestClassification.hasTopLevelFormat)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(packageData), .interchangePackage)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(proposalData), .proposalEnvelope)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(validationReportData), .validationReport)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(foreignData), .unknown)
-        XCTAssertEqual(foreignClassification.kind, .unknown)
-        XCTAssertTrue(foreignClassification.hasTopLevelFormat)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(malformedData), .unknown)
-    }
-
-    func testMindDeskJSONDocumentKindRejectsNestedAndConflictingMarkers() {
-        let nestedManifestData = Data("""
-        {"manifest":{"schemaVersion":2},"workspaces":[]}
-        """.utf8)
-        let conflictingFormatData = Data("""
-        {"format":"\(MindDeskInterchangePackage.currentFormat)","format":"\(MindDeskProposalEnvelope.currentFormat)"}
-        """.utf8)
-        let stringSchemaData = Data("""
-        {"schemaVersion":"2","workspaces":[]}
-        """.utf8)
-
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(nestedManifestData), .unknown)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(conflictingFormatData), .unknown)
-        XCTAssertEqual(MindDeskJSONDocumentKind.classify(stringSchemaData), .unknown)
-    }
-
     func testExportManifestEncodesTypedWireMetadataAndKeepsLegacyDecode() throws {
         let manifest = ExportManifest(
             schemaVersion: 2,
