@@ -77,7 +77,7 @@ Each project has:
 - One Project Brief.
 - One logical Primary Canvas in v1.
 
-The Primary Canvas resolver must return exactly one result and a revision. Zero, duplicate, collided, or ambiguous candidates are recoverable data states for manual Canvas use but hard blockers for future Review. It must never select `first`.
+S0 introduces the minimum Primary Canvas resolver needed to stop silent ambiguity. It performs a stable, workspace-scoped fetch capped at two records and returns `missing`, `unique(canvasID)`, or `duplicate(canvasIDs)`. Only `unique` may create a scope identity. `duplicate` never selects `first`, creates another Canvas, repairs data, or deletes records. Durable schema identity, migration, and user-facing repair belong to S1.
 
 ### Canvas Graph
 
@@ -115,13 +115,13 @@ Project Brief exists only in this rail. The old Overview route is a compatibilit
 | Object deep link | Canvas with the validated target visible |
 | Missing or stale target | Canvas fallback plus persistent recoverable error |
 
-Historical `.overview` raw values remain decodable across skipped versions. Migration is idempotent and maps the meaning to `Canvas + Brief`. The first successful migration explains the move once; subsequent opens honor the user's current rail state.
+Historical `.overview` raw values remain decodable across skipped versions. S0 preserves the existing Overview display because Brief has not moved into the rail yet. S1/S2 later provide an idempotent migration that maps the meaning to `Canvas + Brief`; the first successful migration explains the move once and subsequent opens honor the user's current rail state.
 
 ### Rail Layout and State
 
 The Context Rail is inline when the remaining Canvas can preserve at least 560 points of usable width. This number is an initial desktop layout contract to validate with supported hardware, font scaling, VoiceOver, and localization; it is not a performance promise. Below that boundary, the rail becomes a trailing overlay and does not resize the Canvas. Only one auxiliary overlay may be visible at a time.
 
-Per-window state owns:
+The following is the final S1/S2 window and interaction contract, not S0 scope. Per-window state owns:
 
 - Current workspace/project and Canvas.
 - Canvas viewport and object selection.
@@ -134,7 +134,7 @@ Selecting a Card while Tasks or Review is active updates the selection indicator
 
 ### Deep Links
 
-Deep links are typed destinations. Resolution validates workspace/project/canvas/object ownership and existence against an immutable focus revision; URL identifiers are never authorization.
+The final S2 deep-link contract uses typed destinations. Resolution validates workspace/project/canvas/object ownership and existence against an immutable focus revision; URL identifiers are never authorization.
 
 Successful object navigation must:
 
@@ -143,7 +143,7 @@ Successful object navigation must:
 - Establish visual selection and an appropriate keyboard focus.
 - Preserve a Back destination containing the prior window, Canvas, viewport, selection, rail, and focus.
 
-If multiple windows remain equally valid and the link has no valid window session identity, MindDesk asks the user which visible window to use rather than choosing `first`. Missing, deleted, migrated, and stale targets produce explicit recovery states.
+If multiple windows remain equally valid and the link has no valid window session identity, S2 asks the user which visible window to use rather than choosing `first`. Missing, deleted, migrated, and stale targets produce explicit recovery states. S0 implements only scope-bound request identity and stale-result rejection; it does not add this chooser, Back navigation, rail behavior, or final focus UX.
 
 ## Empty State, Templates, and First Guidance
 
@@ -191,13 +191,14 @@ lowest-level capability gate
 → direct backing-object closure
 → field projection
 → ownership and graph validation
-→ canonical encoding and digest
+→ canonical projection and digest
 → Context Preview
 → explicit user confirmation
+→ context-package encoding
 → atomic handoff
 ```
 
-The capability gate runs before any fetch, read, encoding, temporary-file creation, or process launch. A builder may not receive global arrays and filter them afterward. Context Preview and transmitted input are two renderings of the same canonical projected value and have the same digest.
+The capability gate runs before any fetch, read, encoding, temporary-file creation, or process launch. A builder may not receive global arrays and filter them afterward. Context Preview and transmitted input are two renderings of the same canonical projected value and have the same digest. Building Preview does not count as context-package encoding; the package itself is encoded only after confirmation.
 
 Revision or digest changes make the result stale. Bounds failures stop before encoding or writing and never silently truncate the context.
 
@@ -232,6 +233,12 @@ Prefer a memory-only package. If a temporary file is unavoidable, use an owned s
 
 v1b contains no shell. If a helper process is unavoidable, it is a fixed trusted executable with fixed arguments, an environment allowlist, no sensitive argv/env values, and no claim of operating-system file isolation.
 
+S0 removes the currently compiled Canvas Codex and Proposal Review UI/session/process/action runtime, including its SwiftTerm dependency, rather than retaining a dormant PTY or `Process` implementation. Pure Codable wire classifiers, envelopes, and validation needed to recognize historical data may remain, but they expose no product entry point and do not constitute runtime capability.
+
+In v1a, a historical MIP or proposal document is classified only so ordinary Manifest import can reject it safely with neutral unsupported-document copy. S0 provides no quarantine viewer and never directs the user to a removed Review command; any future quarantine experience belongs to S6.
+
+S0 also keeps a deliberately small, default-deny gateway at every future lowest sink: package build/encode, runtime artifact creation, runtime process launch, runtime input, proposal decode/action, and proposal clipboard. These gates run before their supplied operation closure and are verified with counters that remain zero after a denied call.
+
 ## Capability Stages
 
 | Capability | v1a Private Manual Canvas | v1b Canvas Review |
@@ -249,10 +256,10 @@ v1b contains no shell. If a helper process is unavoidable, it is a fixed trusted
 | Canvas, Task, or Brief write-back | Absent | Absent |
 | Apply, Accept, Reject authorization | Absent | Absent |
 | Clipboard side effect from Review | Absent | Forbidden |
-| Old package/session recovery | Absent | Quarantine view only; never Ready |
+| Old package/session recovery | Neutral classifier rejection; no UI | Deferred until S6; never implicitly Ready |
 | Global-resource Review | Absent | Blocked and deferred |
 
-In v1a, the package, session, and action layers return a structured `featureDisabled` result before performing work. UI visibility is not an authorization boundary.
+In v1a, package build/encode, runtime artifact/process/input, proposal decode/action, and proposal clipboard sinks return a structured `featureDisabled` result before performing work. UI visibility is not an authorization boundary.
 
 Here and throughout S0, "package" means an Agent/Review context package. User-initiated portable Manifest import and export remain ordinary local product capabilities and must not be disabled unless a later, separately approved specification changes them.
 
@@ -321,8 +328,8 @@ Manual Canvas expansion is independent of v1b; it does not wait for AI Review.
 ## Specification Dependency Graph
 
 ```text
-S0 Capability Lockdown and Scope Identity
-├── S1 Versioned Model, Primary Canvas, and Overview Migration
+S0 Capability Lockdown, Scope Identity, and Minimum Primary Resolution
+├── S1 Versioned Model, Primary Canvas Repair, and Overview Migration
 ├── S2 Window, Rail, Deep Link, and Accessibility State
 └── S3 WCF Kernel and Adversarial Fixtures
        │
@@ -335,14 +342,17 @@ S5 + vertical cohort evidence ──> S8 Horizontal Expansion Go/No-Go
 
 S0 is the only first implementation specification. It contains:
 
-- Lowest-level `featureDisabled` gates for package, session, and proposal-action paths.
+- Lowest-sink gates for package build/encode, runtime artifact/process/input, proposal decode/action, and proposal clipboard paths.
 - Complete absence of Agent/Codex UI, menus, shortcuts, Help, deep-link, and restored state in v1a.
 - Zero Agent/Review context-package encodes, related temporary files, helper processes, and Review side effects in v1a; ordinary user Manifest import/export is unaffected.
-- An immutable scope identity value and focus revision.
+- Removal from the production target of Canvas Codex/Proposal Review UI, PTY/process/action runtime, and SwiftTerm; pure historical wire compatibility may remain without entry points.
+- An immutable scope identity containing `windowSessionID + workspaceID + canvasID + revision`, created only for a unique Primary Canvas.
+- A stable Primary Canvas `missing | unique | duplicate` resolver with a two-record fetch cap, no `first`, and no automatic repair.
 - Scope invalidation and in-flight cancellation when project focus changes.
+- A→B→A focus revisions that differ, plus full-identity equality before any asynchronous result is accepted.
 - Release-build negative canary evidence for these claims.
 
-S0 must not implement Context Preview, a new encoder, a helper, a future Review UI, schema migration, or dormant restore state.
+S0 must not implement Context Preview, a new encoder, a helper, a future Review UI, schema migration, Overview-to-Rail migration, multi-window chooser/Back UX, automatic duplicate repair, or dormant restore state.
 
 ## Release Decisions
 
@@ -350,7 +360,7 @@ S0 must not implement Context Preview, a new encoder, a helper, a future Review 
 | --- | --- |
 | Canonical v3 design | Approved |
 | S0 specification and plan | Allowed |
-| S0 implementation | Allowed after focused spec and reviewed plan |
+| S0 implementation | Allowed after focused spec, canonical corrigendum, and reviewed plan |
 | v1a internal test | Blocked until S0-S4 evidence closes |
 | v1a Beta | Conditional on P0 negative tests, migration, window isolation, accessibility, and real-store baseline |
 | v1a GA | Blocked until measured performance/stability budgets are frozen and met |
@@ -360,7 +370,7 @@ S0 must not implement Context Preview, a new encoder, a helper, a future Review 
 
 ## Release Stops
 
-Stop v1a if any Agent/package/session/action path runs, a cross-workspace destination enters the current focus, Primary Canvas ambiguity auto-resolves, multi-window focus diverges, Brief or Rail requires a whole-store read, an implicit migration risks data, or a Release-store baseline is missing.
+Stop v1a if any Agent package/runtime/proposal sink performs work, a cross-workspace destination enters the current focus, Primary Canvas ambiguity auto-resolves, an old window/revision result is accepted, multi-window focus diverges, Brief or Rail requires a whole-store read, an implicit migration risks data, or a Release-store baseline is missing.
 
 Stop v1b if any foreign canary appears on any session surface, an invalid scope still encodes/writes/launches, a shell or out-of-scope read is possible, an old package becomes Ready, Review produces clipboard or other side effects, stale data remains current, tampering is missed, the builder scans the full store, a helper/file is orphaned, package work blocks the main thread, or public privacy language exceeds demonstrated isolation.
 
