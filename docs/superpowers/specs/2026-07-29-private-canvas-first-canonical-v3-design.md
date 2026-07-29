@@ -77,7 +77,7 @@ Each project has:
 - One Project Brief.
 - One logical Primary Canvas in v1.
 
-S0 introduces the minimum Primary Canvas resolver needed to stop silent ambiguity. It performs a stable, workspace-scoped fetch capped at two records and returns `missing`, `unique(canvasID)`, or `duplicate(canvasIDs)`. Only `unique` may create a scope identity. `duplicate` never selects `first`, creates another Canvas, repairs data, or deletes records. Durable schema identity, migration, and user-facing repair belong to S1.
+S0 introduces the minimum Primary Canvas resolver needed to stop silent ambiguity. It performs a stable, workspace-scoped fetch capped at two records and returns `missing`, `unique(canvasID)`, or `duplicate(canvasIDs)`. Before resolution, S0 creates an immutable pending focus scope identity containing `windowSessionID + workspaceID + revision` so lookup, provisioning, and cancellation remain scope-bound. Only `unique` may promote that pending identity to a bound Canvas scope identity by adding `canvasID`. `missing` and `duplicate` never bind or display Canvas content. `duplicate` never selects `first`, creates another Canvas, repairs data, or deletes records. Durable schema identity, migration, and user-facing repair belong to S1.
 
 ### Canvas Graph
 
@@ -233,11 +233,13 @@ Prefer a memory-only package. If a temporary file is unavoidable, use an owned s
 
 v1b contains no shell. If a helper process is unavoidable, it is a fixed trusted executable with fixed arguments, an environment allowlist, no sensitive argv/env values, and no claim of operating-system file isolation.
 
-S0 removes the currently compiled Canvas Codex and Proposal Review UI/session/process/action runtime, including its SwiftTerm dependency, rather than retaining a dormant PTY or `Process` implementation. Pure Codable wire classifiers, envelopes, and validation needed to recognize historical data may remain, but they expose no product entry point and do not constitute runtime capability.
+S0 physically removes the compiled Canvas Codex and Proposal Review UI, package builders, session/process/input code, proposal decode/action/clipboard bridges, and SwiftTerm dependency. For a sink that no longer exists, source/dependency/symbol/resource absence is the enforcement evidence; S0 does not recreate a callable facade merely to return an error.
 
-In v1a, a historical MIP or proposal document is classified only so ordinary Manifest import can reject it safely with neutral unsupported-document copy. S0 provides no quarantine viewer and never directs the user to a removed Review command; any future quarantine experience belongs to S6.
+Retained historical compatibility code remains linked through `MindDeskCore`, but it is limited to stored Codable wire values, existing pure validators, sanitized diagnostics, and bounded top-level format classification. “No production caller” means there is no call from `Sources/MindDesk` beyond that classifier; it does not mean the compatibility code lives in an unlinked target.
 
-S0 also keeps a deliberately small, default-deny gateway at every future lowest sink: package build/encode, runtime artifact creation, runtime process launch, runtime input, proposal decode/action, and proposal clipboard. These gates run before their supplied operation closure and are verified with counters that remain zero after a denied call.
+S0 has one stateless, permanently closed `CanvasReviewCapabilityLock`. The only retained product branch that invokes it is in-limit legacy Review-document rejection from ordinary Manifest import. It has no operation closure, configurable policy, enabled state, counter, environment/defaults override, or future-live implementation. Future S3/S6 specifications must define new WCF-backed lowest-sink gates before adding any new package, process, input, decode, action, or clipboard sink.
+
+In v1a, a historical MIP, proposal envelope, or standalone Review validation report is classified only so ordinary Manifest import can reject it safely with neutral unsupported-document copy. S0 provides no quarantine viewer and never directs the user to a removed Review command; any future quarantine experience belongs to S6.
 
 ## Capability Stages
 
@@ -259,7 +261,7 @@ S0 also keeps a deliberately small, default-deny gateway at every future lowest 
 | Old package/session recovery | Neutral classifier rejection; no UI | Deferred until S6; never implicitly Ready |
 | Global-resource Review | Absent | Blocked and deferred |
 
-In v1a, package build/encode, runtime artifact/process/input, proposal decode/action, and proposal clipboard sinks return a structured `featureDisabled` result before performing work. UI visibility is not an authorization boundary.
+In v1a, removed package/session/proposal sinks have no callable implementation. The retained in-limit legacy-document import branch hits the stateless lock before any full legacy decode and maps the lock error to neutral Manifest-import copy. Pure stored wire encode/decode in compatibility tests is not a product package workflow.
 
 Here and throughout S0, "package" means an Agent/Review context package. User-initiated portable Manifest import and export remain ordinary local product capabilities and must not be disabled unless a later, separately approved specification changes them.
 
@@ -342,11 +344,11 @@ S5 + vertical cohort evidence ──> S8 Horizontal Expansion Go/No-Go
 
 S0 is the only first implementation specification. It contains:
 
-- Lowest-sink gates for package build/encode, runtime artifact/process/input, proposal decode/action, and proposal clipboard paths.
+- Physical removal of package build/encode, runtime artifact/process/input, proposal decode/action, and proposal clipboard implementations, plus one permanently closed lock on the retained legacy-document import rejection branch.
 - Complete absence of Agent/Codex UI, menus, shortcuts, Help, deep-link, and restored state in v1a.
 - Zero Agent/Review context-package encodes, related temporary files, helper processes, and Review side effects in v1a; ordinary user Manifest import/export is unaffected.
 - Removal from the production target of Canvas Codex/Proposal Review UI, PTY/process/action runtime, and SwiftTerm; pure historical wire compatibility may remain without entry points.
-- An immutable scope identity containing `windowSessionID + workspaceID + canvasID + revision`, created only for a unique Primary Canvas.
+- A two-stage immutable in-memory scope identity: the pending focus identity contains `windowSessionID + workspaceID + revision`; the bound Canvas identity adds `canvasID` and is created only for a unique Primary Canvas.
 - A stable Primary Canvas `missing | unique | duplicate` resolver with a two-record fetch cap, no `first`, and no automatic repair.
 - Scope invalidation and in-flight cancellation when project focus changes.
 - A→B→A focus revisions that differ, plus full-identity equality before any asynchronous result is accepted.
@@ -370,7 +372,7 @@ S0 must not implement Context Preview, a new encoder, a helper, a future Review 
 
 ## Release Stops
 
-Stop v1a if any Agent package/runtime/proposal sink performs work, a cross-workspace destination enters the current focus, Primary Canvas ambiguity auto-resolves, an old window/revision result is accepted, multi-window focus diverges, Brief or Rail requires a whole-store read, an implicit migration risks data, or a Release-store baseline is missing.
+Stop v1a if any removed Agent package/runtime/proposal sink source, dependency, symbol, or resource remains; if `Sources/MindDesk` calls a historical Review builder, gate, session, action, or UI path beyond bounded top-level legacy-document classification; if that classification reaches full legacy decode before the permanent lock; if a cross-workspace destination enters the current focus; if Primary Canvas ambiguity auto-resolves; if an old window/revision result is accepted; if multi-window focus diverges; if Brief or Rail requires a whole-store read; if an implicit migration risks data; or if a Release-store baseline is missing.
 
 Stop v1b if any foreign canary appears on any session surface, an invalid scope still encodes/writes/launches, a shell or out-of-scope read is possible, an old package becomes Ready, Review produces clipboard or other side effects, stale data remains current, tampering is missed, the builder scans the full store, a helper/file is orphaned, package work blocks the main thread, or public privacy language exceeds demonstrated isolation.
 
