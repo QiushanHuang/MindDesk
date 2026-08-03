@@ -47,10 +47,23 @@ enum WorkbenchError: LocalizedError {
 }
 
 struct ClipboardService {
+    private let writer: @MainActor (String) -> Void
+
+    init() {
+        writer = { value in
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(value, forType: .string)
+        }
+    }
+
+    init(writer: @escaping @MainActor (String) -> Void) {
+        self.writer = writer
+    }
+
+    @MainActor
     func copy(_ value: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(value, forType: .string)
+        writer(value)
     }
 }
 

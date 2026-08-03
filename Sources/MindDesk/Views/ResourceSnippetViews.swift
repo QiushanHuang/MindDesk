@@ -123,6 +123,7 @@ struct ResourceListView: View {
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onRemove: (ResourcePinModel) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
     var canRemove: (ResourcePinModel) -> Bool = { _ in true }
     var workspaceUsageByResourceID: [String: [ResourceWorkspaceUsage]] = [:]
     var onSelectWorkspace: ((String) -> Void)?
@@ -242,7 +243,7 @@ struct ResourceListView: View {
         return "No resources yet"
     }
 
-    private enum ResourceAction: Equatable {
+    enum ResourceAction: Equatable {
         case open
         case reveal
         case copy
@@ -309,9 +310,9 @@ struct ResourceListView: View {
         }
     }
 
-    private func performResourceAction(_ resource: ResourcePinModel, action: ResourceAction) {
+    func performResourceAction(_ resource: ResourcePinModel, action: ResourceAction) {
         if action == .copy {
-            ClipboardService().copy(resource.displayPath)
+            clipboardService.copy(resource.displayPath)
             onStatus("Copied path: \(resource.displayPath)")
             return
         }
@@ -461,6 +462,7 @@ struct ResourcePreviewView: View {
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onRemove: (ResourcePinModel) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
     @State private var folderItems: [FolderPreviewItem] = []
     @State private var isLoadingFolder = false
     @State private var previewError: String?
@@ -629,8 +631,7 @@ struct ResourcePreviewView: View {
                                 openPreviewItem(item)
                             }
                             Button("Copy Full Path") {
-                                ClipboardService().copy(item.path)
-                                onStatus("Copied path: \(item.path)")
+                                copyFolderPreviewItemPath(item)
                             }
                         }
                 }
@@ -675,9 +676,14 @@ struct ResourcePreviewView: View {
         case copy
     }
 
+    func copyFolderPreviewItemPath(_ item: FolderPreviewItem) {
+        clipboardService.copy(item.path)
+        onStatus("Copied path: \(item.path)")
+    }
+
     private func performResourceAction(_ action: ResourcePreviewAction) {
         if action == .copy {
-            ClipboardService().copy(resource.displayPath)
+            clipboardService.copy(resource.displayPath)
             onStatus("Copied path: \(resource.displayPath)")
             return
         }
@@ -1354,6 +1360,7 @@ struct SnippetLibraryView: View {
     let onInspect: (InspectorSelection) -> Void
     let onEdit: (SnippetModel) -> Void
     let onDelete: (SnippetModel) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
     var listMinHeight: CGFloat = 220
     var listMaxHeight: CGFloat?
     var compactEmptyState = false
@@ -1468,8 +1475,8 @@ struct SnippetLibraryView: View {
         }
     }
 
-    private func copy(_ snippet: SnippetModel) {
-        ClipboardService().copy(snippet.body)
+    func copy(_ snippet: SnippetModel) {
+        clipboardService.copy(snippet.body)
         snippet.lastCopiedAt = .now
         snippet.updatedAt = .now
         do {
@@ -1525,7 +1532,7 @@ struct SnippetLibraryView: View {
             }
         } catch {
             let runError = error
-            ClipboardService().copy(snippet.body)
+            clipboardService.copy(snippet.body)
             snippet.lastCopiedAt = .now
             snippet.updatedAt = .now
             do {

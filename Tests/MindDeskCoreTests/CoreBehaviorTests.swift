@@ -3721,6 +3721,26 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(plan.diagnostics.index.droppedInvalidGeometryEdgeCount, 1)
     }
 
+    func testCanvasEdgeAnimationInteractionPolicyIsDeclaredOutsideCanvasCodexPrompt() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let legacySource = (try? String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDeskCore/CanvasCodexPrompt.swift"),
+            encoding: .utf8
+        )) ?? ""
+        let policySource = (try? String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDeskCore/CanvasEdgeAnimationInteractionPolicy.swift"),
+            encoding: .utf8
+        )) ?? ""
+        let declaration = "public enum CanvasEdgeAnimationInteractionPolicy"
+
+        XCTAssertFalse(legacySource.contains(declaration))
+        XCTAssertTrue(policySource.contains(declaration))
+        XCTAssertEqual([legacySource, policySource].filter { $0.contains(declaration) }.count, 1)
+    }
+
     func testCanvasEdgeAnimationPolicyGatesVisibleTimelineByZoomDensityAndComplexity() {
         XCTAssertTrue(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
             theme: "blue",

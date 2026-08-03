@@ -5459,6 +5459,204 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(resourceViewsSource.contains("SnippetExpansionPresentationPolicy.expandedEditAction"))
     }
 
+    @MainActor
+    func testClipboardServiceUsesPerInstanceWriterWithoutGlobalTestOverride() throws {
+        var firstWrites: [String] = []
+        var secondWrites: [String] = []
+        let firstService = ClipboardService(writer: { firstWrites.append($0) })
+        let secondService = ClipboardService(writer: { secondWrites.append($0) })
+
+        XCTAssertTrue(firstWrites.isEmpty)
+        XCTAssertTrue(secondWrites.isEmpty)
+
+        firstService.copy("first payload")
+        XCTAssertEqual(firstWrites, ["first payload"])
+        XCTAssertTrue(secondWrites.isEmpty)
+
+        secondService.copy("second payload")
+        XCTAssertEqual(firstWrites, ["first payload"])
+        XCTAssertEqual(secondWrites, ["second payload"])
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let servicesSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Services/SystemServices.swift"),
+            encoding: .utf8
+        )
+        guard let serviceStart = servicesSource.range(of: "struct ClipboardService {")?.lowerBound,
+              let serviceEnd = servicesSource.range(of: "struct FinderService {", range: serviceStart..<servicesSource.endIndex)?.lowerBound else {
+            return XCTFail("Could not locate ClipboardService source boundary.")
+        }
+        let serviceSource = String(servicesSource[serviceStart..<serviceEnd])
+
+        XCTAssertTrue(serviceSource.contains("private let writer: @MainActor (String) -> Void"))
+        XCTAssertTrue(serviceSource.contains("init(writer: @escaping @MainActor (String) -> Void)"))
+        XCTAssertFalse(serviceSource.contains("static var"))
+        XCTAssertFalse(serviceSource.contains("XCTest"))
+        XCTAssertFalse(serviceSource.contains("ProcessInfo"))
+    }
+
+    @MainActor
+    func testDirectUserResourceCopyPathWritesOnlyAfterExplicitAction() throws {
+        let resource = ResourcePinModel(
+            title: "Reference",
+            targetType: .file,
+            displayPath: "/tmp/reference.txt",
+            lastResolvedPath: "/tmp/reference.txt",
+            scope: .global
+        )
+        var writes: [String] = []
+        var statuses: [String] = []
+        let clipboardService = ClipboardService(writer: { writes.append($0) })
+        let view = ResourceListView(
+            title: "Resources",
+            resources: [resource],
+            knownResources: [resource],
+            scope: .global,
+            workspaceId: nil,
+            targetFilter: nil,
+            pinImported: false,
+            onSelect: nil,
+            onStatus: { statuses.append($0) },
+            onInspect: { _ in },
+            onRemove: { _ in },
+            clipboardService: clipboardService
+        )
+
+        XCTAssertTrue(writes.isEmpty)
+        XCTAssertTrue(statuses.isEmpty)
+
+        view.performResourceAction(resource, action: .copy)
+
+        XCTAssertEqual(writes, ["/tmp/reference.txt"])
+        XCTAssertEqual(statuses, ["Copied path: /tmp/reference.txt"])
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let contentSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Views/ContentView.swift"),
+            encoding: .utf8
+        )
+        let resourceSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Views/ResourceSnippetViews.swift"),
+            encoding: .utf8
+        )
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        func declaration(_ source: String, from startMarker: String, to endMarker: String) throws -> String {
+            let start = try XCTUnwrap(source.range(of: startMarker)?.lowerBound, "Missing declaration: \(startMarker)")
+            let end = try XCTUnwrap(
+                source.range(of: endMarker, range: start..<source.endIndex)?.lowerBound,
+                "Missing declaration terminator: \(endMarker)"
+            )
+            return String(source[start..<end])
+        }
+
+        func occurrenceCount(_ needle: String, in source: String) -> Int {
+            source.components(separatedBy: needle).count - 1
+        }
+
+        let ordinaryOwners = try [
+            declaration(contentSource, from: "func copySnippet(_ snippet: SnippetModel)", to: "func saveSnippet("),
+            declaration(contentSource, from: "func copyResourcePath(_ resource: ResourcePinModel)", to: "func performResource("),
+            declaration(resourceSource, from: "func performResourceAction(_ resource: ResourcePinModel, action: ResourceAction)", to: "func createAlias("),
+            declaration(resourceSource, from: "func performResourceAction(_ action: ResourcePreviewAction)", to: "func loadFolderContents("),
+            declaration(resourceSource, from: "func copyFolderPreviewItemPath(_ item: FolderPreviewItem)", to: "func performResourceAction(_ action: ResourcePreviewAction)"),
+            declaration(resourceSource, from: "func copy(_ snippet: SnippetModel)", to: "func openTerminal("),
+            declaration(resourceSource, from: "func run(_ request: CommandRunRequest)", to: "func resolvedWorkingDirectory("),
+            declaration(canvasSource, from: "func open(_ node: CanvasNodeModel)", to: "func inspect("),
+            declaration(canvasSource, from: "func copyNodePayload(_ node: CanvasNodeModel)", to: "func connectButtonTapped(")
+        ]
+        for owner in ordinaryOwners {
+            XCTAssertTrue(owner.contains("clipboardService.copy("))
+            XCTAssertFalse(owner.contains("ClipboardService().copy("))
+        }
+
+        let dependencyDeclaration = "private(set) var clipboardService: ClipboardService = ClipboardService()"
+        XCTAssertEqual(occurrenceCount(dependencyDeclaration, in: contentSource), 3)
+        XCTAssertEqual(occurrenceCount(dependencyDeclaration, in: resourceSource), 3)
+        XCTAssertEqual(occurrenceCount(dependencyDeclaration, in: canvasSource), 1)
+        XCTAssertEqual(occurrenceCount("clipboardService: clipboardService", in: contentSource), 11)
+    }
+
+    @MainActor
+    func testDirectUserSnippetCopyWritesBodyOnlyAfterExplicitAction() {
+        let snippet = SnippetModel(
+            title: "Summary",
+            kind: .prompt,
+            body: "Summarize the selected notes.",
+            scope: .global
+        )
+        var writes: [String] = []
+        var statuses: [String] = []
+        let clipboardService = ClipboardService(writer: { writes.append($0) })
+        let view = SnippetLibraryView(
+            snippets: [snippet],
+            resources: [],
+            scope: nil,
+            workspaceId: nil,
+            onStatus: { statuses.append($0) },
+            onInspect: { _ in },
+            onEdit: { _ in },
+            onDelete: { _ in },
+            clipboardService: clipboardService
+        )
+
+        XCTAssertTrue(writes.isEmpty)
+        XCTAssertTrue(statuses.isEmpty)
+        XCTAssertNil(snippet.lastCopiedAt)
+
+        view.copy(snippet)
+
+        XCTAssertEqual(writes, ["Summarize the selected notes."])
+        XCTAssertEqual(statuses, ["Copied prompt: Summary"])
+        XCTAssertNotNil(snippet.lastCopiedAt)
+    }
+
+    @MainActor
+    func testFolderPreviewCopyUsesNamedDirectUserClipboardRoute() {
+        let resource = ResourcePinModel(
+            title: "Documents",
+            targetType: .folder,
+            displayPath: "/tmp/Documents",
+            lastResolvedPath: "/tmp/Documents",
+            scope: .global
+        )
+        let item = FolderPreviewItem(
+            id: "document",
+            name: "Document.txt",
+            path: "/tmp/Documents/Document.txt",
+            url: URL(fileURLWithPath: "/tmp/Documents/Document.txt"),
+            isDirectory: false,
+            size: 42
+        )
+        var writes: [String] = []
+        var statuses: [String] = []
+        let clipboardService = ClipboardService(writer: { writes.append($0) })
+        let view = ResourcePreviewView(
+            resource: resource,
+            onStatus: { statuses.append($0) },
+            onInspect: { _ in },
+            onRemove: { _ in },
+            clipboardService: clipboardService
+        )
+
+        XCTAssertTrue(writes.isEmpty)
+        XCTAssertTrue(statuses.isEmpty)
+
+        view.copyFolderPreviewItemPath(item)
+
+        XCTAssertEqual(writes, ["/tmp/Documents/Document.txt"])
+        XCTAssertEqual(statuses, ["Copied path: /tmp/Documents/Document.txt"])
+    }
+
     func testTerminalPrefillAppleScriptTypesCommandWithoutRunningIt() {
         let script = TerminalService.prefillAppleScript(
             command: "swift test\nswift build",
@@ -5495,7 +5693,7 @@ final class AppBehaviorTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(resourceViewsSource.contains("ClipboardService().copy(snippet.body)"))
+        XCTAssertTrue(resourceViewsSource.contains("clipboardService.copy(snippet.body)"))
         XCTAssertTrue(resourceViewsSource.contains("try TerminalService().prefill(command: snippet.body, workingDirectory: request.workingDirectory)"))
         XCTAssertTrue(resourceViewsSource.contains("try TerminalService().open(at: request.workingDirectory)"))
         XCTAssertTrue(resourceViewsSource.contains("Terminal run failed; copied command and opened Terminal with command prefilled"))

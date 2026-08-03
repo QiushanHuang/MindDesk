@@ -1,6 +1,6 @@
 # MindDesk S0 Test Migration Ledger
 
-**Status:** Gate 0 and Gate 1A are committed. Gate 1B implementation and final local evidence are verified, and the final four-seat review is C0/M0/m0 GO; commit is pending. Later gates remain pending.
+**Status:** Gate 0 through Gate 1B are committed; the Gate 1B implementation commit is `cf0f88f`. Gate 2A implementation and evidence passed a fresh four-seat restoration review at `C0 / M0 / m0 — FINAL_RESTORE_GO` after the single authorized Release disposition run completed 799/0/0. The exact nine-path Gate 2A commit is pending. R126 remains open for a separate post-commit test-only stabilization. Gate 2B and later gates remain pending.
 
 **Scope:** S0 capability lockdown and scope identity for the private Canvas-first route. This ledger is the count-bearing execution record for the approved implementation plan and migration map. It does not authorize WCF projection, Review, schema repair, or ResearchVault work.
 
@@ -77,6 +77,8 @@ The test arithmetic at this gate is `776 + 11 = 787`; M001 and M002 are count-ne
 
 **Base HEAD:** `72a31de00081e87a5d938e33479b705597b966f0`.
 
+**Implementation commit:** `cf0f88f` (`feat: reject legacy review documents without side effects`).
+
 **Toolchain:** Apple Swift 6.3.3 (`swiftlang-6.3.3.1.3`, `clang-2100.1.1.101`), target `arm64-apple-macosx26.0`.
 
 ### TDD and Characterization Trace
@@ -116,7 +118,108 @@ The Gate 1B arithmetic is `787 + 7 = 794`: M041 and M044 are count-neutral migra
 
 ### Four-Seat Review
 
-The final six-path review is complete. Security/concurrency/side effects, evidence/ledger/arithmetic, product/migration/user semantics, and a distinct independent fourth jury each returned `C0 / M0 / m0 — GO`. The reviewed ledger SHA-256 was `9188009b8b9b284d273ef134368dc4e28103cbf04df1fdb629d418401b01ca05`; all seats matched the five tested code/test hashes, frozen authority hashes, exact path set, 794-name inventory, no-skip result, migration states, and Debug/Release evidence. The pre-evidence review's two substantive findings—URL metadata/open identity replacement and literal M044 persistence-operation evidence—were closed before final verification. The independent fourth jury also reran focused Debug/Release 15/0/0, full Debug/Release 794/0/0, and R169/R170/R190/R191 Debug/Release 4/0/0 before authorizing the exact six-path commit.
+The final six-path review is complete. Security/concurrency/side effects, evidence/ledger/arithmetic, product/migration/user semantics, and a distinct independent fourth jury each returned `C0 / M0 / m0 — GO`. The reviewed ledger SHA-256 was `9188009b8b9b284d273ef134368dc4e28103cbf04df1fdb629d418401b01ca05`; all seats matched the five tested code/test hashes, frozen authority hashes, exact path set, 794-name inventory, no-skip result, migration states, and Debug/Release evidence. The pre-evidence review's two substantive findings—URL metadata/open identity replacement and literal M044 persistence-operation evidence—were closed before final verification. The independent fourth jury also reran focused Debug/Release 15/0/0, full Debug/Release 794/0/0, and R169/R170/R190/R191 Debug/Release 4/0/0 before authorizing the exact six-path commit, which was recorded as `cf0f88f`.
+
+## Gate 2A Evidence
+
+**Base HEAD:** `cf0f88f`.
+
+**Toolchain:** Apple Swift 6.3.3 (`swiftlang-6.3.3.1.3`, `clang-2100.1.1.101`), target `arm64-apple-macosx26.0`.
+
+**Final local state:** Gate 2A implementation, focused Debug/Release evidence, fresh isolated Debug/Release builds, and the original independent full suites remain locally verified. A later pre-commit Release full-suite run produced one R126 failure and temporarily reclosed the gate. The four-seat-authorized single Release disposition run then completed 799/0/0 without code/test drift, and the fresh restoration round returned `FINAL_RESTORE_GO`; the exact nine-path Gate 2A commit remains pending.
+
+### Ordered TDD Trace
+
+| Slice | Ordered command/result trace | Observed evidence |
+| --- | --- | --- |
+| A019 policy extraction | Existing `CanvasEdgeAnimation` characterization first executed 13/0/0 in Debug and 13/0/0 in Release; the new exact source test then executed 1 test with 2 assertion failures; after extraction, the edge-focused suite executed 14/0/0 in Debug and 14/0/0 in Release. | The RED proved the declaration still existed in `CanvasCodexPrompt.swift` and the dedicated policy file was absent. GREEN proved one unchanged policy declaration in the dedicated file while preserving all 13 prior edge-animation behaviors. |
+| A020 instance clipboard writer | The first exact run failed to compile because `ClipboardService(writer:)` did not exist; an inert injected initializer then compiled but produced 3 assertion failures; the minimum writer implementation executed 1/0/0 in Debug and 1/0/0 in Release. | The sequence distinguishes API absence, a nonfunctional injection seam, and the final per-instance writer behavior without a global test override. |
+| A021 resource copy and dependency graph | The first exact run failed to compile because dependency injection/access was missing; the inert route then reached the explicit action but observed `writes == []`; the expanded source canary next produced 15 assertion failures; after the complete dependency graph and ordinary-owner fixes, the exact test executed 1/0/0 in Debug and 1/0/0 in Release. | The final canary preserves the nine ordinary copy owners, seven dependency declarations, and eleven forwarding edges. It intentionally does not require Gate 2B Review methods to remain present. |
+| A022 snippet copy | The first exact run failed to compile because injection was missing; the inert route then failed the `writes == []` assertion; the minimum fix executed 1/0/0 in Debug and 1/0/0 in Release. | The explicit snippet-copy action writes through the injected instance while preserving copy metadata/status behavior. |
+| A023 folder preview copy | The first exact run failed to compile because injection was missing; the inert named route then failed the `writes == []` assertion; the minimum fix executed 1/0/0 in Debug and 1/0/0 in Release. | The exact folder-preview action is routed through the named direct-user helper and injected writer. |
+
+The table above is an ordered TDD transcript. Per-command wall-clock times and complete console-log hashes for these early RED/GREEN invocations were not persistently captured; no timestamps or hashes are inferred or backfilled.
+
+### Fourth-Seat Fresh Focused Evidence
+
+The distinct fourth-seat focused reruns occurred within the aggregate interval 2026-07-30T00:12:16Z–00:14:33Z / 2026-07-30T08:12:16+0800–08:14:33+0800. Per-command sub-intervals were not captured.
+
+| Configuration | Fresh scratch | Observed focused results | Failures | Skips | Console-log hash / scratch disposition |
+| --- | --- | --- | ---: | ---: | --- |
+| Debug | `/tmp/minddesk-s0-g2a-jury-debug.FztuSe` | `CanvasEdgeAnimation` 14; A020 1; `DirectUser` 2; folder 1; Terminal 1; correct `CoreBehaviorTests/testFinderRoutingRevealsFilesButOpensFolders` 1 | 0 | 0 | SHA-256 not captured because no persistent console log was retained; scratch recoverably moved to `/Users/joshua/.Trash` |
+| Release | `/tmp/minddesk-s0-g2a-jury-release.6wM4z7` | `CanvasEdgeAnimation` 14; A020 1; `DirectUser` 2; folder 1; Terminal 1; correct `CoreBehaviorTests/testFinderRoutingRevealsFilesButOpensFolders` 1 | 0 | 0 | SHA-256 not captured because no persistent console log was retained; scratch recoverably moved to `/Users/joshua/.Trash` |
+
+An incorrect AppBehavior Finder filter was also invoked in Debug and Release. Both invocations matched zero tests and emitted a warning; neither invocation is PASS evidence. The correct CoreBehavior Finder filter above executed 1/0/0 in each configuration.
+
+### Fresh Build and Full-Suite Evidence
+
+| Configuration | Exact command | UTC interval | Local interval | Observed | Failures | Skips | Complete output SHA-256 | Scratch disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Debug build | `swift build --scratch-path /tmp/minddesk-s0-g2a-final-build-debug.5oLMGW -c debug` | 2026-07-30T00:21:36Z → 00:21:54Z | 2026-07-30T08:21:36+0800 → 08:21:54+0800 | Build exit 0 | 0 | N/A | `23d50c5649e2354e0db16a32d370017e8414d2b51bb09032d81867a5edf30082` | Fresh scratch and complete log recoverably moved to `/Users/joshua/.Trash` after hashing |
+| Release build | `swift build --scratch-path /tmp/minddesk-s0-g2a-final-build-release.iFzkRZ -c release` | 2026-07-30T00:21:36Z → 00:22:48Z | 2026-07-30T08:21:36+0800 → 08:22:48+0800 | Build exit 0 | 0 | N/A | `b7bd4aa7be0992b836d3b749aed42b103c6104ab884ead748b3cef9d6550a54b` | Separate fresh scratch and complete log recoverably moved to `/Users/joshua/.Trash` after hashing |
+| Debug full suite | `swift test --scratch-path /tmp/minddesk-s0-g2a-final-full-debug.XWmXzV -c debug` | 2026-07-30T00:23:09Z → 00:23:39Z | 2026-07-30T08:23:09+0800 → 08:23:39+0800 | 799 | 0 | 0 | `e722deccfb74ca20a3f7b18a00375f6f98cae60a0ca4e9aa6d2d7a632dfa7fb4` | Independent fresh scratch and complete log recoverably moved to `/Users/joshua/.Trash` after hashing |
+| Release full suite | `swift test --scratch-path /tmp/minddesk-s0-g2a-final-full-release.G58BP7 -c release` | 2026-07-30T00:23:09Z → 00:24:41Z | 2026-07-30T08:23:09+0800 → 08:24:41+0800 | 799 | 0 | 0 | `59997690425091aeec8dd5665cd94e78103c2f328326f137b356ba6621a52f96` | Separate independent fresh scratch and complete log recoverably moved to `/Users/joshua/.Trash` after hashing |
+
+The Gate 2A arithmetic is `794 + 5 = 799`: A019–A023 add five tests; no baseline test is retired, no migration is completed, and no required or unledgered skip is present at this gate. The canonical test list contained 799 total names, 799 unique names, and 0 duplicates; its SHA-256 was `5e8960051a9f42aa5a10e76aa2e32f18e5e8fe149ab3861e7f98c48f9e445718`. The only `Skipped` text in the Debug and Release logs came from names of tests that passed, and the `Tests` tree contained no `XCTSkip` use.
+
+Nine final build/full-suite scratch, log, and list artifacts plus two focused-jury scratch directories—eleven Gate 2A artifacts total—were recoverably moved to `/Users/joshua/.Trash` after evidence capture. The focused-jury console logs were never persistently captured, so no focused-jury output hash is claimed.
+
+### Tested Code/Test Basis
+
+| Path | SHA-256 |
+| --- | --- |
+| `Sources/MindDeskCore/CanvasEdgeAnimationInteractionPolicy.swift` | `a5af7c104be11cf3ba4260297c0606118c401fd882d988bcb5cb125fce6d5355` |
+| `Sources/MindDeskCore/CanvasCodexPrompt.swift` | `50305a0dc2840e08c664b52ce238197faa459248d85e77c382f2c34792c06c84` |
+| `Sources/MindDesk/Services/SystemServices.swift` | `e7cef42eacbe39638f7b3229b3c6fe73b1892d33c69216b443d1f44d1299b1df` |
+| `Sources/MindDesk/Views/ContentView.swift` | `8e3e9c4f41c29611fc5059fc7f41944bc7e1fcaad46ce73afd4fd6c7bb976ad2` |
+| `Sources/MindDesk/Views/ResourceSnippetViews.swift` | `c9b3b500755236b82f2ff30f24400b2975d511a9f362d7ef910aaef36463816b` |
+| `Sources/MindDesk/Canvas/WorkspaceCanvasView.swift` | `cd7f7854933796bc4398b47b8df373f744e35ab9289ef61ce7145b5341481a7a` |
+| `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `6f44d025e9c5b351543789b4310682178f92e44c3752430a862a01428b53f7eb` |
+| `Tests/MindDeskTests/AppBehaviorTests.swift` | `7b33c93e4487545bea6790f5d6a8692f129e7059c193a466b48dafc06dd099f0` |
+
+### Source Audit
+
+- Nine ordinary direct-user copy owners route through the injected clipboard instance.
+- Seven view dependency declarations and eleven dependency-forwarding edges are present.
+- Four temporary direct Review clipboard bypasses remain for Gate 2B removal; A021 does not require those methods to remain.
+- Production sources contain zero `ClipboardService(writer:)` calls.
+
+### Four-Seat Review
+
+The final security/concurrency/side-effects seat, evidence/ledger/arithmetic seat, product/migration/user-semantics seat, and distinct independent fourth jury each returned `C0 / M0 / m0 — GO`. The reviewed pre-append ledger SHA-256 was `32e194a08134d05415023e08e6220c24e5c64b3460b14808b95665557dbc3b01`. All four seats matched the frozen authority hashes, exact nine-path set, eight tested code/test hashes, four complete final-log hashes, the corrected canonical-list hash `5e8960051a9f42aa5a10e76aa2e32f18e5e8fe149ab3861e7f98c48f9e445718`, `799 / 0 / 0` Debug and Release results, no-skip evidence, `794 + 5 = 799` arithmetic, and the source audit above. The evidence seat's findings about the test-list planning line and artifact-count wording were closed before this review. The fourth jury authorized this mechanical review append without rerunning the full suites and authorized the exact nine-path commit; the commit remains pending.
+
+### Later Pre-Commit Verification Anomaly and Temporary Reclosure
+
+The completion-verification pass occurred after the four-seat `GO` above and therefore supersedes its unqualified commit authorization until the bounded disposition completes.
+
+| Configuration | Exact command | UTC interval | Local interval | Observed | Failures | Skips | Complete output SHA-256 | Log disposition |
+| --- | --- | --- | --- | ---: | ---: | ---: | --- | --- |
+| Debug pre-commit full suite | `swift test` | 2026-07-30T00:43:11Z → 00:43:19Z | 2026-07-30T08:43:11+0800 → 08:43:19+0800 | 799 | 0 | 0 | `341740ef81371a2cfee7a40beb0c7a10142d13538d742165e96594e4be90fd0b` | Complete log recoverably retained at `/Users/joshua/.Trash/minddesk-s0-g2a-precommit-debug.complete-output.log` |
+| Release pre-commit full suite | `swift test -c release` | 2026-07-30T00:43:50Z → 00:43:53Z | 2026-07-30T08:43:50+0800 → 08:43:53+0800 | 799 | 1 | 0 | `69cdd8d2d1e81d735270208ae0673c228001419711d17f5e620dc6b5aa1eb8fc` | Complete log recoverably retained at `/Users/joshua/.Trash/minddesk-s0-g2a-precommit-release.complete-output.log` |
+
+The sole failure was unchanged baseline row R126, `ValidationReportTests.testEncodedInterchangePackageCanonicalizesMutableFormatFieldsForAgentFacingWire`, at `Tests/MindDeskCoreTests/ValidationReportTests.swift:1580`: `XCTAssertFalse failed - MIP wire replayed mutable format field: 404`. The test is assigned to true retirement at Gate 3 by the frozen migration map; it is not one of the exact nine Gate 2A paths.
+
+An exact Release rerun of `swift test -c release --filter ValidationReportTests/testEncodedInterchangePackageCanonicalizesMutableFormatFieldsForAgentFacingWire` at 2026-07-30T00:44:36Z / 2026-07-30T08:44:36+0800 executed 1/0/0 with exit 0. No persistent console log was captured for that exact rerun, so no output hash is claimed.
+
+Source inspection and transcript-only diagnostic reproduction support a nondeterministic test-fixture collision rather than a Gate 2A regression: `MindDeskInterchangePackage` generates a random `packageInstanceID`, while R126 scans the entire encoded JSON for the substring `404`. A valid UUID can contain that substring and trigger the broad oracle even though the test's structured assertions prove every mutable format-version field was canonicalized. A read-only 10,000-UUID sample observed 109 values containing `404`, and an independent loop reproduced the failure at iteration 47; these investigation runs were transcript-observed but did not retain persistent logs. No Gate 2A-caused production defect or Gate 2A source/test hash drift was identified; R126 remains a known unstable oracle until its separate test-only stabilization.
+
+The distinct fourth jury classified the later evidence `C0 / M1 / m1 — NO-GO` and bounded the disposition: first record this anomaly; then obtain a fresh four-seat authorization for exactly one new Release full-suite run. If that run is 799/0/0, append the bounded Gate 2A disposition outcome, recheck the exact nine paths/eight hashes/diff, restore Gate 2A `GO`, and commit only the nine approved paths. This does not certify R126 as stable. If the run fails or skips, stop without retry-until-green or commit. After the Gate 2A commit, stabilize R126 in a separate test-only slice by supplying a fixed non-`404` package-instance fixture, retaining the broad replay oracle and R126's Gate 3 classification, then independently verify and review that slice before Gate 2B.
+
+### Four-Seat-Authorized Bounded Disposition Run
+
+Three independent seats—evidence/ledger, flake/TDD, and product/scope/security—each returned `AUTHORIZE_ONE_RELEASE_FULL` with no Critical or Major finding. Their wording Minors were closed before a distinct fourth jury independently rechecked the exact nine paths, eight code/test hashes, retained logs, R126 source, ledger SHA-256 `30a05d0b0314b911b740ede0334d5507e81e2641d3025af0dcafac62611867fb`, and clean diff. That jury returned `C0 / M0 / m0 — GO_AUTHORIZE_EXACTLY_ONE_RELEASE_FULL` and prohibited retry, filtered follow-up, or commit on any non-799/0/0 outcome.
+
+| Configuration | Exact command | UTC interval | Local interval | Observed | Failures | Skips | Exit | Complete output SHA-256 | Artifact disposition |
+| --- | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| Release bounded disposition | `swift test --scratch-path /tmp/minddesk-s0-g2a-disposition-release.zBeS6Q -c release` | 2026-08-03T17:35:28Z → 17:36:57Z | 2026-08-04T01:35:28+0800 → 01:36:57+0800 | 799 | 0 | 0 | 0 | `0048f73f4ad51b7f4416617d3caa56438fbe7a52d9891fa09b4d9632061a92d6` | Complete log and isolated scratch recoverably moved to `/Users/joshua/.Trash/minddesk-s0-g2a-disposition-release.complete-output.XXXXXX.log` and `/Users/joshua/.Trash/minddesk-s0-g2a-disposition-release.zBeS6Q` |
+
+The authorization was consumed by this single invocation. The retained complete log records the final `All tests` result as 799/0/0, R126 itself passed, no `Test Case … skipped` line occurred, and both the Swift command and output-capture pipeline exited 0. Afterward, HEAD remained `cf0f88f`, nothing was staged, the dirty path set remained exactly nine, all eight code/test hashes remained equal to the tested basis above, and `git diff --check` remained clean. This is a bounded Gate 2A disposition outcome only; R126 is not certified stable and still requires the separate test-only stabilization before Gate 2B.
+
+### Fresh Four-Seat Restoration Review
+
+After the bounded disposition evidence was appended, three distinct 5.6-sol xhigh seats independently reviewed the complete retained log and evidence arithmetic, specification/code quality, and product/security/privacy boundary. Each returned `C0 / M0 / m0 — RESTORE_GO`. A fourth distinct 5.6-sol xhigh jury independently re-parsed the complete log, recomputed all eight tested code/test hashes, verified the exact nine-path set and empty staging area, checked the unchanged R126 blob `5490e3faeab65af9f8d48cb6e01f6b28afe29a95`, and matched the pre-append ledger SHA-256 `ea70267de7b7aab357f020f6999922785973fe1adca36ee5fd467f1a595ab293` plus bounded-run log SHA-256 `0048f73f4ad51b7f4416617d3caa56438fbe7a52d9891fa09b4d9632061a92d6`.
+
+The fourth jury upheld every seat, found no hidden issue, and returned `Critical 0 / Major 0 / Minor 0 — FINAL_RESTORE_GO`. It authorized this mechanical ledger reconciliation without another test run, exact staging of only the nine approved Gate 2A paths, and commit subject `refactor: detach ordinary behavior from review runtime`. The authorization does not certify R126 stability, authorize Gate 2B, or permit any code/test change before the exact commit.
 
 ## Retired Baseline Tests — 233
 
@@ -433,11 +536,11 @@ Each row adds one in Debug and one in Release after its named RED and GREEN are 
 | A016 | Task 2 / Gate 1B | `Tests/MindDeskTests/LegacyReviewImportRejectionTests.swift` | `LegacyReviewImportRejectionTests.testNestedHistoricalMarkersRejectWithoutEnteringCapabilityLock` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L485 | Gate 1B characterization and final Debug/Release GREEN; nested markers confer no legacy authority |
 | A017 | Task 2 / Gate 1B | `Tests/MindDeskTests/LegacyReviewImportRejectionTests.swift` | `LegacyReviewImportRejectionTests.testInvalidAndTrailingJSONRejectWithoutEnteringCapabilityLock` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L486 | Gate 1B characterization/strengthened oracle and final Debug/Release GREEN; malformed JSON never enters the lock |
 | A018 | Task 2 / Gate 1B | `Tests/MindDeskTests/LegacyReviewImportRejectionTests.swift` | `LegacyReviewImportRejectionTests.testPrivateLegacyRejectionBranchCallsOnlyPermanentLockWithoutHistoricalDecode` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L487 | Gate 1B RED/GREEN and final Debug/Release GREEN; lock-only source canary verified |
-| A019 | Task 3 / Gate 2A | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testCanvasEdgeAnimationInteractionPolicyIsDeclaredOutsideCanvasCodexPrompt` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L491 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A020 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testClipboardServiceUsesPerInstanceWriterWithoutGlobalTestOverride` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L492 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A021 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testDirectUserResourceCopyPathWritesOnlyAfterExplicitAction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L493 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A022 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testDirectUserSnippetCopyWritesBodyOnlyAfterExplicitAction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L494 | Frozen at Gate 0; RED/GREEN evidence pending |
-| A023 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testFolderPreviewCopyUsesNamedDirectUserClipboardRoute` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L495 | Frozen at Gate 0; RED/GREEN evidence pending |
+| A019 | Task 3 / Gate 2A | `Tests/MindDeskCoreTests/CoreBehaviorTests.swift` | `CoreBehaviorTests.testCanvasEdgeAnimationInteractionPolicyIsDeclaredOutsideCanvasCodexPrompt` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L491 | Gate 2A TDD, focused Debug/Release, original fresh full Debug/Release, bounded disposition run GREEN, and fresh four-seat `FINAL_RESTORE_GO`; commit pending |
+| A020 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testClipboardServiceUsesPerInstanceWriterWithoutGlobalTestOverride` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L492 | Gate 2A TDD, focused Debug/Release, original fresh full Debug/Release, bounded disposition run GREEN, and fresh four-seat `FINAL_RESTORE_GO`; commit pending |
+| A021 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testDirectUserResourceCopyPathWritesOnlyAfterExplicitAction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L493 | Gate 2A TDD, focused Debug/Release, original fresh full Debug/Release, bounded disposition run GREEN, and fresh four-seat `FINAL_RESTORE_GO`; commit pending |
+| A022 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testDirectUserSnippetCopyWritesBodyOnlyAfterExplicitAction` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L494 | Gate 2A TDD, focused Debug/Release, original fresh full Debug/Release, bounded disposition run GREEN, and fresh four-seat `FINAL_RESTORE_GO`; commit pending |
+| A023 | Task 3 / Gate 2A | `Tests/MindDeskTests/AppBehaviorTests.swift` | `AppBehaviorTests.testFolderPreviewCopyUsesNamedDirectUserClipboardRoute` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L495 | Gate 2A TDD, focused Debug/Release, original fresh full Debug/Release, bounded disposition run GREEN, and fresh four-seat `FINAL_RESTORE_GO`; commit pending |
 | A024 | Task 4 / Gate 2B | `Tests/MindDeskTests/S0SurfaceAbsenceTests.swift` | `S0SurfaceAbsenceTests.testDeletedReviewRuntimePathsAndResourceMarkersAreAbsent` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L499 | Frozen at Gate 0; RED/GREEN evidence pending |
 | A025 | Task 4 / Gate 2B | `Tests/MindDeskTests/S0SurfaceAbsenceTests.swift` | `S0SurfaceAbsenceTests.testPackageManifestAndResolutionContainNoSwiftTermOrExternalPackageDependency` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L500 | Frozen at Gate 0; RED/GREEN evidence pending |
 | A026 | Task 4 / Gate 2B | `Tests/MindDeskTests/S0SurfaceAbsenceTests.swift` | `S0SurfaceAbsenceTests.testApplicationMenusCommandsFocusedValuesAndShortcutsContainNoReviewEntryPoints` | Required | Required | None (net-new obligation) | Reviewed obligation in approved map L501 | Frozen at Gate 0; RED/GREEN evidence pending |
@@ -552,24 +655,31 @@ Each row adds one in Debug and one in Release after its named RED and GREEN are 
 | --- | --- | --- | --- | --- | --- |
 | 0 | Debug 2026-07-29T14:59:11Z–14:59:39Z; Release 2026-07-29T15:00:04Z–15:01:32Z (Asia/Shanghai +0800) | `77eb34b4b6a36ddb5becffe6e3fd9176adc72818` | Fresh Debug and separately built fresh Release suites: 776/0/0 each | Inventory frozen: R001–R233, M001–M044, A001–A123 | Console-log SHA-256 values above; ephemeral scratch/log bytes were safely removed after hashes and summaries were emitted |
 | 1A | Final evidence 2026-07-29T16:05:25Z–16:12:04Z (2026-07-30T00:05:25+0800–00:12:04+0800); earlier RED trace above | Base `7526812b8e1b1689c4a135d0f006380897c4b0bb`; implementation commit `72a31de00081e87a5d938e33479b705597b966f0`; tested file hashes above | Focused lock 3/0/0 and classifier 10/0/0 in Debug/Release; fresh builds exit 0; independent full suites 787/0/0 each; `git diff --check` clean | M001–M002, A001–A011 | Complete output hashes and scratch disposition above; four-seat review was GO and the six approved Task 1 paths were committed |
-| 1B | Final evidence 2026-07-29T22:58:08Z–23:02:48Z (2026-07-30T06:58:08+0800–07:02:48+0800); earlier RED/characterization trace above | Base `72a31de00081e87a5d938e33479b705597b966f0`; tested code/test hashes above | Focused Debug/Release 15/0/0; fresh Debug/Release builds exit 0; independent full suites 794/0/0 each; `git diff --check` clean | M041, M044, A012–A018; temporary R169/R170 body evidence | Complete output hashes and scratch disposition above; final six-path four-seat review was C0/M0/m0 GO; commit pending |
-| 2–8 | Pending | Pending | Pending | Pending | Pending |
+| 1B | Final evidence 2026-07-29T22:58:08Z–23:02:48Z (2026-07-30T06:58:08+0800–07:02:48+0800); earlier RED/characterization trace above | Base `72a31de00081e87a5d938e33479b705597b966f0`; implementation commit `cf0f88f`; tested code/test hashes above | Focused Debug/Release 15/0/0; fresh Debug/Release builds exit 0; independent full suites 794/0/0 each; `git diff --check` clean | M041, M044, A012–A018; temporary R169/R170 body evidence | Complete output hashes and scratch disposition above; final six-path four-seat review was C0/M0/m0 GO; committed as `cf0f88f` |
+| 2A | Focused 2026-07-30T00:12:16Z–00:14:33Z (2026-07-30T08:12:16+0800–08:14:33+0800); final local builds/full suites 2026-07-30T00:21:36Z–00:24:41Z (2026-07-30T08:21:36+0800–08:24:41+0800); later pre-commit suites 2026-07-30T00:43:11Z–00:43:53Z (2026-07-30T08:43:11+0800–08:43:53+0800); bounded disposition 2026-08-03T17:35:28Z–17:36:57Z (2026-08-04T01:35:28+0800–01:36:57+0800); earlier untimestamped ordered TDD trace above | Base `cf0f88f`; Gate 2A implementation remains uncommitted | Ordered A019–A023 RED/GREEN; focused Debug/Release evidence; fresh builds exit 0; original independent full suites 799/0/0 each; later pre-commit Debug 799/0/0 and Release 799/1/0 due unchanged R126 broad-oracle collision; exact rerun 1/0/0; four-seat-authorized single fresh Release disposition run 799/0/0 | A019–A023; R126 anomaly only, classification unchanged | Bounded disposition passed without retry; fresh restoration review `C0 / M0 / m0 — FINAL_RESTORE_GO`; exact nine-path commit pending; R126 stability remains open for a separate post-commit slice |
+| 2B–8 | Pending | Pending | Pending | Pending | Pending |
 
 ## Evidence and Limitations
 
 - Gate 0 proves only the pre-implementation Debug/Release baseline and the exact naming arithmetic. It does not prove future S0 behavior, release policy, signing, notarization, performance, or final count.
-- Complete ephemeral logs were hashed and summarized before cleanup but are not checked-in artifacts; the command transcript plus this ledger records their digests.
+- Gate 0, Gate 1A, and Gate 1B complete ephemeral logs were hashed and summarized before cleanup but are not checked-in artifacts; the command transcript plus this ledger records their digests.
 - No production source, test source, package/workflow configuration, experiment, run, artifact registry, or ResearchVault content changed during Gate 0.
 - Gate 1A changed only its five approved code/test paths plus this ledger and was committed as `72a31de00081e87a5d938e33479b705597b966f0`. It proves the permanent lock and bounded classifier contract.
-- Gate 1B changes only its five approved code/test paths plus this ledger. It proves bounded URL/Data manifest admission, neutral permanent-lock rejection, the UI rollback boundary, and the recorded migration rows; it does not remove legacy review runtime or product surfaces assigned to Gate 2.
+- Gate 1B changed only its five approved code/test paths plus this ledger and was committed as `cf0f88f`. It proves bounded URL/Data manifest admission, neutral permanent-lock rejection, the UI rollback boundary, and the recorded migration rows; it does not remove legacy review runtime or product surfaces assigned to Gate 2.
+- Gate 2A evidence verifies A019–A023, focused Debug/Release behavior, fresh isolated builds, the original independent 799/0/0 full suites, unique-name arithmetic, the bounded single Release disposition 799/0/0, and the recorded source audit. The later pre-commit R126 anomaly was recorded and bounded without retry; the fresh restoration review returned `C0 / M0 / m0 — FINAL_RESTORE_GO`, and the exact nine-path Gate 2A commit remains pending.
+- Gate 2A early RED/GREEN command times and complete console-log hashes were not persistently captured. The fourth-seat focused scratches were recoverably moved to Trash, but no persistent console logs were produced, so their output SHA-256 values were not captured. No missing timestamp or hash is backfilled.
+- Nine final build/full-suite scratch, log, and list artifacts plus two focused-jury scratch directories—eleven Gate 2A artifacts total—were recoverably moved to `/Users/joshua/.Trash`; the four complete final logs and canonical test list were hashed before the move.
+- The fourth-seat AppBehavior Finder filters matched zero tests and emitted warnings in both configurations; they are not PASS evidence. Only the correct CoreBehavior Finder filters, each 1/0/0, are recorded as focused evidence.
 - The device/inode token detects path-object replacement between metadata lookup and open. It intentionally does not claim to detect same-inode in-place content mutation; bytes are still read from one verified descriptor and pass the Data-size/classifier/decoder chain.
 - M044's dynamic evidence uses the sole importer-boundary invocation plus context-scoped `willSave`/`didSave` and SwiftData state arrays. SwiftData does not expose a direct subclassable `insert` hook; A014/A018 prove rejection returns before the sole importer boundary rather than adding a production-only test seam.
 - The initial missing-symbol compile RED was observed and transcript-bound, but its first invocation did not capture a wall-clock timestamp; the later placeholder and all classifier RED/GREEN/final commands are timestamped above. No timestamp was invented.
+- The later R126 exact Release rerun passed 1/0/0 but has no retained complete log or output hash. The UUID sample and loop reproduction supporting the broad-oracle root cause were transcript-observed only; their numeric observations are not promoted to durable benchmark evidence.
+- The bounded Release disposition run is durable command evidence for Gate 2A commit eligibility only. Its complete log and scratch remain recoverable in `/Users/joshua/.Trash`; it does not establish that R126 is deterministic or replace the required separate stabilization.
 - Final Debug and Release evidence must be collected independently at Gate 8D from the approved clean-room flow.
 - Any mismatch between this ledger and the approved map is a release stop and requires correction plus four-seat re-review.
 
 ## Next Actions
 
-1. Commit only the six approved Task 2 paths with `feat: reject legacy review documents without side effects`.
-2. Verify the commit parent, subject, exact path set, committed hashes, and clean tree.
-3. Begin Task 3 / Gate 2A from the committed Gate 1B base; retain R169/R170 names until their frozen Gate 2 retirement and do not modify R190/R191 early.
+1. Recheck the exact nine-path set, eight code/test hashes, bounded-run log hash, current ledger hash, and `git diff --check`; stage and commit only the exact nine Gate 2A paths with subject `refactor: detach ordinary behavior from review runtime`.
+2. Verify commit parent, subject, exact path set, committed hashes, committed ledger hash, and clean tree.
+3. Before Gate 2B evidence, make a separate test-only R126 stability fix using a fixed package-instance fixture, follow RED/GREEN, retain the broad replay oracle and Gate 3 retirement classification, and complete focused, repeated-stability, full Debug/Release, and four-seat review evidence.

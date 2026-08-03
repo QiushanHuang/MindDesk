@@ -142,6 +142,7 @@ struct ContentView: View {
     @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
     @AppStorage(AppPreferenceKeys.agentReviewCustomPromptGuidance) private var agentReviewCustomPromptGuidance = AppPreferenceDefaults.agentReviewCustomPromptGuidance
+    private(set) var clipboardService: ClipboardService = ClipboardService()
 
     @State private var selection: SidebarSelection? = .home
     @State private var inspectorSelection: InspectorSelection?
@@ -787,7 +788,8 @@ struct ContentView: View {
                 onRemove: beginResourceRemoval,
                 onEditSnippet: { editingSnippet = $0 },
                 onDeleteSnippet: { snippetToDelete = $0 },
-                onSelectWorkspace: { selection = .workspace($0) }
+                onSelectWorkspace: { selection = .workspace($0) },
+                clipboardService: clipboardService
             )
         case .pinnedFolders:
             ResourceListView(
@@ -801,7 +803,8 @@ struct ContentView: View {
                 onSelect: { selection = .resource($0.id) },
                 onStatus: setStatus,
                 onInspect: showInspector,
-                onRemove: beginResourceRemoval
+                onRemove: beginResourceRemoval,
+                clipboardService: clipboardService
             )
             .padding()
         case .pinnedFiles:
@@ -816,7 +819,8 @@ struct ContentView: View {
                 onSelect: { selection = .resource($0.id) },
                 onStatus: setStatus,
                 onInspect: showInspector,
-                onRemove: beginResourceRemoval
+                onRemove: beginResourceRemoval,
+                clipboardService: clipboardService
             )
             .padding()
         case .resource(let id):
@@ -825,7 +829,8 @@ struct ContentView: View {
                     resource: resource,
                     onStatus: setStatus,
                     onInspect: showInspector,
-                    onRemove: beginResourceRemoval
+                    onRemove: beginResourceRemoval,
+                    clipboardService: clipboardService
                 )
                 .onAppear {
                     showInspector(.resource(resource.id))
@@ -842,7 +847,8 @@ struct ContentView: View {
                 onStatus: setStatus,
                 onInspect: showInspector,
                 onEdit: { editingSnippet = $0 },
-                onDelete: { snippetToDelete = $0 }
+                onDelete: { snippetToDelete = $0 },
+                clipboardService: clipboardService
             )
             .padding(.horizontal, 24)
             .padding(.top, 22)
@@ -882,7 +888,8 @@ struct ContentView: View {
                     openCanvasNodeRequest: openCanvasNodeRequest,
                     onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
                     onSelectWorkspace: { selection = .workspace($0) },
-                    onReviewAgentProposal: openInlineProposalReview
+                    onReviewAgentProposal: openInlineProposalReview,
+                    clipboardService: clipboardService
                 )
             } else {
                 ContentUnavailableView("Workspace missing", systemImage: "questionmark.folder")
@@ -1152,7 +1159,7 @@ struct ContentView: View {
     }
 
     private func copySnippet(_ snippet: SnippetModel) {
-        ClipboardService().copy(snippet.body)
+        clipboardService.copy(snippet.body)
         snippet.lastCopiedAt = .now
         snippet.updatedAt = .now
         do {
@@ -1408,7 +1415,7 @@ struct ContentView: View {
     }
 
     private func copyResourcePath(_ resource: ResourcePinModel) {
-        ClipboardService().copy(resource.displayPath)
+        clipboardService.copy(resource.displayPath)
         setStatus("Copied path: \(resource.displayPath)")
     }
 
@@ -3691,6 +3698,7 @@ struct GlobalLibraryView: View {
     let onEditSnippet: (SnippetModel) -> Void
     let onDeleteSnippet: (SnippetModel) -> Void
     let onSelectWorkspace: (String) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
     @State private var workspaceFilterId = ""
 
     private var selectedWorkspaceFilterId: String? {
@@ -3761,6 +3769,7 @@ struct GlobalLibraryView: View {
                         onStatus: onStatus,
                         onInspect: onInspect,
                         onRemove: onRemove,
+                        clipboardService: clipboardService,
                         workspaceUsageByResourceID: workspaceUsageByResourceID,
                         onSelectWorkspace: onSelectWorkspace,
                         listMinHeight: 122,
@@ -3778,6 +3787,7 @@ struct GlobalLibraryView: View {
                     onInspect: onInspect,
                     onEdit: onEditSnippet,
                     onDelete: onDeleteSnippet,
+                    clipboardService: clipboardService,
                     listMinHeight: 160,
                     listMaxHeight: 320,
                     compactEmptyState: true
@@ -3834,6 +3844,7 @@ struct WorkspaceDetailView: View {
     let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
     let onReviewAgentProposal: (MindDeskProposalReviewGateResult) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
     @State private var tab = WorkspaceDetailTab.defaultTab
@@ -3955,9 +3966,9 @@ struct WorkspaceDetailView: View {
                     presentation: .fullHeightTab
                 )
             case .resources:
-                ResourceListView(title: "Workspace Resources", resources: workspaceResourceTabResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: removeWorkspaceResourceFromResourcesTab, canRemove: WorkspaceResourceRemovalPolicy.canRemoveFromWorkspaceResources)
+                ResourceListView(title: "Workspace Resources", resources: workspaceResourceTabResources, knownResources: resources, scope: .workspace, workspaceId: workspace.id, targetFilter: nil, pinImported: false, onSelect: nil, onStatus: onStatus, onInspect: onInspect, onRemove: removeWorkspaceResourceFromResourcesTab, clipboardService: clipboardService, canRemove: WorkspaceResourceRemovalPolicy.canRemoveFromWorkspaceResources)
             case .snippets:
-                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet)
+                SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet, clipboardService: clipboardService)
             case .canvas:
                 if let canvas = workspaceCanvas {
                     WorkspaceCanvasView(
@@ -3977,7 +3988,8 @@ struct WorkspaceDetailView: View {
                         onStatus: onStatus,
                         onInspect: onInspect,
                         onOpenWorkspace: onSelectWorkspace,
-                        onReviewAgentProposal: onReviewAgentProposal
+                        onReviewAgentProposal: onReviewAgentProposal,
+                        clipboardService: clipboardService
                     )
                 } else {
                     ProgressView("Preparing canvas...")

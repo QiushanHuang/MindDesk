@@ -1012,6 +1012,7 @@ struct WorkspaceCanvasView: View {
     let onInspect: (InspectorSelection) -> Void
     let onOpenWorkspace: (String) -> Void
     let onReviewAgentProposal: (MindDeskProposalReviewGateResult) -> Void
+    private(set) var clipboardService: ClipboardService = ClipboardService()
 
     @State private var selectedNodeIDs: Set<String> = []
     @State private var selectedEdgeIDs: Set<String> = []
@@ -3820,7 +3821,7 @@ struct WorkspaceCanvasView: View {
         }
         guard let resource = resource(for: node) else {
             if let snippet = snippet(for: node) {
-                ClipboardService().copy(snippet.body)
+                clipboardService.copy(snippet.body)
                 snippet.lastCopiedAt = .now
                 snippet.updatedAt = .now
                 saveModelChanges(failurePrefix: "Could not update snippet copy time")
@@ -3885,26 +3886,26 @@ struct WorkspaceCanvasView: View {
     private func copyNodePayload(_ node: CanvasNodeModel) {
         selectedEdgeIDs = []
         if let resource = resource(for: node) {
-            ClipboardService().copy(resource.displayPath)
+            clipboardService.copy(resource.displayPath)
             selectedNodeIDs = [node.id]
             onStatus("Copied path: \(resource.displayPath)")
         } else if let snippet = snippet(for: node) {
-            ClipboardService().copy(snippet.body)
+            clipboardService.copy(snippet.body)
             snippet.lastCopiedAt = .now
             snippet.updatedAt = .now
             saveModelChanges(failurePrefix: "Could not update snippet copy time")
             selectedNodeIDs = [node.id]
             onStatus("Copied snippet: \(snippet.title)")
         } else if let workspace = workspace(for: node) {
-            ClipboardService().copy(workspace.title)
+            clipboardService.copy(workspace.title)
             selectedNodeIDs = [node.id]
             onStatus("Copied workspace title: \(workspace.title)")
         } else if let affordances = webCardAffordances(for: node) {
-            ClipboardService().copy(affordances.copyValue)
+            clipboardService.copy(affordances.copyValue)
             selectedNodeIDs = [node.id]
             onStatus("Copied URL: \(affordances.copyValue)")
         } else {
-            ClipboardService().copy(node.body.isEmpty ? node.title : node.body)
+            clipboardService.copy(node.body.isEmpty ? node.title : node.body)
             selectedNodeIDs = [node.id]
             onStatus("Copied node text: \(node.title)")
         }
