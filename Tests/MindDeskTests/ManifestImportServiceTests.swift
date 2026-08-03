@@ -13,8 +13,8 @@ final class ManifestImportServiceTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let metadataOversizedURL = directory.appendingPathComponent("legacy-review.json")
-        try makeLegacyReviewTrapData(byteCount: maximumBytes + 1).write(to: metadataOversizedURL)
+        let metadataOversizedURL = directory.appendingPathComponent("unsupported-formatted-document.json")
+        try makeUnsupportedFormattedDocumentData(byteCount: maximumBytes + 1).write(to: metadataOversizedURL)
         let oversizedMetadata = manifestURLMetadata(byteCount: maximumBytes + 1)
 
         assertManifestImportError(
@@ -37,7 +37,7 @@ final class ManifestImportServiceTests: XCTestCase {
             try metadataShortCircuitService.decodeManifest(from: metadataOversizedURL)
         }
 
-        let cappedReadOversizedData = makeLegacyReviewTrapData(byteCount: maximumBytes + 1)
+        let cappedReadOversizedData = makeUnsupportedFormattedDocumentData(byteCount: maximumBytes + 1)
         let atLimitMetadata = manifestURLMetadata(byteCount: maximumBytes)
         let cappedReadService = ImportExportService(
             manifestURLRead: .init(
@@ -190,7 +190,7 @@ final class ManifestImportServiceTests: XCTestCase {
         let maximumBytes = ManifestImportLimits.maximumManifestBytes
 
         do {
-            let atLimit = makeLegacyReviewTrapData(byteCount: maximumBytes)
+            let atLimit = makeUnsupportedFormattedDocumentData(byteCount: maximumBytes)
             assertManifestImportError(
                 "This JSON document is not supported by this version of MindDesk and cannot be imported as a manifest."
             ) {
@@ -199,7 +199,7 @@ final class ManifestImportServiceTests: XCTestCase {
         }
 
         do {
-            let oversized = makeLegacyReviewTrapData(byteCount: maximumBytes + 1)
+            let oversized = makeUnsupportedFormattedDocumentData(byteCount: maximumBytes + 1)
             assertManifestImportError(
                 "This JSON file is larger than the 64 MiB import limit."
             ) {
@@ -678,7 +678,7 @@ final class ManifestImportServiceTests: XCTestCase {
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 
-    private func makeLegacyReviewTrapData(
+    private func makeUnsupportedFormattedDocumentData(
         byteCount: Int,
         format: String = "minddesk.interchange.package"
     ) -> Data {

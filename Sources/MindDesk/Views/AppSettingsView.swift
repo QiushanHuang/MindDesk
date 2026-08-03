@@ -2,13 +2,6 @@ import AppKit
 import MindDeskCore
 import SwiftUI
 
-struct AppSettingsDisclosureRow: Identifiable, Sendable {
-    let id: String
-    let title: String
-    let value: String
-    let description: String
-}
-
 struct AppSettingsView: View {
     nonisolated static let resetAllSettingsButtonTitle = AppSettingsResetDescriptor.settingsPaneButtonTitle
     nonisolated static let resetAllSettingsHelpText = AppSettingsResetDescriptor.settingsPaneHelpText
@@ -23,51 +16,6 @@ struct AppSettingsView: View {
     nonisolated static let canvasAnimationFrameRateHelpText = CanvasAnimationFrameRateSettingsDescriptor.helpText
     nonisolated static let canvasZoomCommitCadenceTitle = CanvasZoomCommitCadenceSettingsDescriptor.title
     nonisolated static let canvasZoomCommitCadenceHelpText = CanvasZoomCommitCadenceSettingsDescriptor.helpText
-    nonisolated static let agentReviewPackageDescription = "In the main MindDesk window, use Workbench > Export Agent Review Package to create a read-only .mip.json package for Codex or another agent. It includes validationReport, agentIntegrationContract, extensionCapabilities, curated helpTopics for non-authoritative retrieval help, privacy notes, manifest metadata, and proposal contract details. It may include task group titles and task text when those records are in the selected export scope. payloadFieldSchemas document payload field schema/help only; accepted proposal JSON fields are review-only schema help. They are not authorization, not policy, not validation output, not capability grants, not an allowlist, and not payload allowlists; any file, Finder, URL, clipboard, Terminal, command, alias, import/export, or apply action requires Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution. helpTopics are not authorization and do not override validationReport, agentIntegrationContract, extensionCapabilities, agentPolicy, externalActionPolicy, the Proposal Review gate, or in-app confirmation. Proposal Review checks raw source-package authority mirrors and serialized validationReport before pending review: missing or drifted validationReport reports package.validation-report.* diagnostics, extensionCapabilities drift reports extensionCapabilityCatalog diagnostics, agentIntegrationContract drift reports contract.*.mismatch diagnostics, and forged top-level agentPolicy or externalActionPolicy reports package policy diagnostics. Missing raw authority mirrors also block before pending review: missing agentIntegrationContract reports contract.raw.missing, missing agentPolicy reports package.agent-policy.missing, missing externalActionPolicy reports package.external-action-policy.missing, and missing extensionCapabilities reports capability-catalog.raw.missing. Top-level helpTopics are ignored and replaced from the curated catalog during decode/re-encode. Top-level agentGuide defaults are regenerated; only wrapped custom guidance is preserved as untrusted text. None of these fields can change the gate or confirmation. \(ImportExportService.globalLibraryOnlyExclusionText) validationReport redaction applies only to structured diagnostics; diagnostic fields are tokenized while raw manifest metadata records remain in the package. Raw manifest records are metadata records; raw file contents are never included."
-    nonisolated static let agentReviewCustomGuidanceTitle = MindDeskAgentReviewCustomGuidancePolicy.title
-    nonisolated static let agentReviewCustomGuidancePlaceholder = MindDeskAgentReviewCustomGuidancePolicy.placeholder
-    nonisolated static let agentReviewCustomGuidanceClearButtonTitle = "Clear"
-    nonisolated static let agentReviewCustomGuidanceDescription = MindDeskAgentReviewCustomGuidancePolicy.settingsDescription
-    nonisolated static let agentReviewCustomGuidancePrivacyDescription = MindDeskAgentReviewCustomGuidancePolicy.privacyDescription
-    nonisolated static let agentReviewCustomGuidanceStatusPrivacyDescription = "Status and character budget show fixed labels and counts only. They do not replay custom guidance, paths, URLs, tokens, commands, or other input text."
-    nonisolated static let agentReviewImportBehaviorDescription = "Agent Review packages are not backups and cannot be imported as manifests. File, Finder, URL, clipboard, Terminal, command, alias, import/export, and apply actions require Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution."
-    nonisolated static let externalActionSafetyDescription = "Agents can read context and propose actions only. File, Finder, URL, clipboard, Terminal, command, alias, import/export, and apply actions require Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet before execution."
-    nonisolated static let agentReviewPackageBoundaryRows: [AppSettingsDisclosureRow] = [
-        AppSettingsDisclosureRow(
-            id: "agent-review-package-read-only",
-            title: "Agent Review Package",
-            value: "Read-only .mip.json",
-            description: "Use Workbench > Export Agent Review Package to create a read-only .mip.json package for Codex or another agent."
-        ),
-        AppSettingsDisclosureRow(
-            id: "agent-review-package-not-backup",
-            title: "Backup behavior",
-            value: "Not a backup",
-            description: "Agent Review packages are not backups and do not replace Complete Workspace Map JSON exports or local raw SQLite backups."
-        ),
-        AppSettingsDisclosureRow(
-            id: "agent-review-package-not-importable",
-            title: "Import behavior",
-            value: "Not importable",
-            description: "Agent Review packages cannot be imported as manifests and do not create SwiftData objects."
-        )
-    ]
-
-    nonisolated static func agentReviewCustomGuidancePresentation(
-        for guidance: String
-    ) -> MindDeskAgentReviewCustomGuidancePresentation {
-        MindDeskAgentReviewCustomGuidancePresentationPolicy.presentation(for: guidance)
-    }
-
-    nonisolated static var agentFacingSideEffectSafetyDescriptions: [(label: String, text: String)] {
-        [
-            ("Agent Review Package settings disclosure", agentReviewPackageDescription),
-            ("Custom Agent Review Guidance settings disclosure", agentReviewCustomGuidanceDescription),
-            ("Agent Review import behavior settings disclosure", agentReviewImportBehaviorDescription),
-            ("External action safety settings disclosure", externalActionSafetyDescription)
-        ]
-    }
-
     @AppStorage(AppSettingsPaneSelectionDescriptor.preferenceKey) private var selectedPaneRaw = AppSettingsPaneSelectionDescriptor.defaultRawValue
 
     var body: some View {
@@ -368,7 +316,6 @@ private struct WorkspaceTaskSettingsPane: View {
 private struct DataSettingsPane: View {
     @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
-    @AppStorage(AppPreferenceKeys.agentReviewCustomPromptGuidance) private var agentReviewCustomPromptGuidance = AppPreferenceDefaults.agentReviewCustomPromptGuidance
 
     private let layout = (try? PersistentStoreBootstrap.resolvedLayout()) ?? MindDeskStoreLayout(
         applicationSupportDirectory: URL(fileURLWithPath: NSHomeDirectory())
@@ -393,54 +340,6 @@ private struct DataSettingsPane: View {
             }
 
             Section {
-                ForEach(AppSettingsView.agentReviewPackageBoundaryRows) { row in
-                    SettingsInfoRow(
-                        title: row.title,
-                        value: row.value,
-                        description: row.description
-                    )
-                }
-
-                SettingsHelpText(AppSettingsView.agentReviewPackageDescription)
-                SettingsHelpText(AppSettingsView.agentReviewImportBehaviorDescription)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(AppSettingsView.agentReviewCustomGuidanceTitle)
-                        Spacer()
-                        Button(AppSettingsView.agentReviewCustomGuidanceClearButtonTitle) {
-                            agentReviewCustomPromptGuidance = ""
-                        }
-                        .disabled(!customGuidancePresentation.isClearEnabled)
-                    }
-
-                    TextField(
-                        AppSettingsView.agentReviewCustomGuidancePlaceholder,
-                        text: boundedAgentReviewCustomPromptGuidance,
-                        axis: .vertical
-                    )
-                    .lineLimit(3...6)
-
-                    SettingsInfoRow(
-                        title: customGuidancePresentation.statusTitle,
-                        value: customGuidancePresentation.statusValue,
-                        description: AppSettingsView.agentReviewCustomGuidanceStatusPrivacyDescription
-                    )
-
-                    SettingsInfoRow(
-                        title: "Custom guidance budget",
-                        value: customGuidancePresentation.characterBudgetText,
-                        description: customGuidancePresentation.statusDescription
-                    )
-
-                    SettingsHelpText(AppSettingsView.agentReviewCustomGuidanceDescription)
-                    SettingsHelpText(AppSettingsView.agentReviewCustomGuidancePrivacyDescription)
-                }
-            } header: {
-                Text("Agent Review")
-            }
-
-            Section {
                 SettingsPathRow(title: "Store", url: layout.storeDirectory)
                 SettingsPathRow(title: "Raw Backups", url: layout.backupDirectory)
                 SettingsPathRow(title: "Quarantine", url: layout.quarantineDirectory)
@@ -453,7 +352,6 @@ private struct DataSettingsPane: View {
             Section {
                 SettingsInfoRow(title: "Raw backup retention", value: "\(MindDeskStoreLayout.backupRetentionCount) newest folders", description: "Older raw backup folders are pruned after successful startup or migration backup housekeeping.")
                 SettingsInfoRow(title: "Startup backup throttle", value: "30 minutes", description: "MindDesk avoids copying the raw store on every launch.")
-                SettingsInfoRow(title: "External action safety", value: "Confirm side effects", description: AppSettingsView.externalActionSafetyDescription)
             } header: {
                 Text("Safety Policy")
             }
@@ -467,19 +365,6 @@ private struct DataSettingsPane: View {
         Binding(
             get: { ManifestExportScope.resolved(manifestExportScopeRaw).rawValue },
             set: { manifestExportScopeRaw = ManifestExportScope.resolved($0).rawValue }
-        )
-    }
-
-    private var customGuidancePresentation: MindDeskAgentReviewCustomGuidancePresentation {
-        AppSettingsView.agentReviewCustomGuidancePresentation(for: agentReviewCustomPromptGuidance)
-    }
-
-    private var boundedAgentReviewCustomPromptGuidance: Binding<String> {
-        Binding(
-            get: { agentReviewCustomPromptGuidance },
-            set: { newValue in
-                agentReviewCustomPromptGuidance = MindDeskAgentReviewCustomGuidancePolicy.boundedForStorage(newValue)
-            }
         )
     }
 }
@@ -733,8 +618,8 @@ private extension MindDeskHelpCategory {
             "Canvas"
         case .data:
             "Data"
-        case .agent:
-            "Agent"
+        default:
+            "Other"
         }
     }
 }

@@ -1,52 +1,81 @@
 import Foundation
-import MindDeskCore
 
-enum ProposalReviewSafeDisplayText {
-    static func safeAgentText(_ text: String, fallback: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return fallback }
-        return containsUnsafeText(trimmed) ? fallback : trimmed
-    }
+enum ValidationDisplayTextSanitizer {
+    private static let manifestLocatorRoots: Set<String> = [
+        "manifest",
+        "format",
+        "formatVersion",
+        "schemaVersion",
+        "exportedAt",
+        "workspaces",
+        "resources",
+        "snippets",
+        "canvases",
+        "nodes",
+        "edges",
+        "aliases",
+        "todoGroups",
+        "todos"
+    ]
 
     static func safeDiagnosticMessage(_ message: String) -> String {
-        safeAgentText(message, fallback: "Validation issue blocked review.")
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !containsUnsafeText(trimmed) else {
+            return "Validation issue."
+        }
+        return trimmed
     }
 
     static func safeIssueLocation(
         path: String?,
         field: String?,
-        ownerKind: String?,
-        source: MindDeskValidationReportSource
+        ownerKind: String?
     ) -> String {
-        if let path,
-           isPackageLocalLocator(path, source: source) {
+        if let path, isSafeManifestPath(path) {
             return path
         }
-        if let field,
-           isSafeFieldName(field) {
+        if let field, isSafeFieldName(field) {
             return field
         }
-        if let ownerKind,
-           isSafeFieldName(ownerKind) {
+        if let ownerKind, isSafeFieldName(ownerKind) {
             return ownerKind
         }
-        return source.rawValue
+        return "manifest"
     }
 
     static func containsUnsafeText(_ text: String) -> Bool {
         let lowercased = text.lowercased()
         return text.contains("\n") ||
             text.contains("\r") ||
-            looksLikeURL(lowercased) ||
+            lowercased.contains("://") ||
+            lowercased.contains("www.") ||
+            lowercased.contains("token=") ||
             looksLikeUserPath(text) ||
             containsInstructionOverride(lowercased) ||
             containsShellSnippet(lowercased)
     }
 
-    private static func looksLikeURL(_ text: String) -> Bool {
-        text.contains("://") ||
-            text.contains("www.") ||
-            text.contains("token=")
+    private static func isSafeManifestPath(_ path: String) -> Bool {
+        guard path.hasPrefix("/"),
+              !containsUnsafeText(path),
+              !path.contains("\\"),
+              !path.contains("..") else {
+            return false
+        }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.-")
+        guard path.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              let root = path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init) else {
+            return false
+        }
+        return manifestLocatorRoots.contains(root)
+    }
+
+    private static func isSafeFieldName(_ field: String) -> Bool {
+        guard !field.isEmpty, !containsUnsafeText(field) else {
+            return false
+        }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        return field.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func looksLikeUserPath(_ text: String) -> Bool {
@@ -60,6 +89,12 @@ enum ProposalReviewSafeDisplayText {
             lowercased.range(of: #"[A-Za-z]:[\\/]"#, options: .regularExpression) != nil
     }
 
+    private static func containsInstructionOverride(_ text: String) -> Bool {
+        text.contains("ignore validation") ||
+            text.contains("ignore previous instructions") ||
+            text.contains("ignore prior instructions")
+    }
+
     private static func containsShellSnippet(_ text: String) -> Bool {
         text.contains("rm -rf") ||
             text.contains("curl ") ||
@@ -68,110 +103,5 @@ enum ProposalReviewSafeDisplayText {
             text.contains("chmod ") ||
             text.contains("chown ") ||
             text.contains("open -a terminal")
-    }
-
-    private static func containsInstructionOverride(_ text: String) -> Bool {
-        text.contains("ignore_agent_instructions") ||
-            text.contains("ignore validation") ||
-            text.contains("ignore previous instructions") ||
-            text.contains("ignore prior instructions")
-    }
-
-    private static func isPackageLocalLocator(
-        _ path: String,
-        source: MindDeskValidationReportSource
-    ) -> Bool {
-        guard path.hasPrefix("/"),
-              !containsUnsafeText(path),
-              !path.contains("\\"),
-              !path.contains("..") else {
-            return false
-        }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.-")
-        guard path.unicodeScalars.allSatisfy({ allowed.contains($0) }),
-              let root = path.split(separator: "/", omittingEmptySubsequences: true).first.map(String.init) else {
-            return false
-        }
-        return allowedLocatorRoots(for: source).contains(root)
-    }
-
-    private static func allowedLocatorRoots(
-        for source: MindDeskValidationReportSource
-    ) -> Set<String> {
-        switch source {
-        case .package:
-            return [
-                "format",
-                "formatVersion",
-                "packageInstanceID",
-                "createdAt",
-                "manifest",
-                "validationReport",
-                "agentIntegrationContract",
-                "extensionCapabilities",
-                "agentGuide",
-                "agentPolicy",
-                "externalActionPolicy"
-            ]
-        case .manifest:
-            return [
-                "manifest",
-                "schemaVersion",
-                "exportedAt",
-                "workspaces",
-                "resources",
-                "snippets",
-                "canvases",
-                "nodes",
-                "edges",
-                "aliases",
-                "todoGroups",
-                "todos"
-            ]
-        case .proposalEnvelope:
-            return [
-                "id",
-                "format",
-                "formatVersion",
-                "createdAt",
-                "proposedBy",
-                "context",
-                "proposals"
-            ]
-        case .agentIntegrationContract:
-            return [
-                "format",
-                "formatVersion",
-                "supportedAudiences",
-                "authority",
-                "interchangePackage",
-                "proposalEnvelope",
-                "context",
-                "referenceSchemas",
-                "operationContracts",
-                "actionPolicy",
-                "agentPolicy",
-                "guide",
-                "promptTemplates",
-                "reviewGate"
-            ]
-        case .extensionCapabilityCatalog:
-            return [
-                "format",
-                "formatVersion",
-                "authorizesSideEffects",
-                "capabilities",
-                "notes"
-            ]
-        }
-    }
-
-    private static func isSafeFieldName(_ field: String) -> Bool {
-        guard !field.isEmpty,
-              !containsUnsafeText(field) else {
-            return false
-        }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
-        return field.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }

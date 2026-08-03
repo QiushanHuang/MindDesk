@@ -48,237 +48,24 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
-    func testCanvasCodexPromptBuilderIncludesReadOnlyProposalBoundary() {
-        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
-            workspaceTitle: "Launch Workspace",
-            canvasTitle: "Workflow Map",
-            userInstruction: "Organize this canvas into clearer groups.",
-            nodes: [
-                CanvasCodexPromptNodeRecord(id: "node-a", title: "Inbox", kind: "note", body: "Triage these ideas."),
-                CanvasCodexPromptNodeRecord(id: "node-b", title: "Build", kind: "resource", body: "Implementation files.")
-            ],
-            edges: [
-                CanvasCodexPromptEdgeRecord(sourceNodeID: "node-a", targetNodeID: "node-b", label: "next")
-            ],
-            selectedNodeIDs: ["node-a"],
-            selectedEdgeIDs: ["edge-a"]
-        ))
 
-        XCTAssertFalse(prompt.wasTruncated)
-        XCTAssertTrue(prompt.body.contains("read-only context"))
-        XCTAssertTrue(prompt.body.contains("Do not execute commands"))
-        XCTAssertTrue(prompt.body.contains("minddesk.proposal.envelope"))
-        XCTAssertTrue(prompt.body.contains("Proposal Review"))
-        XCTAssertTrue(prompt.body.contains("Launch Workspace"))
-        XCTAssertTrue(prompt.body.contains("Workflow Map"))
-        XCTAssertTrue(prompt.body.contains("node-a -> node-b"))
-    }
 
-    func testCanvasCodexPromptBuilderForcesPreviewableProposalEnvelopeForCustomPromptRuns() {
-        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
-            workspaceTitle: "MD-Simulation",
-            canvasTitle: "Main Workflow",
-            userInstruction: """
-            Review the current Canvas structure. Suggest clearer card groups, better link labels, and sequencing improvements. Return any concrete MindDesk changes only as a minddesk.proposal.envelope for Proposal Review.
 
-            Additional user instruction:
-            帮我整理整个MD文件夹的路径，包括环境等等，保留现有的canvas结构进行拓展
-            """,
-            nodes: [
-                CanvasCodexPromptNodeRecord(id: "md-folder", title: "MD", kind: "resource", body: "/Users/joshua/Desktop/MD"),
-                CanvasCodexPromptNodeRecord(id: "venv", title: "venv", kind: "resource", body: "/Users/joshua/Desktop/MD/venv/bin/activate")
-            ],
-            edges: [
-                CanvasCodexPromptEdgeRecord(sourceNodeID: "venv", targetNodeID: "md-folder", label: "")
-            ],
-            proposalTemplateJSON: #"{"format":"minddesk.proposal.envelope","formatVersion":1,"context":{"packageInstanceID":"package-a"},"proposals":[]}"#
-        ))
 
-        XCTAssertFalse(prompt.wasTruncated)
-        XCTAssertTrue(prompt.body.contains("Return exactly one complete minddesk.proposal.envelope JSON object"), prompt.body)
-        XCTAssertTrue(prompt.body.contains("Do not answer only in prose"), prompt.body)
-        XCTAssertTrue(prompt.body.contains("applyMindDeskChange"), prompt.body)
-        XCTAssertTrue(prompt.body.contains("payload.proposedText"), prompt.body)
-        XCTAssertTrue(prompt.body.contains(#""format":"minddesk.proposal.envelope""#), prompt.body)
-        XCTAssertTrue(prompt.body.contains("If filesystem inspection is unavailable"), prompt.body)
-    }
 
-    func testCanvasCodexPromptBuilderBoundsOversizedCanvasContext() {
-        let nodes = (0..<80).map { index in
-            CanvasCodexPromptNodeRecord(
-                id: "node-\(index)",
-                title: "Large Card \(index)",
-                kind: "note",
-                body: String(repeating: "Long canvas note. ", count: 80)
-            )
-        }
-        let prompt = CanvasCodexPromptBuilder.prompt(for: CanvasCodexPromptContext(
-            workspaceTitle: "Large Workspace",
-            canvasTitle: "Large Canvas",
-            userInstruction: String(repeating: "Organize this. ", count: 500),
-            nodes: nodes,
-            edges: [],
-            selectedNodeIDs: [],
-            selectedEdgeIDs: []
-        ))
 
-        XCTAssertTrue(prompt.wasTruncated)
-        XCTAssertLessThanOrEqual(Data(prompt.body.utf8).count, CanvasCodexPromptBuilder.maximumPromptBytes)
-        XCTAssertTrue(prompt.body.contains("prompt was bounded before opening Codex"))
-    }
 
-    func testCanvasCodexCommandBuilderUsesSafeInteractiveTerminalCommand() {
-        let command = CanvasCodexCommandBuilder.interactiveCodexCommand(workingDirectory: "/tmp/My Workspace")
-        let promptCommand = CanvasCodexCommandBuilder.interactiveCodexPromptCommand(
-            promptFilePath: "/tmp/My Prompt.txt",
-            workingDirectory: "/tmp/My Workspace"
-        )
-        let currentDirectoryCommand = CanvasCodexCommandBuilder.interactiveCodexCommandForCurrentDirectory()
-        let promptAugmentedCommand = CanvasCodexCommandBuilder.promptAugmentedShellCommand(
-            "codex -m gpt-5.5",
-            promptFilePath: "/tmp/My Prompt.txt"
-        )
 
-        XCTAssertTrue(command.hasPrefix("codex "))
-        XCTAssertTrue(command.contains("-c 'service_tier=\"fast\"'"))
-        XCTAssertTrue(command.contains("--no-alt-screen"))
-        XCTAssertTrue(command.contains("--sandbox read-only"))
-        XCTAssertTrue(command.contains("--ask-for-approval on-request"))
-        XCTAssertFalse(command.contains("-m "))
-        XCTAssertTrue(command.contains("-C '/tmp/My Workspace'"))
-        XCTAssertFalse(command.contains("$(cat"))
-        XCTAssertTrue(promptCommand.hasPrefix(command))
-        XCTAssertTrue(promptCommand.contains("\"$(cat -- '/tmp/My Prompt.txt')\""))
-        XCTAssertFalse(command.contains(" exec "))
-        XCTAssertFalse(command.contains("--json"))
-        XCTAssertFalse(command.contains("--skip-git-repo-check"))
-        XCTAssertFalse(command.contains("--ephemeral"))
-        XCTAssertFalse(command.contains("--full-auto"))
-        XCTAssertFalse(command.contains("--dangerously-bypass-approvals-and-sandbox"))
-        XCTAssertFalse(command.contains("workspace-write"))
-        XCTAssertFalse(command.contains("danger-full-access"))
-        XCTAssertFalse(command.contains("--add-dir"))
-        XCTAssertFalse(command.contains(" apply"))
-        XCTAssertFalse(command.contains(" resume"))
-        XCTAssertFalse(promptCommand.contains(" exec "))
-        XCTAssertTrue(currentDirectoryCommand.contains("-c 'service_tier=\"fast\"'"))
-        XCTAssertFalse(currentDirectoryCommand.contains("-C "))
-        XCTAssertEqual(promptAugmentedCommand, "codex -m gpt-5.5 \"$(cat -- '/tmp/My Prompt.txt')\"")
-    }
 
-    func testProposalEnvelopeExtractorFindsLatestEnvelopeInTerminalTranscript() throws {
-        let firstEnvelope = """
-        {"format":"minddesk.proposal.envelope","formatVersion":1,"id":"first"}
-        """
-        let latestEnvelope = """
-        {"format":"minddesk.proposal.envelope","formatVersion":1,"id":"latest","proposals":[]}
-        """
-        let transcript = """
-        \u{1B}[2Jnoise before
-        ```json
-        \(firstEnvelope)
-        ```
-        more terminal output
-        \(latestEnvelope)
-        shell prompt
-        """
 
-        let extracted = try XCTUnwrap(MindDeskProposalEnvelopeExtractor.latestEnvelopeData(in: transcript))
-        let extractedObject = try XCTUnwrap(JSONSerialization.jsonObject(with: extracted) as? [String: Any])
-        XCTAssertEqual(extractedObject["id"] as? String, "latest")
-    }
 
-    func testCanvasCodexPromptTemplateLibraryProvidesEditableGroupedDefaults() {
-        let groups = CanvasCodexPromptTemplateLibrary.defaultGroups
 
-        XCTAssertGreaterThanOrEqual(groups.count, 3)
-        XCTAssertTrue(groups.allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-        XCTAssertTrue(groups.allSatisfy { !$0.templates.isEmpty })
-        XCTAssertTrue(groups.flatMap(\.templates).allSatisfy { !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-        XCTAssertTrue(groups.flatMap(\.templates).allSatisfy { $0.body.contains("Proposal Review") })
-        XCTAssertTrue(groups.flatMap(\.templates).contains { $0.title.localizedCaseInsensitiveContains("organize") })
 
-        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
-        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
-        XCTAssertEqual(decoded, groups)
-    }
 
-    func testCanvasCodexPromptTemplateLibraryFallsBackToDefaultsForInvalidOrEmptyStorage() {
-        XCTAssertEqual(CanvasCodexPromptTemplateLibrary.decode(""), CanvasCodexPromptTemplateLibrary.defaultGroups)
-        XCTAssertEqual(CanvasCodexPromptTemplateLibrary.decode("{not json"), CanvasCodexPromptTemplateLibrary.defaultGroups)
-    }
 
-    func testCanvasCodexPromptTemplateLibraryPersistsEditedTemplateAndResolvesInstruction() {
-        var groups = CanvasCodexPromptTemplateLibrary.defaultGroups
-        groups[0].templates[0].title = "Canvas Triage"
-        groups[0].templates[0].body = "Group selected cards by owner.\nReturn proposal JSON only through Proposal Review."
 
-        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
-        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
-        let resolved = CanvasCodexPromptTemplateLibrary.resolvedInstruction(
-            groupID: groups[0].id,
-            templateID: groups[0].templates[0].id,
-            customInstruction: "Prioritize the selected cards.",
-            groups: decoded
-        )
 
-        XCTAssertEqual(decoded[0].templates[0].title, "Canvas Triage")
-        XCTAssertTrue(resolved.contains("Group selected cards by owner."))
-        XCTAssertTrue(resolved.contains("Additional user instruction"))
-        XCTAssertTrue(resolved.contains("Prioritize the selected cards."))
-        XCTAssertLessThanOrEqual(encoded.data(using: .utf8)?.count ?? 0, CanvasCodexPromptTemplateLibrary.maximumStoredJSONBytes)
-    }
 
-    func testCanvasCodexPromptTemplateLibraryStoresMaximumEditableTemplateSet() {
-        let body = String(repeating: "A", count: CanvasCodexPromptTemplateLibrary.maximumTemplateBodyCharacters)
-        let groups = (0..<CanvasCodexPromptTemplateLibrary.maximumGroupCount).map { groupIndex in
-            CanvasCodexPromptTemplateGroup(
-                id: "group-\(groupIndex)",
-                title: "Group \(groupIndex)",
-                templates: (0..<CanvasCodexPromptTemplateLibrary.maximumTemplatesPerGroup).map { templateIndex in
-                    CanvasCodexPromptTemplateOption(
-                        id: "template-\(templateIndex)",
-                        title: "Template \(templateIndex)",
-                        body: body
-                    )
-                }
-            )
-        }
-
-        let encoded = CanvasCodexPromptTemplateLibrary.encode(groups)
-        let decoded = CanvasCodexPromptTemplateLibrary.decode(encoded)
-
-        XCTAssertFalse(encoded.isEmpty)
-        XCTAssertLessThanOrEqual(encoded.data(using: .utf8)?.count ?? 0, CanvasCodexPromptTemplateLibrary.maximumStoredJSONBytes)
-        XCTAssertEqual(decoded.count, CanvasCodexPromptTemplateLibrary.maximumGroupCount)
-        XCTAssertEqual(decoded.flatMap(\.templates).count, CanvasCodexPromptTemplateLibrary.maximumGroupCount * CanvasCodexPromptTemplateLibrary.maximumTemplatesPerGroup)
-        XCTAssertEqual(decoded[0].templates[0].body.count, CanvasCodexPromptTemplateLibrary.maximumTemplateBodyCharacters)
-    }
-
-    func testCanvasCodexPromptTemplateLibraryDeduplicatesDecodedIdentifiers() {
-        let duplicateGroups = [
-            CanvasCodexPromptTemplateGroup(
-                id: "duplicate",
-                title: "Duplicate",
-                templates: [
-                    CanvasCodexPromptTemplateOption(id: "same", title: "First", body: "First body"),
-                    CanvasCodexPromptTemplateOption(id: "same", title: "Second", body: "Second body")
-                ]
-            ),
-            CanvasCodexPromptTemplateGroup(
-                id: "duplicate",
-                title: "Duplicate Again",
-                templates: [
-                    CanvasCodexPromptTemplateOption(id: "same", title: "Third", body: "Third body")
-                ]
-            )
-        ]
-
-        let bounded = CanvasCodexPromptTemplateLibrary.bounded(duplicateGroups)
-
-        XCTAssertEqual(Set(bounded.map(\.id)).count, bounded.count)
-        XCTAssertEqual(Set(bounded[0].templates.map(\.id)).count, bounded[0].templates.count)
-    }
 
     func testExportManifestEncodesTypedWireMetadataAndKeepsLegacyDecode() throws {
         let manifest = ExportManifest(
@@ -817,7 +604,6 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(AppPreferenceKeys.workspaceOpenDestination, "workspaceOpenDestination")
         XCTAssertEqual(AppPreferenceKeys.manifestExportScope, "manifestExportScope")
         XCTAssertEqual(AppPreferenceKeys.manifestExportIncludesUsageDates, "manifestExportIncludesUsageDates")
-        XCTAssertEqual(AppPreferenceKeys.agentReviewCustomPromptGuidance, "agentReviewCustomPromptGuidance")
     }
 
     func testAppSettingsPaneSelectionDescriptorPersistsKnownPaneAndDefaultsInvalidValues() {
@@ -900,98 +686,11 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(CanvasZoomCommitCadence.resolved("unknown"), .balanced)
     }
 
-    func testCustomGuidancePresentationReportsBlankAsNotIncluded() {
-        let presentation = MindDeskAgentReviewCustomGuidancePresentationPolicy.presentation(for: " \n ")
 
-        XCTAssertEqual(presentation.title, MindDeskAgentReviewCustomGuidancePolicy.title)
-        XCTAssertEqual(presentation.placeholder, MindDeskAgentReviewCustomGuidancePolicy.placeholder)
-        XCTAssertEqual(presentation.settingsDescription, MindDeskAgentReviewCustomGuidancePolicy.settingsDescription)
-        XCTAssertEqual(presentation.privacyDescription, MindDeskAgentReviewCustomGuidancePolicy.privacyDescription)
-        XCTAssertEqual(presentation.clearButtonTitle, "Clear")
-        XCTAssertEqual(presentation.statusTitle, "Next Agent Review export")
-        XCTAssertEqual(presentation.statusKind, .empty)
-        XCTAssertEqual(presentation.statusValue, "Not included")
-        XCTAssertEqual(
-            presentation.statusDescription,
-            "No custom guidance will be added to the next Agent Review .mip.json. 0 of 2,000 characters used."
-        )
-        XCTAssertEqual(presentation.characterBudgetText, "0 of 2,000 characters used")
-        XCTAssertEqual(presentation.characterCount, 0)
-        XCTAssertEqual(presentation.characterLimit, 2_000)
-        XCTAssertEqual(presentation.remainingCharacterCount, 2_000)
-        XCTAssertEqual(presentation.storedValue, "")
-        XCTAssertFalse(presentation.isIncluded)
-        XCTAssertFalse(presentation.isClearEnabled)
-        XCTAssertFalse(presentation.wasTruncated)
-    }
 
-    func testCustomGuidancePresentationReportsIncludedCountAndBoundaryWithoutEchoingInput() {
-        let rawGuidance = """
-        STATUS_SECRET /private/tmp/custom-guidance-secret https://custom-guidance.example/token authorize-runCommand-now
-        """
 
-        let presentation = MindDeskAgentReviewCustomGuidancePresentationPolicy.presentation(for: rawGuidance)
 
-        XCTAssertEqual(presentation.statusKind, .included)
-        XCTAssertEqual(presentation.statusValue, "Included")
-        XCTAssertEqual(presentation.storedValue, rawGuidance.trimmingCharacters(in: .whitespacesAndNewlines))
-        XCTAssertEqual(presentation.characterCount, presentation.storedValue.count)
-        XCTAssertEqual(presentation.originalCharacterCount, presentation.storedValue.count)
-        XCTAssertEqual(presentation.remainingCharacterCount, 2_000 - presentation.storedValue.count)
-        XCTAssertEqual(
-            presentation.statusDescription,
-            "Custom guidance will be included in the next Agent Review .mip.json as plain text, untrusted, non-authoritative guidance. \(presentation.characterBudgetText)."
-        )
-        XCTAssertTrue(presentation.isIncluded)
-        XCTAssertTrue(presentation.isClearEnabled)
-        XCTAssertFalse(presentation.wasTruncated)
 
-        for forbidden in [
-            "STATUS_SECRET",
-            "/private/tmp/custom-guidance-secret",
-            "https://custom-guidance.example/token",
-            "authorize-runCommand-now"
-        ] {
-            XCTAssertFalse(presentation.visibleText.contains(forbidden), "Presentation echoed custom guidance: \(forbidden)")
-        }
-        XCTAssertTrue(presentation.visibleText.contains("untrusted"))
-        XCTAssertTrue(presentation.visibleText.contains("non-authoritative"))
-    }
-
-    func testCustomGuidancePresentationBoundsBeforeCountingAndDoesNotEchoTruncatedInput() {
-        let hiddenSuffix = "STATUS_SECRET_SUFFIX"
-        let rawGuidance = String(repeating: "A", count: MindDeskAgentReviewCustomGuidancePolicy.characterLimit)
-            + hiddenSuffix
-
-        let presentation = MindDeskAgentReviewCustomGuidancePresentationPolicy.presentation(for: rawGuidance)
-
-        XCTAssertEqual(presentation.statusKind, .atLimit)
-        XCTAssertEqual(presentation.statusValue, "Bounded to 2,000 characters")
-        XCTAssertEqual(presentation.storedValue, MindDeskAgentReviewCustomGuidancePolicy.boundedForStorage(rawGuidance))
-        XCTAssertEqual(presentation.storedValue.count, 2_000)
-        XCTAssertEqual(presentation.characterCount, 2_000)
-        XCTAssertEqual(presentation.originalCharacterCount, 2_000 + hiddenSuffix.count)
-        XCTAssertEqual(presentation.remainingCharacterCount, 0)
-        XCTAssertEqual(presentation.characterBudgetText, "2,000 of 2,000 characters used")
-        XCTAssertEqual(
-            presentation.statusDescription,
-            "Custom guidance will be included in the next Agent Review .mip.json as plain text, untrusted, non-authoritative guidance. 2,000 of 2,000 characters used. Extra text was truncated before export."
-        )
-        XCTAssertTrue(presentation.isIncluded)
-        XCTAssertTrue(presentation.isClearEnabled)
-        XCTAssertTrue(presentation.wasTruncated)
-        XCTAssertFalse(presentation.visibleText.contains(hiddenSuffix))
-
-        for unsafePhrase in [
-            "authorization granted",
-            "safe to execute",
-            "ready to execute",
-            "run without confirmation",
-            "trusted guidance"
-        ] {
-            XCTAssertFalse(presentation.visibleText.lowercased().contains(unsafePhrase))
-        }
-    }
 
     func testAppPreferenceDefaultsRestoreGlobalSettingsAndClearObsoleteViewState() throws {
         let suiteName = "MindDeskTests.\(UUID().uuidString)"
@@ -1007,15 +706,11 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(AppWorkspaceOpenDestination.overview.rawValue, forKey: AppPreferenceKeys.workspaceOpenDestination)
         defaults.set(ManifestExportScope.globalLibraryOnly.rawValue, forKey: AppPreferenceKeys.manifestExportScope)
         defaults.set(true, forKey: AppPreferenceKeys.manifestExportIncludesUsageDates)
-        defaults.set("Prioritize validation issues.", forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance)
         defaults.set(CanvasScrollZoomDirection.scrollDownZoomsIn.rawValue, forKey: AppPreferenceKeys.canvasScrollZoomDirection)
         defaults.set(250.0, forKey: AppPreferenceKeys.canvasDefaultZoomPercent)
         defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
         defaults.set(CanvasAnimationFrameRate.smooth.rawValue, forKey: AppPreferenceKeys.canvasAnimationFrameRate)
         defaults.set(CanvasZoomCommitCadence.responsive.rawValue, forKey: AppPreferenceKeys.canvasZoomCommitCadence)
-        defaults.set("edited templates", forKey: AppPreferenceKeys.canvasCodexPromptTemplateLibrary)
-        defaults.set("review", forKey: AppPreferenceKeys.canvasCodexPromptTemplateGroup)
-        defaults.set("review-links", forKey: AppPreferenceKeys.canvasCodexPromptTemplateOption)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen)
         defaults.set(true, forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen)
         defaults.set(0.7, forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio)
@@ -1032,15 +727,11 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.workspaceOpenDestination), AppWorkspaceOpenDestination.canvas.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.manifestExportScope), ManifestExportScope.completeWorkspaceMap.rawValue)
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.manifestExportIncludesUsageDates))
-        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance), AppPreferenceDefaults.agentReviewCustomPromptGuidance)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasScrollZoomDirection), CanvasScrollZoomDirection.scrollDownZoomsOut.rawValue)
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.canvasDefaultZoomPercent), CanvasZoomBaseline.defaultPercent, accuracy: 0.0001)
         XCTAssertTrue(defaults.bool(forKey: AppPreferenceKeys.canvasConnectSingleShot))
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasAnimationFrameRate), CanvasAnimationFrameRate.balanced.rawValue)
         XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasZoomCommitCadence), CanvasZoomCommitCadence.balanced.rawValue)
-        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateLibrary), AppPreferenceDefaults.canvasCodexPromptTemplateLibrary)
-        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateGroup), AppPreferenceDefaults.canvasCodexPromptTemplateGroup)
-        XCTAssertEqual(defaults.string(forKey: AppPreferenceKeys.canvasCodexPromptTemplateOption), AppPreferenceDefaults.canvasCodexPromptTemplateOption)
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen))
         XCTAssertFalse(defaults.bool(forKey: AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen))
         XCTAssertEqual(defaults.double(forKey: AppPreferenceKeys.workspaceCanvasTodoColumnRatio), TodoBoardColumnSplit.defaultRatio, accuracy: 0.0001)
@@ -1059,15 +750,11 @@ final class CoreBehaviorTests: XCTestCase {
             AppPreferenceKeys.workspaceOpenDestination,
             AppPreferenceKeys.manifestExportScope,
             AppPreferenceKeys.manifestExportIncludesUsageDates,
-            AppPreferenceKeys.agentReviewCustomPromptGuidance,
             AppPreferenceKeys.canvasScrollZoomDirection,
             AppPreferenceKeys.canvasDefaultZoomPercent,
             AppPreferenceKeys.canvasConnectSingleShot,
             AppPreferenceKeys.canvasAnimationFrameRate,
             AppPreferenceKeys.canvasZoomCommitCadence,
-            AppPreferenceKeys.canvasCodexPromptTemplateLibrary,
-            AppPreferenceKeys.canvasCodexPromptTemplateGroup,
-            AppPreferenceKeys.canvasCodexPromptTemplateOption,
             AppPreferenceKeys.workspaceCanvasTodoPanelDefaultOpen,
             AppPreferenceKeys.workspaceCanvasTodoDoneColumnDefaultOpen,
             AppPreferenceKeys.workspaceCanvasTodoColumnRatio
@@ -1078,11 +765,6 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(resetItems.count, AppPreferenceDefaults.resettableKeys.count)
         XCTAssertEqual(AppSettingsResetDescriptor.obsoleteKeysCleared, AppPreferenceDefaults.obsoleteKeys)
         XCTAssertTrue(resetItems.allSatisfy { !AppPreferenceDefaults.obsoleteKeys.contains($0.key) })
-        XCTAssertEqual(
-            resetItems.first { $0.key == AppPreferenceKeys.agentReviewCustomPromptGuidance }?.defaultValueDescription,
-            "Cleared"
-        )
-
         for item in resetItems {
             XCTAssertFalse(item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             XCTAssertFalse(item.defaultValueDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -1104,7 +786,8 @@ final class CoreBehaviorTests: XCTestCase {
         }
 
         for required in [
-            "custom agent review guidance: cleared",
+            "appearance: system",
+            "workspace open destination: canvas",
             "obsolete settings keys",
             AppPreferenceKeys.workspaceCanvasTodoDoneColumnOpen.lowercased(),
             "does not delete workspaces",
@@ -1141,7 +824,6 @@ final class CoreBehaviorTests: XCTestCase {
             "canvas interaction",
             "workspace task defaults",
             "portable json defaults",
-            "custom agent review guidance",
             "does not delete",
             "workspaces",
             "resources",
@@ -1173,7 +855,6 @@ final class CoreBehaviorTests: XCTestCase {
         defaults.set(AppWorkspaceOpenDestination.overview.rawValue, forKey: AppPreferenceKeys.workspaceOpenDestination)
         defaults.set(ManifestExportScope.globalLibraryOnly.rawValue, forKey: AppPreferenceKeys.manifestExportScope)
         defaults.set(true, forKey: AppPreferenceKeys.manifestExportIncludesUsageDates)
-        defaults.set("Custom reset guidance", forKey: AppPreferenceKeys.agentReviewCustomPromptGuidance)
         defaults.set(CanvasScrollZoomDirection.scrollDownZoomsIn.rawValue, forKey: AppPreferenceKeys.canvasScrollZoomDirection)
         defaults.set(250.0, forKey: AppPreferenceKeys.canvasDefaultZoomPercent)
         defaults.set(false, forKey: AppPreferenceKeys.canvasConnectSingleShot)
@@ -5555,20 +5236,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(QuickOpenSelectionPolicy.normalizedIndex(0, resultCount: 0), 0)
     }
 
-    func testHelpCatalogIncludesRequiredHumanAndAgentTopics() {
-        let topics = MindDeskHelpCatalog.defaultTopics
-        let ids = Set(topics.map(\.id))
 
-        XCTAssertTrue(ids.contains("settings-defaults"))
-        XCTAssertTrue(ids.contains("canvas-performance"))
-        XCTAssertTrue(ids.contains("import-export"))
-        XCTAssertTrue(ids.contains("agent-readonly-mip"))
-        XCTAssertTrue(ids.contains("agent-prompt-workflow"))
-        XCTAssertTrue(ids.contains("agent-proposal-review"))
-        XCTAssertEqual(ids.count, topics.count)
-        XCTAssertTrue(topics.allSatisfy { !$0.anchor.isEmpty })
-        XCTAssertEqual(Set(topics.map(\.anchor)).count, topics.count)
-    }
 
     func testHelpTopicReaderPolicyKeepsShortTopicsAsSingleOverviewSection() throws {
         let topic = MindDeskHelpTopic(
@@ -5611,7 +5279,7 @@ final class CoreBehaviorTests: XCTestCase {
 
     func testHelpTopicReaderPolicyDoesNotChangeSearchableOrEncodedHelpTopicBody() throws {
         let topic = try XCTUnwrap(
-            MindDeskHelpCatalog.defaultTopics.first { $0.id == "agent-prompt-workflow" }
+            MindDeskHelpCatalog.defaultTopics.first { $0.id == "canvas-performance" }
         )
 
         _ = MindDeskHelpTopicReaderPolicy.sections(for: topic)
@@ -5623,87 +5291,12 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertNil(encodedObject["sections"])
         XCTAssertNil(encodedObject["readerSections"])
         XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "custom guidance", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "agent-prompt-workflow"
+            MindDeskHelpSearch.results(for: "viewport diagnostics", in: MindDeskHelpCatalog.defaultTopics).first?.id,
+            "canvas-performance"
         )
     }
 
-    func testHelpTopicReaderSectionsArePresentationOnlyAndExcludedFromMIPHelpTopics() throws {
-        XCTAssertTrue(MindDeskHelpTopicReaderPolicy.isPresentationOnly)
 
-        let shortTopic = MindDeskHelpTopic(
-            id: "short-reader-topic",
-            category: .settings,
-            title: "Short Reader Topic",
-            summary: "Short summary",
-            bodyMarkdown: "Short body remains a single reader overview.",
-            keywords: []
-        )
-        XCTAssertEqual(
-            MindDeskHelpTopicReaderPolicy.sections(for: shortTopic),
-            [
-                MindDeskHelpTopicReaderSection(
-                    id: "short-reader-topic-overview",
-                    title: "Overview",
-                    bodyMarkdown: shortTopic.bodyMarkdown
-                )
-            ]
-        )
-
-        let longBody = (1...24)
-            .map { "Detail sentence \($0) keeps reader sections bounded while preserving the raw searchable body text." }
-            .joined(separator: " ")
-        XCTAssertGreaterThan(longBody.count, MindDeskHelpTopicReaderPolicy.maximumSectionCharacterCount)
-        let longTopic = MindDeskHelpTopic(
-            id: "long-reader-topic",
-            category: .settings,
-            title: "Long Reader Topic",
-            summary: "Long summary",
-            bodyMarkdown: longBody,
-            keywords: []
-        )
-
-        let longSections = MindDeskHelpTopicReaderPolicy.sections(for: longTopic)
-
-        XCTAssertGreaterThan(longSections.count, 1)
-        XCTAssertEqual(longSections.first?.title, "Overview")
-        XCTAssertEqual(
-            longSections.dropFirst().map(\.title),
-            (2...longSections.count).map { "Details \($0)" }
-        )
-        XCTAssertTrue(longSections.allSatisfy { $0.bodyMarkdown.count <= MindDeskHelpTopicReaderPolicy.maximumSectionCharacterCount })
-        XCTAssertEqual(longSections.map(\.bodyMarkdown).joined(), longTopic.bodyMarkdown)
-
-        let manifest = ExportManifest(
-            schemaVersion: 2,
-            exportedAt: Date(timeIntervalSince1970: 10),
-            workspaces: [],
-            resources: [],
-            snippets: [],
-            canvases: [],
-            nodes: [],
-            edges: [],
-            aliases: []
-        )
-        let package = MindDeskInterchangePackage(
-            manifest: manifest,
-            createdAt: Date(timeIntervalSince1970: 20)
-        )
-        let encodedPackageObject = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: JSONEncoder.minddesk.encode(package)) as? [String: Any]
-        )
-        let encodedHelpTopics = try XCTUnwrap(encodedPackageObject["helpTopics"] as? [[String: Any]])
-
-        XCTAssertEqual(package.helpTopics, MindDeskHelpCatalog.agentReviewPackageTopics)
-        XCTAssertTrue(encodedHelpTopics.allSatisfy { $0["bodyMarkdown"] is String })
-        XCTAssertTrue(encodedHelpTopics.allSatisfy { $0["readerSections"] == nil })
-        XCTAssertTrue(encodedHelpTopics.allSatisfy { $0["sections"] == nil })
-        XCTAssertFalse(
-            encodedHelpTopics
-                .compactMap { $0["id"] as? String }
-                .contains { $0.hasSuffix("-overview") || $0.contains("-details-") }
-        )
-    }
 
     func testHelpTopicReaderPolicyBoundsUnbrokenLongTokensWithoutBreakingCharacters() {
         let longToken = String(repeating: "A", count: MindDeskHelpTopicReaderPolicy.maximumSectionCharacterCount + 75)
@@ -5758,8 +5351,6 @@ final class CoreBehaviorTests: XCTestCase {
 
         for required in [
             "reset all settings",
-            "custom agent review guidance",
-            "custom agent review guidance field is cleared",
             "obsolete settings keys",
             "does not delete",
             "workspaces",
@@ -5777,7 +5368,6 @@ final class CoreBehaviorTests: XCTestCase {
 
         for query in [
             "reset all settings",
-            "custom Agent Review Guidance reset",
             "obsolete settings keys",
             "settings protected data"
         ] {
@@ -6000,21 +5590,11 @@ final class CoreBehaviorTests: XCTestCase {
         )
     }
 
-    func testHelpCatalogSearchRanksTitleAndKeywordMatchesDeterministically() {
-        let results = MindDeskHelpSearch.results(for: "agent workflow", in: MindDeskHelpCatalog.defaultTopics)
 
-        XCTAssertEqual(results.first?.id, "agent-prompt-workflow")
-        XCTAssertTrue(results.map(\.id).contains("agent-readonly-mip"))
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "", in: MindDeskHelpCatalog.defaultTopics, limit: 2).map(\.id),
-            ["settings-defaults", "canvas-performance"]
-        )
-        XCTAssertTrue(MindDeskHelpSearch.results(for: "agent", in: MindDeskHelpCatalog.defaultTopics, limit: 0).isEmpty)
-    }
 
     func testHelpCatalogSearchResponseEncodesBoundedReadOnlySummaries() throws {
         let response = MindDeskHelpSearch.summaryResponse(
-            for: "agent workflow",
+            for: "canvas performance",
             in: MindDeskHelpCatalog.defaultTopics,
             limit: 2
         )
@@ -6023,17 +5603,17 @@ final class CoreBehaviorTests: XCTestCase {
 
         XCTAssertEqual(response.format, "minddesk.help.search.response")
         XCTAssertEqual(response.formatVersion, 1)
-        XCTAssertEqual(response.query, "agent workflow")
+        XCTAssertEqual(response.query, "canvas performance")
         XCTAssertEqual(response.requestedLimit, 2)
-        XCTAssertEqual(response.resultCount, 2)
-        XCTAssertTrue(response.truncated)
-        XCTAssertEqual(response.results.count, 2)
-        XCTAssertTrue(response.results.contains { $0.id == "agent-prompt-workflow" })
+        XCTAssertEqual(response.resultCount, 1)
+        XCTAssertFalse(response.truncated)
+        XCTAssertEqual(response.results.count, 1)
+        XCTAssertEqual(response.results.first?.id, "canvas-performance")
         XCTAssertTrue(response.results.allSatisfy { !$0.bodyMarkdownIncluded })
         XCTAssertFalse(response.authorizesSideEffects)
         XCTAssertTrue(response.boundaryText.lowercased().contains("not authorization"))
-        XCTAssertEqual(object["resultCount"] as? Int, 2)
-        XCTAssertEqual(object["truncated"] as? Bool, true)
+        XCTAssertEqual(object["resultCount"] as? Int, 1)
+        XCTAssertEqual(object["truncated"] as? Bool, false)
         XCTAssertEqual(object["authorizesSideEffects"] as? Bool, false)
         XCTAssertEqual(try JSONDecoder.minddesk.decode(MindDeskHelpSearchResponse.self, from: data), response)
 
@@ -6096,69 +5676,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(defaultCatalogResponse, response)
     }
 
-    func testHelpCatalogSearchFindsHumanAndAIRetrievalQueries() {
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "settings help", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "settings-defaults"
-        )
-        let settingsHelpTopic = MindDeskHelpCatalog.defaultTopics.first { $0.id == "settings-defaults" }
-        let settingsHelpText = [
-            settingsHelpTopic?.bodyMarkdown ?? "",
-            settingsHelpTopic?.keywords.joined(separator: " ") ?? ""
-        ]
-            .joined(separator: " ")
-            .lowercased()
-        XCTAssertTrue(settingsHelpText.contains("minddeskhelpsearchrequest"))
-        XCTAssertTrue(settingsHelpText.contains("query cap"))
-        XCTAssertTrue(
-            MindDeskHelpSearch.results(for: "AI retrieval", in: MindDeskHelpCatalog.defaultTopics)
-                .map(\.id)
-                .contains("agent-readonly-mip")
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(
-                for: "proposal JSON references kind id",
-                in: MindDeskHelpCatalog.defaultTopics
-            ).first?.id,
-            "agent-prompt-workflow"
-        )
-        for query in [
-            "task group export",
-            "task export",
-            "todo group export",
-            "todo export"
-        ] {
-            XCTAssertEqual(
-                MindDeskHelpSearch.results(for: query, in: MindDeskHelpCatalog.defaultTopics).first?.id,
-                "import-export",
-                "Expected Import And Export help for Global Library Only task/todo query: \(query)"
-            )
-        }
 
-        let agentWorkflowTopic = MindDeskHelpCatalog.defaultTopics.first { $0.id == "agent-prompt-workflow" }
-        let agentWorkflowText = [
-            agentWorkflowTopic?.bodyMarkdown ?? "",
-            agentWorkflowTopic?.keywords.joined(separator: " ") ?? ""
-        ]
-            .joined(separator: " ")
-            .lowercased()
-        for required in [
-            "minddeskagentworkflowsearchrequest",
-            "minddesk.agent.workflow.search.response",
-            "helplimit",
-            "capabilitylimit",
-            "includemetaactions",
-            "maximumquerycharactercount",
-            "query cap",
-            "trim",
-            "proposal json references",
-            "\"kind\"",
-            "\"id\"",
-            "json object"
-        ] {
-            XCTAssertTrue(agentWorkflowText.contains(required), "Agent workflow help lost reference schema term: \(required)")
-        }
-    }
 
     func testHelpCatalogSearchTokenizesPunctuationDelimitedQueries() {
         for query in [
@@ -6173,164 +5691,20 @@ final class CoreBehaviorTests: XCTestCase {
             )
         }
 
-        for expected in [
-            (query: "proposal-runCommand", topicID: "agent-extension-capabilities"),
-            (query: "actor/approvedAgent", topicID: "agent-extension-capabilities"),
-            (query: "package:validation-report:missing", topicID: "agent-readonly-mip")
-        ] {
-            XCTAssertTrue(
-                MindDeskHelpSearch.results(for: expected.query, in: MindDeskHelpCatalog.defaultTopics)
-                    .map(\.id)
-                    .contains(expected.topicID),
-                "Expected \(expected.topicID) for punctuation-delimited query: \(expected.query)"
-            )
-        }
-    }
-
-    func testAgentReviewPackageHelpTopicsAreCuratedSearchableAndBudgeted() throws {
-        let topics = MindDeskHelpCatalog.agentReviewPackageTopics
-        let ids = topics.map(\.id)
-        let requiredIDs: Set<String> = [
-            "agent-readonly-mip",
-            "agent-prompt-workflow",
-            "agent-extension-capabilities",
-            "agent-proposal-review",
-            "import-export",
-            "canvas-performance"
-        ]
-        let encodedTopics = try JSONEncoder.minddesk.encode(topics)
-
-        XCTAssertEqual(Set(ids), requiredIDs)
-        XCTAssertEqual(ids.count, Set(ids).count)
-        XCTAssertEqual(topics.map(\.anchor).count, Set(topics.map(\.anchor)).count)
-        XCTAssertFalse(ids.contains("settings-defaults"))
-        XCTAssertLessThanOrEqual(encodedTopics.count, 96 * 1024)
-        XCTAssertLessThanOrEqual(topics.map(\.bodyMarkdown.count).max() ?? 0, 16 * 1024)
-        XCTAssertLessThanOrEqual(topics.map { $0.bodyMarkdown.utf8.count }.max() ?? 0, 16 * 1024)
-        let searchableCorpusByteCount = topics.reduce(0) { total, topic in
-            total
-                + topic.title.utf8.count
-                + topic.summary.utf8.count
-                + topic.bodyMarkdown.utf8.count
-                + topic.keywords.joined(separator: " ").utf8.count
-                + topic.relatedObjectRefs.joined(separator: " ").utf8.count
-                + topic.category.rawValue.utf8.count
-        }
-        XCTAssertLessThanOrEqual(searchableCorpusByteCount, 48 * 1024)
-        XCTAssertLessThanOrEqual(topics.reduce(0) { $0 + $1.keywords.count }, 400)
-        XCTAssertTrue(
-            topics.filter { $0.category == .agent }.allSatisfy { topic in
-                let text = "\(topic.summary) \(topic.bodyMarkdown)".lowercased()
-                return text.contains("not authorization") || text.contains("does not authorize")
-            }
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "agent workflow", in: topics).first?.id,
-            "agent-prompt-workflow"
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "MIP redactionPolicy", in: topics).first?.id,
-            "agent-readonly-mip"
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "validationReport.redactionPolicy", in: topics).first?.id,
-            "agent-readonly-mip"
-        )
         for query in [
-            "task group export",
-            "task export",
-            "todo group export",
-            "todo export"
+            "canvas-performance",
+            "canvas/performance",
+            "canvas, performance"
         ] {
             XCTAssertEqual(
-                MindDeskHelpSearch.results(for: query, in: topics).first?.id,
-                "import-export",
-                "Expected Agent Review package import/export help for task/todo query: \(query)"
-            )
-        }
-        XCTAssertTrue(
-            MindDeskHelpSearch.results(for: "proposal.runCommand", in: topics)
-                .map(\.id)
-                .contains("agent-extension-capabilities")
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "duplicateEdgeCount", in: topics).first?.id,
-            "canvas-performance"
-        )
-        let packageCanvasTopic = try XCTUnwrap(topics.first { $0.id == "canvas-performance" })
-        let packageCanvasText = [
-            packageCanvasTopic.title,
-            packageCanvasTopic.summary,
-            packageCanvasTopic.bodyMarkdown,
-            packageCanvasTopic.keywords.joined(separator: " ")
-        ]
-            .joined(separator: " ")
-            .lowercased()
-        for forbidden in [
-            "input signature",
-            "cache signature",
-            "inputsignature",
-            "fingerprint"
-        ] {
-            XCTAssertFalse(
-                packageCanvasText.contains(forbidden),
-                "Agent Review package Canvas help should not expose derived cache fingerprints: \(forbidden)"
-            )
-        }
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(
-                for: "cache reuse diagnostics buildCount reuseCount lastInvalidationReason",
-                in: topics
-            ).first?.id,
-            "canvas-performance"
-        )
-        let requiredQueryResults: [(query: String, topicID: String)] = [
-            ("helpTopics", "agent-readonly-mip"),
-            (".mip.json helpTopics", "agent-readonly-mip"),
-            ("non-authoritative helpTopics", "agent-readonly-mip"),
-            ("tampered helpTopics", "agent-readonly-mip"),
-            ("forged validationReport", "agent-readonly-mip"),
-            ("validationReport drift", "agent-readonly-mip"),
-            ("package.validation-report.missing", "agent-readonly-mip"),
-            ("package.validation-report.mismatch", "agent-readonly-mip"),
-            ("missing raw authority mirrors", "agent-readonly-mip"),
-            ("missing agentIntegrationContract", "agent-readonly-mip"),
-            ("contract.raw.missing", "agent-readonly-mip"),
-            ("missing agentPolicy", "agent-readonly-mip"),
-            ("package.agent-policy.missing", "agent-readonly-mip"),
-            ("missing externalActionPolicy", "agent-readonly-mip"),
-            ("package.external-action-policy.missing", "agent-readonly-mip"),
-            ("missing extensionCapabilities", "agent-readonly-mip"),
-            ("capability-catalog.raw.missing", "agent-readonly-mip"),
-            ("agentIntegrationContract", "agent-readonly-mip"),
-            ("agentPolicy", "agent-readonly-mip"),
-            ("externalActionPolicy", "agent-readonly-mip"),
-            ("forged extensionCapabilities", "agent-extension-capabilities"),
-            ("forged agentIntegrationContract", "agent-extension-capabilities"),
-            ("forged agentPolicy", "agent-extension-capabilities"),
-            ("forged externalActionPolicy", "agent-extension-capabilities"),
-            ("proposal review gate", "agent-proposal-review"),
-            ("proposalEnvelopeData sourcePackageData raw JSON Data", "agent-proposal-review"),
-            ("in-app confirmation", "agent-proposal-review"),
-            ("immediate in-app confirmation", "agent-proposal-review"),
-            ("outside the proposal review sheet", "agent-proposal-review"),
-            ("Proposal Review confirmation", "agent-proposal-review"),
-            ("proposal JSON schema", "agent-proposal-review"),
-            ("accepted proposal JSON fields", "agent-proposal-review"),
-            ("required proposal JSON fields", "agent-proposal-review"),
-            ("schema is for review only", "agent-proposal-review"),
-            ("runtime search helpTopics relatedObjectRefs", "agent-prompt-workflow"),
-            ("proposal.runCommand workingDirectory", "agent-extension-capabilities")
-        ]
-        for requiredQueryResult in requiredQueryResults {
-            XCTAssertTrue(
-                MindDeskHelpSearch.results(for: requiredQueryResult.query, in: topics)
-                    .map(\.id)
-                    .contains(requiredQueryResult.topicID),
-                "Agent Review package helpTopics search did not route \(requiredQueryResult.query) to \(requiredQueryResult.topicID)."
+                MindDeskHelpSearch.results(for: query, in: MindDeskHelpCatalog.defaultTopics).first?.id,
+                "canvas-performance",
+                "Expected Canvas help for punctuation-delimited query: \(query)"
             )
         }
     }
+
+
 
     func testAgentReviewHelpTopicsContractIsDocumentedForHumansAndAgents() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
@@ -6540,197 +5914,18 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
-    func testHelpCatalogSearchFindsCustomAgentGuidanceQueries() {
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "custom guidance", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "agent-prompt-workflow"
-        )
-        XCTAssertTrue(
-            MindDeskHelpSearch.results(for: "agent review guidance", in: MindDeskHelpCatalog.defaultTopics)
-                .map(\.id)
-                .contains("agent-prompt-workflow")
-        )
-    }
 
-    func testHelpCatalogSearchIndexesAgentRelatedObjectRefsAndCapabilityIDs() {
-        XCTAssertTrue(
-            MindDeskHelpSearch.results(
-                for: "catalog:MindDeskExtensionCapabilityCatalog",
-                in: MindDeskHelpCatalog.defaultTopics
-            )
-            .map(\.id)
-            .contains("agent-readonly-mip")
-        )
-        XCTAssertTrue(
-            MindDeskHelpSearch.results(for: "proposal.runCommand", in: MindDeskHelpCatalog.defaultTopics)
-                .map(\.id)
-                .contains("agent-prompt-workflow")
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "extension capabilities", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "agent-extension-capabilities"
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "proposal.openURL", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "agent-extension-capabilities"
-        )
-        XCTAssertEqual(
-            MindDeskHelpSearch.results(for: "actor:approvedAgent", in: MindDeskHelpCatalog.defaultTopics).first?.id,
-            "agent-extension-capabilities"
-        )
-    }
 
-    func testHelpCatalogCapabilitySearchResultsExposeWireTermsInVisibleTopicText() throws {
-        for query in [
-            "extension capabilities",
-            "proposal.openURL",
-            "proposal.runCommand",
-            "actor:approvedAgent"
-        ] {
-            let topic = try XCTUnwrap(
-                MindDeskHelpSearch.results(for: query, in: MindDeskHelpCatalog.defaultTopics).first,
-                "Missing help result for \(query)"
-            )
-            let topicText = normalizedText([topic.title, topic.summary, topic.bodyMarkdown])
-            for required in [
-                "extension capabilities",
-                "extensioncapabilities",
-                "minddeskextensioncapabilitycatalog",
-                "proposal.openurl",
-                "proposal.runcommand",
-                "actor:approvedagent",
-                "approvedagent",
-                "defaultagent",
-                "directuser",
-                "policydecisions",
-                "minddeskextensioncapabilitysearchrequest",
-                "minddeskextensioncapabilitysearch.response(request:)",
-                "minddesk.extension.capability.search.response",
-                "query cap",
-                "includemetaactions",
-                "not authorization"
-            ] {
-                XCTAssertTrue(
-                    topicText.contains(required),
-                    "Help result for \(query) does not visibly document \(required)"
-                )
-            }
-        }
-    }
 
-    func testHelpCatalogSearchFindsProposalReviewWorkflowQueries() throws {
-        for query in [
-            "review agent proposal",
-            "proposal review sheet",
-            "pending review",
-            "blocked proposal diagnostics",
-            "agent free text",
-            "redacted reference rows",
-            "record approval only",
-            "proposal.context.stale",
-            "immediate in-app confirmation",
-            "outside the proposal review sheet",
-            "Proposal Review confirmation",
-            "proposal envelope limits",
-            "payload field whitelist",
-            "proposal JSON schema",
-            "accepted proposal JSON fields",
-            "required proposal JSON fields",
-            "schema is for review only",
-            "unexpected payload field",
-            "proposal.operation.unexpected-payload",
-            "proposal.operation.unknown-payload-field",
-            "proposal file size cap",
-            "16 MiB",
-            "decode-time proposal limit",
-            "proposal.collection.too-large",
-            "proposal.operation.payload-too-long",
-            "too many proposals",
-            "too many operations",
-            "operation count limit"
-        ] {
-            XCTAssertEqual(
-                MindDeskHelpSearch.results(for: query, in: MindDeskHelpCatalog.defaultTopics).first?.id,
-                "agent-proposal-review",
-                "Expected proposal review help for query: \(query)"
-            )
-        }
 
-        let topic = try XCTUnwrap(
-            MindDeskHelpCatalog.defaultTopics.first { $0.id == "agent-proposal-review" }
-        )
-        let topicText = normalizedText([topic.title, topic.summary, topic.bodyMarkdown])
 
-        for required in [
-            "read-only",
-            "pending review",
-            "blocked",
-            "sanitized validation diagnostics",
-            "agent free text",
-            "redacted reference rows",
-            "untrusted proposal title redacted",
-            "untrusted operation title redacted",
-            "proposal envelope limits",
-            "payload field whitelist",
-            "unexpected payload field",
-            "proposal.operation.unexpected-payload",
-            "proposal.operation.unknown-payload-field",
-            "16 mib",
-            "decode-time proposal limits",
-            "proposal.collection.too-large",
-            "proposal.operation.payload-too-long",
-            "too many proposals",
-            "too many operations",
-            "operation count limit",
-            "proposal json schema",
-            "accepted proposal json fields",
-            "required proposal json fields",
-            "schema is for review only",
-            "record approval only",
-            "does not execute",
-            "finder",
-            "terminal",
-            "url",
-            "clipboard",
-            "alias",
-            "command",
-            "import/export",
-            "apply"
-        ] {
-            XCTAssertTrue(topicText.contains(required), "Missing proposal review help text: \(required)")
-        }
-    }
+
+
 
     func testHelpCatalogSearchRoutesChecklistQueriesToPrimaryTopics() {
         let requiredPrimaryResults: [(query: String, topicID: String)] = [
             ("settings help", "settings-defaults"),
-            ("agent workflow", "agent-prompt-workflow"),
-            ("MindDeskAgentWorkflowSearchRequest", "agent-prompt-workflow"),
-            ("minddesk.agent.workflow.search.response", "agent-prompt-workflow"),
-            ("custom guidance", "agent-prompt-workflow"),
-            ("agent review guidance", "agent-prompt-workflow"),
-            ("MindDeskExtensionCapabilitySearch.response(request:)", "agent-extension-capabilities"),
-            ("minddesk.extension.capability.search.response", "agent-extension-capabilities"),
-            ("proposal.runCommand", "agent-extension-capabilities"),
-            ("review agent proposal", "agent-proposal-review"),
-            ("proposal review sheet", "agent-proposal-review"),
-            ("pending review", "agent-proposal-review"),
-            ("blocked proposal diagnostics", "agent-proposal-review"),
-            ("proposal JSON schema", "agent-proposal-review"),
-            ("accepted proposal JSON fields", "agent-proposal-review"),
-            ("required proposal JSON fields", "agent-proposal-review"),
-            ("schema is for review only", "agent-proposal-review"),
-            ("payload field whitelist", "agent-proposal-review"),
-            ("unexpected payload field", "agent-proposal-review"),
-            ("proposal.operation.unexpected-payload", "agent-proposal-review"),
-            ("proposal.operation.unknown-payload-field", "agent-proposal-review"),
-            ("proposal file size cap", "agent-proposal-review"),
-            ("16 MiB", "agent-proposal-review"),
-            ("decode-time proposal limit", "agent-proposal-review"),
-            ("proposal.collection.too-large", "agent-proposal-review"),
-            ("proposal.operation.payload-too-long", "agent-proposal-review"),
-            ("record approval only", "agent-proposal-review"),
-            ("proposal.context.stale", "agent-proposal-review"),
+            ("reset all settings", "settings-defaults"),
             ("incident adjacency", "canvas-performance"),
             ("multi moving-node force-retention diagnostics", "canvas-performance"),
             ("multi-moving-node force-retention diagnostics", "canvas-performance"),
@@ -6762,117 +5957,11 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
-    func testHelpCatalogAgentTopicsStayReadOnlyAndReviewOriented() {
-        let agentText = MindDeskHelpCatalog.defaultTopics
-            .filter { $0.category == .agent }
-            .map { "\($0.title) \($0.summary) \($0.bodyMarkdown)" }
-            .joined(separator: "\n")
-            .lowercased()
 
-        XCTAssertTrue(agentText.contains("read-only"))
-        XCTAssertTrue(agentText.contains("proposals"))
-        XCTAssertTrue(agentText.contains("explicit immediate in-app confirmation"))
-        XCTAssertTrue(agentText.contains("outside the proposal review sheet"))
-        XCTAssertFalse(agentText.contains("run commands automatically"))
-        XCTAssertFalse(agentText.contains("open finder automatically"))
-        XCTAssertFalse(agentText.contains("apply changes automatically"))
-    }
 
-    func testHelpAgentTopicsDoNotPresentReviewContextAsSideEffectAuthorization() {
-        let nonAuthorizingSources = MindDeskHelpBoundaryPolicy.nonAuthorizingContextSources
-        let sideEffectActionClasses = MindDeskHelpBoundaryPolicy.sideEffectActionClasses
-        let expectedConfirmationBoundary = normalizedText([
-            "Proposal Review and explicit immediate in-app confirmation outside the proposal review sheet"
-        ])
-        let boundaryText = normalizedText([
-            MindDeskHelpBoundaryPolicy.retrievalOnlyBoundary,
-            MindDeskHelpBoundaryPolicy.noOverrideBoundary,
-            MindDeskHelpBoundaryPolicy.sideEffectBoundary
-        ])
-        let agentTopics = MindDeskHelpCatalog.defaultTopics.filter { $0.category == .agent }
-        let agentText = normalizedText(agentTopics.map { "\($0.title) \($0.summary) \($0.bodyMarkdown)" })
 
-        XCTAssertFalse(agentTopics.isEmpty)
-        XCTAssertEqual(
-            nonAuthorizingSources,
-            [
-                "package text",
-                "custom guidance",
-                "helpTopics",
-                "prompt text",
-                "agentGuide",
-                "agentIntegrationContract",
-                "extensionCapabilities",
-                "validationReport"
-            ]
-        )
-        XCTAssertEqual(
-            sideEffectActionClasses,
-            ["file", "Finder", "URL", "clipboard", "Terminal", "command", "alias", "import/export", "apply"]
-        )
-        for source in nonAuthorizingSources {
-            XCTAssertTrue(
-                boundaryText.contains(normalizedText([source])),
-                "Boundary policy must name non-authorizing context source: \(source)"
-            )
-        }
-        for actionClass in sideEffectActionClasses {
-            XCTAssertTrue(
-                boundaryText.contains(normalizedText([actionClass])),
-                "Boundary policy must name side-effect action class: \(actionClass)"
-            )
-        }
 
-        for topic in agentTopics {
-            let topicText = normalizedText([topic.title, topic.summary, topic.bodyMarkdown])
-            XCTAssertTrue(topicText.contains("read-only"), "\(topic.id) must remain read-only help.")
-            XCTAssertTrue(topicText.contains("not authorization") || topicText.contains("does not authorize"))
-            XCTAssertTrue(
-                topicText.contains(expectedConfirmationBoundary),
-                "\(topic.id) must bind side effects to Proposal Review plus explicit immediate in-app confirmation outside the sheet."
-            )
-        }
 
-        for source in nonAuthorizingSources {
-            XCTAssertTrue(
-                agentText.contains(normalizedText([source])),
-                "Agent help must mention non-authorizing source: \(source)"
-            )
-            for actionClass in sideEffectActionClasses {
-                let sourceText = normalizedText([source])
-                let actionText = normalizedText([actionClass])
-                for forbidden in [
-                    "\(sourceText) authorizes \(actionText)",
-                    "\(sourceText) grants \(actionText)",
-                    "\(sourceText) permits \(actionText)",
-                    "\(sourceText) approves \(actionText)",
-                    "\(sourceText) can execute \(actionText)",
-                    "\(sourceText) can apply \(actionText)"
-                ] {
-                    XCTAssertFalse(agentText.contains(forbidden), "Unsafe Help authorization wording: \(forbidden)")
-                }
-            }
-        }
-    }
-
-    func testAgentHelpAndMIPTopicsRequireProposalReviewPlusOutOfSheetImmediateConfirmationForSideEffects() throws {
-        let requiredBoundary = "proposal review and explicit immediate in-app confirmation outside the proposal review sheet"
-        for topic in MindDeskHelpCatalog.agentReviewPackageTopics where topic.category == .agent {
-            let topicText = normalizedText([topic.title, topic.summary, topic.bodyMarkdown])
-            if topicText.contains("side effect") ||
-                topicText.contains("finder") ||
-                topicText.contains("terminal") ||
-                topicText.contains("clipboard") ||
-                topicText.contains("command") ||
-                topicText.contains("import/export") ||
-                topicText.contains("apply") {
-                XCTAssertTrue(
-                    topicText.contains(requiredBoundary),
-                    "\(topic.id) must describe side effects as requiring Proposal Review plus explicit immediate in-app confirmation outside the Proposal Review sheet."
-                )
-            }
-        }
-    }
 
     func testAgentGuideSafetyTextNamesEverySideEffectClass() {
         let safetyText = [
@@ -6994,72 +6083,7 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
-    func testAgentHelpTopicsUseValidationReportAsCanonicalDiagnostics() {
-        let agentTopics = MindDeskHelpCatalog.defaultTopics.filter { $0.category == .agent }
-        XCTAssertEqual(Set(agentTopics.map(\.id)), Set(["agent-readonly-mip", "agent-prompt-workflow", "agent-proposal-review", "agent-extension-capabilities"]))
 
-        for topic in agentTopics {
-            let topicText = normalizedText([topic.title, topic.summary, topic.bodyMarkdown])
-            let keywordText = normalizedText(topic.keywords)
-            XCTAssertTrue(topicText.contains("validationreport"), "Missing validationReport in \(topic.id)")
-            for required in ["validationreport", "isvalid", "errorcount", "code", "source", "details", "redactionpolicy"] {
-                XCTAssertTrue(keywordText.contains(required), "Missing help keyword \(required) in \(topic.id)")
-            }
-            for required in ["proposal.context.stale", "contract.context.mismatch", "mismatchedfields"] {
-                XCTAssertTrue(keywordText.contains(required), "Missing help drift keyword \(required) in \(topic.id)")
-            }
-            for required in [
-                "validationreport.redactionpolicy",
-                "opaque token",
-                "structured diagnostics",
-                "raw manifest records remain",
-                "non-manifest diagnostics",
-                "package-local locator",
-                "not a privacy boundary",
-                "actualvaluetoken",
-                "referenceidtoken",
-                "proposalidtoken",
-                "capabilityidtoken",
-                "unexpectedbindingfieldstoken",
-                "compatibility-only",
-                "not authorization",
-                "proposal context",
-                "packageinstanceid",
-                "packagecreatedat",
-                "manifestexportedat",
-                "manifestdigest",
-                "proposal.context.stale",
-                "contract.context.mismatch",
-                "mismatchedfields"
-            ] {
-                XCTAssertTrue(topicText.contains(required), "Missing help text \(required) in \(topic.id)")
-            }
-        }
-
-        let helpText = normalizedText(agentTopics.flatMap { [$0.bodyMarkdown] })
-        XCTAssertTrue(helpText.contains("validationreport.summary.isvalid"))
-        XCTAssertTrue(helpText.contains("validationreport.issues"))
-        XCTAssertTrue(helpText.contains("validationreport.redactionpolicy"))
-        XCTAssertTrue(helpText.contains("opaque token"))
-        XCTAssertTrue(helpText.contains("path"))
-        XCTAssertTrue(helpText.contains("structured diagnostics"))
-        XCTAssertTrue(helpText.contains("raw manifest records remain"))
-        XCTAssertTrue(helpText.contains("unknown manifest details"))
-        XCTAssertTrue(helpText.contains("non-manifest diagnostics"))
-        XCTAssertTrue(helpText.contains("actualvaluetoken"))
-        XCTAssertTrue(helpText.contains("referenceidtoken"))
-        XCTAssertTrue(helpText.contains("proposalidtoken"))
-        XCTAssertTrue(helpText.contains("capabilityidtoken"))
-        XCTAssertTrue(helpText.contains("unexpectedbindingfieldstoken"))
-        XCTAssertTrue(helpText.contains("messages are static"))
-        XCTAssertTrue(helpText.contains("sha256-prefix-16"))
-        XCTAssertTrue(helpText.contains("validationissues"))
-        XCTAssertTrue(helpText.contains("compatibility-only"))
-        XCTAssertTrue(helpText.contains("legacy") || helpText.contains("deprecated"))
-        XCTAssertTrue(helpText.contains("extensioncapabilities"))
-        XCTAssertTrue(helpText.contains("extensioncapabilitycatalog"))
-        XCTAssertTrue(helpText.contains("not authorization"))
-    }
 
     func testManifestRoundTripKeepsSchemaVersion() throws {
         let manifest = ExportManifest(
@@ -7130,56 +6154,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertEqual(decoded.todos.first?.completedAt, completed)
     }
 
-    func testInterchangePackageWrapsManifestWithoutChangingManifestPayload() throws {
-        let manifest = ExportManifest(
-            schemaVersion: 2,
-            exportedAt: Date(timeIntervalSince1970: 0),
-            workspaces: [
-                WorkspaceRecord(id: "workspace", title: "Workspace", details: "", createdAt: .distantPast, updatedAt: .distantPast, lastOpenedAt: nil)
-            ],
-            resources: [
-                ResourceRecord(id: "resource", workspaceId: "workspace", title: "Paper", targetType: "file", displayPath: "/tmp/Paper.pdf", lastResolvedPath: "/tmp/Paper.pdf", note: "", tags: [], scope: "workspace", status: "available")
-            ],
-            snippets: [],
-            canvases: [
-                CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")
-            ],
-            nodes: [],
-            edges: [],
-            aliases: [],
-            todoGroups: [],
-            todos: []
-        )
-        let package = MindDeskInterchangePackage(
-            manifest: manifest,
-            createdAt: Date(timeIntervalSince1970: 123),
-            packageInstanceID: "package-instance"
-        )
 
-        let data = try JSONEncoder.minddesk.encode(package)
-        let decoded = try JSONDecoder.minddesk.decode(MindDeskInterchangePackage.self, from: data)
-
-        XCTAssertEqual(decoded.format, "minddesk.interchange.package")
-        XCTAssertEqual(decoded.formatVersion, 1)
-        XCTAssertEqual(decoded.packageInstanceID, "package-instance")
-        XCTAssertEqual(decoded.manifest, manifest)
-        XCTAssertEqual(decoded.summary.workspaces, 1)
-        XCTAssertEqual(decoded.summary.resources, 1)
-        XCTAssertTrue(String(data: data, encoding: .utf8)?.contains("\"manifest\"") == true)
-
-        var missingPackageInstanceID = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        missingPackageInstanceID.removeValue(forKey: "packageInstanceID")
-        XCTAssertThrowsError(
-            try JSONDecoder.minddesk.decode(
-                MindDeskInterchangePackage.self,
-                from: JSONSerialization.data(withJSONObject: missingPackageInstanceID)
-            )
-        ) { error in
-            let errorText = String(describing: error)
-            XCTAssertFalse(errorText.contains("legacy"))
-            XCTAssertFalse(errorText.contains("package-instance"))
-        }
-    }
 
     func testInterchangePackageIncludesAgentGuideAndSafetyPolicy() {
         let manifest = ExportManifest(
@@ -7312,58 +6287,9 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(package.summary.validationIssues.contains("Canvas canvas references missing workspace missing-workspace."))
     }
 
-    func testInterchangePackageValidationReportsStructuredManifestIssuesAndStaleSummary() {
-        let manifest = ExportManifest(
-            schemaVersion: 2,
-            exportedAt: Date(timeIntervalSince1970: 0),
-            workspaces: [],
-            resources: [],
-            snippets: [],
-            canvases: [
-                CanvasRecord(id: "canvas", workspaceId: "missing-workspace", title: "Canvas")
-            ],
-            nodes: [],
-            edges: [],
-            aliases: []
-        )
-        var package = MindDeskInterchangePackage(manifest: manifest, createdAt: Date(timeIntervalSince1970: 0))
-        package.summary.canvases = 0
 
-        let issues = MindDeskInterchangePackageValidation.issues(in: package)
 
-        XCTAssertTrue(
-            issues.contains(
-                MindDeskInterchangeValidationIssue(source: .package, severity: .warning, message: "Package summary does not match manifest contents.")
-            )
-        )
-        XCTAssertTrue(
-            issues.contains(
-                MindDeskInterchangeValidationIssue(source: .manifest, severity: .error, message: "Canvas canvas references missing workspace missing-workspace.")
-            )
-        )
-    }
 
-    func testInterchangePackageValidationRejectsUnsupportedFormatVersion() {
-        let manifest = ExportManifest(
-            schemaVersion: 2,
-            exportedAt: Date(timeIntervalSince1970: 0),
-            workspaces: [],
-            resources: [],
-            snippets: [],
-            canvases: [],
-            nodes: [],
-            edges: [],
-            aliases: []
-        )
-        var package = MindDeskInterchangePackage(manifest: manifest, createdAt: Date(timeIntervalSince1970: 0))
-        package.formatVersion = 999
-
-        XCTAssertTrue(
-            MindDeskInterchangePackageValidation.issues(in: package).contains(
-                MindDeskInterchangeValidationIssue(source: .package, severity: .error, message: "Unsupported interchange package format version 999.")
-            )
-        )
-    }
 
     func testInterchangeExternalActionPolicySnapshotMatchesWorkbenchPolicy() {
         let policy = MindDeskInterchangeExternalActionPolicy.current

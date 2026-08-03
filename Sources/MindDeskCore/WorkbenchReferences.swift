@@ -191,7 +191,7 @@ public enum WorkbenchExternalActionPolicy {
     }
 
     public static func requiresUserConfirmation(_ action: WorkbenchExternalAction) -> Bool {
-        requiresUserMediation(action, actor: .directUser) || requiresModalConfirmation(action, actor: .approvedAgent)
+        requiresUserMediation(action, actor: .directUser)
     }
 
     public static func requiresModalConfirmation(

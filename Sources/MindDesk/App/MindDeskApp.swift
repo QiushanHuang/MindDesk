@@ -25,8 +25,6 @@ struct MindDeskMenuCommands: Commands {
         static let exportManifestTitle = "Export MindDesk Manifest..."
         static let exportManifestShortcutKey = "e"
         static let exportManifestShortcutModifiers = "command+shift"
-        static let exportAgentReviewPackageTitle = "Export Agent Review Package..."
-        static let exportAgentReviewPackageDefaultFilename = ImportExportService.agentReviewPackageDefaultFilename
         static let requiresFocusedMindDeskWindow = true
     }
 
@@ -56,22 +54,12 @@ struct MindDeskMenuCommands: Commands {
             .keyboardShortcut("e", modifiers: [.command, .shift])
             .disabled(commands == nil)
 
-            Button(WorkbenchMenuDescriptor.exportAgentReviewPackageTitle) {
-                commands?.exportAgentReviewPackage()
-            }
-            .disabled(commands == nil)
-
             Divider()
 
             Button(WorkbenchMenuDescriptor.importManifestTitle) {
                 commands?.importManifest()
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
-            .disabled(commands == nil)
-
-            Button("Review Agent Proposal...") {
-                commands?.importProposalReview()
-            }
             .disabled(commands == nil)
         }
     }

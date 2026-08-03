@@ -110,9 +110,7 @@ struct MindDeskFocusedCommands {
     var newWorkspace: () -> Void
     var quickOpen: () -> Void
     var importManifest: () -> Void
-    var importProposalReview: () -> Void
     var exportManifest: () -> Void
-    var exportAgentReviewPackage: () -> Void
 }
 
 private struct MindDeskFocusedCommandsKey: FocusedValueKey {
@@ -141,7 +139,6 @@ struct ContentView: View {
     @AppStorage(AppPreferenceKeys.startupDestination) private var startupDestinationRaw = AppPreferenceDefaults.startupDestination
     @AppStorage(AppPreferenceKeys.manifestExportScope) private var manifestExportScopeRaw = AppPreferenceDefaults.manifestExportScope
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
-    @AppStorage(AppPreferenceKeys.agentReviewCustomPromptGuidance) private var agentReviewCustomPromptGuidance = AppPreferenceDefaults.agentReviewCustomPromptGuidance
     private(set) var clipboardService: ClipboardService = ClipboardService()
 
     @State private var selection: SidebarSelection? = .home
@@ -161,10 +158,6 @@ struct ContentView: View {
     @State private var isInspectorVisible = false
     @State private var isQuickOpenPresented = false
     @State private var quickOpenRecordsSnapshot: [QuickOpenRecord] = []
-    @State private var proposalReviewSheet: ProposalReviewSheetState?
-    @State private var pendingApprovedProposalCopyPathPlans: [MindDeskProposalCopyPathPlan] = []
-    @State private var approvedProposalCopyPathConfirmation: ApprovedProposalCopyPathConfirmation?
-    @State private var agentReviewHandoffPromptPresentation: AgentReviewHandoffPromptPresentation?
     @State private var openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
     @State private var openCanvasNodeRequestID = 0
     @State private var didApplyStartupDestination = false
@@ -372,12 +365,6 @@ struct ContentView: View {
                 onOpen: openQuickOpenRecord
             )
         }
-        .sheet(item: $proposalReviewSheet) { state in
-            ProposalReviewSheetRoot(
-                state: state,
-                onReadyPresentationChange: handleProposalReviewPresentationChange
-            )
-        }
         .alert("Delete workspace metadata?", isPresented: Binding(
             get: { workspaceToDelete != nil },
             set: { if !$0 { workspaceToDelete = nil } }
@@ -432,28 +419,11 @@ struct ContentView: View {
                 Text("This removes \(snippetToDelete.title), related canvas snippet cards, and MindDesk alias metadata. Finder files and folders are not deleted, renamed, or moved.")
             }
         }
-        .alert("Copy approved proposal path?", isPresented: Binding(
-            get: { approvedProposalCopyPathConfirmation != nil },
-            set: { if !$0 { approvedProposalCopyPathConfirmation = nil } }
-        )) {
-            Button(approvedProposalCopyPathConfirmation?.primaryButtonTitle ?? "Copy Current Path") {
-                confirmApprovedProposalCopyPath()
-            }
-            Button(approvedProposalCopyPathConfirmation?.cancelButtonTitle ?? "Cancel", role: .cancel) {
-                approvedProposalCopyPathConfirmation = nil
-            }
-        } message: {
-            if let approvedProposalCopyPathConfirmation {
-                Text("\(approvedProposalCopyPathConfirmation.message)\n\n\(approvedProposalCopyPathConfirmation.pathLabel).")
-            }
-        }
         .focusedValue(\.mindDeskCommands, MindDeskFocusedCommands(
             newWorkspace: addWorkspace,
             quickOpen: openQuickOpen,
             importManifest: importManifest,
-            importProposalReview: importProposalReview,
-            exportManifest: exportManifest,
-            exportAgentReviewPackage: exportAgentReviewPackage
+            exportManifest: exportManifest
         ))
     }
 
@@ -515,130 +485,16 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private var bottomStatusArea: some View {
-        VStack(spacing: 0) {
-            agentReviewHandoffPromptBanner
-            approvedProposalCopyPathBanner
-            HStack {
-                Text(statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 2)
-            .background(.bar)
+        HStack {
+            Text(statusMessage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
         }
-    }
-
-    @ViewBuilder
-    private var agentReviewHandoffPromptBanner: some View {
-        if let presentation = agentReviewHandoffPromptPresentation,
-           proposalReviewSheet == nil {
-            HStack(spacing: 10) {
-                Image(systemName: "doc.text")
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(presentation.title)
-                        .font(.caption)
-                        .fontWeight(.semibold)
-                    Text(presentation.summaryText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                    Text(presentation.readiness.safetyBoundaryText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button {
-                    copyAgentReviewHandoffPrompt(presentation)
-                } label: {
-                    Label(presentation.copyPromptButtonTitle, systemImage: "doc.on.doc")
-                }
-                Button {
-                    copyAgentReviewProposalTemplate(presentation)
-                } label: {
-                    Label(presentation.copyProposalTemplateButtonTitle, systemImage: "curlybraces")
-                }
-                Button(presentation.dismissButtonTitle) {
-                    agentReviewHandoffPromptPresentation = nil
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.bar)
-            Divider()
-        }
-    }
-
-    @ViewBuilder
-    private var approvedProposalCopyPathBanner: some View {
-        if ApprovedProposalCopyPathBannerPolicy.shouldShow(
-            hasPendingPlans: !pendingApprovedProposalCopyPathPlans.isEmpty,
-            isProposalReviewSheetOpen: proposalReviewSheet != nil
-        ) {
-            if let confirmation = nextApprovedProposalCopyPathConfirmation {
-                HStack(spacing: 10) {
-                    Image(systemName: "doc.on.clipboard")
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Approved proposal action ready")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        Text(confirmation.summaryText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                    Button {
-                        approvedProposalCopyPathConfirmation = confirmation
-                    } label: {
-                        Label(confirmation.primaryButtonTitle, systemImage: "doc.on.clipboard")
-                    }
-                    Button("Dismiss") {
-                        removePendingApprovedProposalCopyPathPlan(confirmation.plan)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.bar)
-                Divider()
-            } else {
-                HStack(spacing: 10) {
-                    Image(systemName: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                    Text(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Dismiss") {
-                        pendingApprovedProposalCopyPathPlans.removeAll()
-                        setStatus(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(.bar)
-                Divider()
-            }
-        }
-    }
-
-    private var nextApprovedProposalCopyPathConfirmation: ApprovedProposalCopyPathConfirmation? {
-        for plan in pendingApprovedProposalCopyPathPlans {
-            if let confirmation = ApprovedProposalCopyPathConfirmationPolicy.confirmation(
-                for: plan,
-                resources: resources
-            ) {
-                return confirmation
-            }
-        }
-        return nil
+        .padding(.horizontal, 12)
+        .padding(.vertical, 2)
+        .background(.bar)
     }
 
     private var quickOpenRecords: [QuickOpenRecord] {
@@ -888,7 +744,6 @@ struct ContentView: View {
                     openCanvasNodeRequest: openCanvasNodeRequest,
                     onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
                     onSelectWorkspace: { selection = .workspace($0) },
-                    onReviewAgentProposal: openInlineProposalReview,
                     clipboardService: clipboardService
                 )
             } else {
@@ -1018,75 +873,6 @@ struct ContentView: View {
 
     private func setStatus(_ message: String) {
         statusMessage = message
-    }
-
-    private func copyAgentReviewHandoffPrompt(_ presentation: AgentReviewHandoffPromptPresentation) {
-        let result = AgentReviewHandoffPromptPresentationPolicy.copyPrompt(
-            presentation,
-            isUserInitiated: true,
-            copy: { ClipboardService().copy($0) }
-        )
-        if result.didCopy {
-            agentReviewHandoffPromptPresentation = nil
-        }
-        if let statusMessage = result.statusMessage {
-            setStatus(statusMessage)
-        }
-    }
-
-    private func copyAgentReviewProposalTemplate(_ presentation: AgentReviewHandoffPromptPresentation) {
-        let result = AgentReviewHandoffPromptPresentationPolicy.copyProposalTemplate(
-            presentation,
-            isUserInitiated: true,
-            copy: { ClipboardService().copy($0) }
-        )
-        if result.didCopy {
-            agentReviewHandoffPromptPresentation = nil
-        }
-        if let statusMessage = result.statusMessage {
-            setStatus(statusMessage)
-        }
-    }
-
-    private func handleProposalReviewPresentationChange(_ presentation: ProposalReviewPresentationModel) {
-        switch presentation.state {
-        case .approved:
-            let plans = MindDeskProposalCopyPathPlanner.approvedResourcePinPlans(in: presentation.session)
-            guard !plans.isEmpty else { return }
-            pendingApprovedProposalCopyPathPlans = plans
-            setStatus("Approved proposal recorded. Close the review sheet to confirm Copy Path.")
-        case .rejected, .applied, .expired, .superseded:
-            pendingApprovedProposalCopyPathPlans.removeAll()
-        case .pendingReview:
-            break
-        }
-    }
-
-    private func confirmApprovedProposalCopyPath() {
-        guard let pendingConfirmation = approvedProposalCopyPathConfirmation else { return }
-        guard let currentConfirmation = ApprovedProposalCopyPathConfirmationPolicy.confirmation(
-            for: pendingConfirmation.plan,
-            resources: resources
-        ) else {
-            removePendingApprovedProposalCopyPathPlan(pendingConfirmation.plan)
-            approvedProposalCopyPathConfirmation = nil
-            setStatus(ApprovedProposalCopyPathConfirmationPolicy.unavailableStatus)
-            return
-        }
-        let result = ApprovedProposalCopyPathConfirmationPolicy.execute(
-            currentConfirmation,
-            isConfirmed: true,
-            copy: { ClipboardService().copy($0) }
-        )
-        if let statusMessage = result.statusMessage {
-            setStatus(statusMessage)
-        }
-        removePendingApprovedProposalCopyPathPlan(currentConfirmation.plan)
-        approvedProposalCopyPathConfirmation = nil
-    }
-
-    private func removePendingApprovedProposalCopyPathPlan(_ plan: MindDeskProposalCopyPathPlan) {
-        pendingApprovedProposalCopyPathPlans.removeAll { $0.id == plan.id }
     }
 
     private func openQuickOpen() {
@@ -1572,33 +1358,6 @@ struct ContentView: View {
         }
     }
 
-    private func exportAgentReviewPackage() {
-        guard let exportOptions = requestManifestExportOptions(
-            title: "Export Agent Review Package",
-            message: ImportExportService.agentReviewPackageConfirmationMessage,
-            help: ImportExportService.agentReviewPackagePrivacyDisclosure
-        ) else { return }
-        guard let url = FileDialogs.saveAgentReviewPackage() else { return }
-        do {
-            let manifest = makeExportManifest(options: exportOptions)
-            let service = ImportExportService()
-            let package = service.makeAgentReviewPackage(
-                from: manifest,
-                customPromptGuidance: agentReviewCustomPromptGuidance
-            )
-            let data = try service.encodeAgentReviewPackage(package)
-            try data.write(to: url, options: .atomic)
-            agentReviewHandoffPromptPresentation = AgentReviewHandoffPromptPresentationPolicy.presentation(
-                for: package,
-                packageURL: url
-            )
-            setStatus(ImportExportService.agentReviewPackageExportStatus(path: url.path, report: package.validationReport))
-        } catch {
-            agentReviewHandoffPromptPresentation = nil
-            setStatus(error.localizedDescription)
-        }
-    }
-
     private func makeExportManifest(options exportOptions: ManifestExportOptions) -> ExportManifest {
         let baseManifest = ImportExportService().makeManifest(
             workspaces: workspaces,
@@ -1708,104 +1467,10 @@ struct ContentView: View {
         }
     }
 
-    private func importProposalReview() {
-        guard renamingWorkspace == nil,
-              renamingResource == nil,
-              editingSnippet == nil,
-              !isQuickOpenPresented,
-              proposalReviewSheet == nil else {
-            setStatus("Close the current sheet before reviewing a proposal.")
-            return
-        }
-        guard let proposalURL = FileDialogs.openProposalEnvelope() else { return }
-        guard let sourcePackageURL = FileDialogs.openProposalSourcePackage() else { return }
-        pendingApprovedProposalCopyPathPlans.removeAll()
-        approvedProposalCopyPathConfirmation = nil
-        setStatus("Reviewing MindDesk proposal...")
-        Task { @MainActor in
-            do {
-                let result = try await Self.loadProposalReviewImport(
-                    proposalURL: proposalURL,
-                    sourcePackageURL: sourcePackageURL
-                )
-                switch result {
-                case .ready(let session):
-                    proposalReviewSheet = ProposalReviewSheetState(gateResult: result)
-                    setStatus(ImportExportService.proposalReviewImportReadyStatus(for: session))
-                case .blocked(let report):
-                    proposalReviewSheet = ProposalReviewSheetState(gateResult: result)
-                    if let status = ImportExportService.proposalReviewImportBlockedStatus(for: report) {
-                        setStatus(status)
-                    } else {
-                        setStatus("Proposal import blocked: validation did not return an error.")
-                    }
-                }
-            } catch {
-                setStatus(error.localizedDescription)
-            }
-        }
-    }
-
-    private func openInlineProposalReview(_ gateResult: MindDeskProposalReviewGateResult) {
-        pendingApprovedProposalCopyPathPlans.removeAll()
-        approvedProposalCopyPathConfirmation = nil
-        proposalReviewSheet = ProposalReviewSheetState(gateResult: gateResult)
-        switch gateResult {
-        case .ready(let session):
-            setStatus(ImportExportService.proposalReviewImportReadyStatus(for: session))
-        case .blocked(let report):
-            if let status = ImportExportService.proposalReviewImportBlockedStatus(for: report) {
-                setStatus(status)
-            } else {
-                setStatus("Proposal import blocked: validation did not return an error.")
-            }
-        }
-    }
-
     nonisolated private static func loadManifest(from url: URL) async throws -> ExportManifest {
         try await Task.detached(priority: .userInitiated) {
             try ImportExportService().decodeManifest(from: url)
         }.value
-    }
-
-    nonisolated private static func loadProposalReviewImport(
-        proposalURL: URL,
-        sourcePackageURL: URL
-    ) async throws -> MindDeskProposalReviewGateResult {
-        try await Task.detached(priority: .userInitiated) {
-            let proposalEnvelopeData = try readJSONImportData(
-                from: proposalURL,
-                blockedPrefix: "Proposal import blocked",
-                maximumBytes: ProposalImportLimits.maximumProposalEnvelopeBytes,
-                maximumBytesDescription: ProposalImportLimits.proposalEnvelopeByteLimitDescription
-            )
-            let sourcePackageData = try readJSONImportData(
-                from: sourcePackageURL,
-                blockedPrefix: "Proposal import blocked",
-                maximumBytes: ProposalImportLimits.maximumSourcePackageBytes,
-                maximumBytesDescription: ProposalImportLimits.sourcePackageByteLimitDescription
-            )
-            return try ImportExportService().decodeProposalReviewImport(
-                proposalEnvelopeData: proposalEnvelopeData,
-                sourcePackageData: sourcePackageData,
-                maximumProposalEnvelopeBytes: ProposalImportLimits.maximumProposalEnvelopeBytes,
-                maximumSourcePackageBytes: ProposalImportLimits.maximumSourcePackageBytes
-            )
-        }.value
-    }
-
-    nonisolated private static func readJSONImportData(
-        from url: URL,
-        blockedPrefix: String,
-        maximumBytes: Int,
-        maximumBytesDescription: String
-    ) throws -> Data {
-        try ImportExportService.readJSONImportData(
-            from: url,
-            blockedPrefix: blockedPrefix,
-            maximumBytes: maximumBytes,
-            maximumBytesDescription: maximumBytesDescription
-        )
     }
 
 }
@@ -2947,171 +2612,6 @@ enum WorkspaceResourceRemovalPolicy {
     }
 }
 
-struct AgentReviewHandoffPromptPresentation: Identifiable, Equatable {
-    let id: String
-    let title: String
-    let summaryText: String
-    let readiness: MindDeskAgentReviewPackageReadiness
-    let prompt: MindDeskAgentHandoffPrompt
-    let proposalTemplate: MindDeskProposalEnvelopeTemplate
-    let copyPromptButtonTitle: String
-    let copyProposalTemplateButtonTitle: String
-    let dismissButtonTitle: String
-}
-
-struct AgentReviewHandoffPromptCopyResult: Equatable {
-    var didCopy: Bool
-    var statusMessage: String?
-}
-
-enum AgentReviewHandoffPromptPresentationPolicy {
-    static func presentation(
-        for package: MindDeskInterchangePackage,
-        packageURL _: URL
-    ) -> AgentReviewHandoffPromptPresentation {
-        let readiness = MindDeskAgentReviewPackageReadinessBuilder.build(package: package)
-        return AgentReviewHandoffPromptPresentation(
-            id: "agent-handoff-\(package.packageInstanceID)",
-            title: "Agent Review Package Exported for Review",
-            summaryText: readiness.bannerSummaryText,
-            readiness: readiness,
-            prompt: MindDeskAgentHandoffPromptBuilder.build(package: package),
-            proposalTemplate: MindDeskProposalEnvelopeTemplateBuilder.build(package: package),
-            copyPromptButtonTitle: "Copy Codex Prompt",
-            copyProposalTemplateButtonTitle: "Copy Proposal Template",
-            dismissButtonTitle: "Dismiss"
-        )
-    }
-
-    static func copyPrompt(
-        _ presentation: AgentReviewHandoffPromptPresentation,
-        isUserInitiated: Bool,
-        copy: (String) -> Void
-    ) -> AgentReviewHandoffPromptCopyResult {
-        guard isUserInitiated else {
-            return AgentReviewHandoffPromptCopyResult(didCopy: false, statusMessage: nil)
-        }
-        copy(presentation.prompt.bodyMarkdown)
-        return AgentReviewHandoffPromptCopyResult(
-            didCopy: true,
-            statusMessage: "Copied Codex handoff prompt for agent review."
-        )
-    }
-
-    static func copyProposalTemplate(
-        _ presentation: AgentReviewHandoffPromptPresentation,
-        isUserInitiated: Bool,
-        copy: (String) -> Void
-    ) -> AgentReviewHandoffPromptCopyResult {
-        guard isUserInitiated else {
-            return AgentReviewHandoffPromptCopyResult(didCopy: false, statusMessage: nil)
-        }
-        copy(presentation.proposalTemplate.bodyJSON)
-        return AgentReviewHandoffPromptCopyResult(
-            didCopy: true,
-            statusMessage: "Copied proposal envelope template for agent review."
-        )
-    }
-}
-
-enum ApprovedProposalCopyPathBannerPolicy {
-    static func shouldShow(
-        hasPendingPlans: Bool,
-        isProposalReviewSheetOpen: Bool
-    ) -> Bool {
-        hasPendingPlans && !isProposalReviewSheetOpen
-    }
-}
-
-struct ApprovedProposalCopyPathConfirmation: Identifiable, Equatable {
-    var id: String {
-        plan.id
-    }
-
-    let plan: MindDeskProposalCopyPathPlan
-    let resourceID: String
-    let resourceName: String
-    let clipboardPayload: String
-
-    var title: String {
-        "Copy approved proposal path?"
-    }
-
-    var message: String {
-        "This will copy the current MindDesk path for “\(resourceName)” to the system clipboard. Proposal approval is not authorization; this copy only happens if you confirm now."
-    }
-
-    var pathLabel: String {
-        "Current MindDesk path is hidden until copied"
-    }
-
-    var summaryText: String {
-        "\(resourceName): \(pathLabel)"
-    }
-
-    var primaryButtonTitle: String {
-        "Copy Current Path"
-    }
-
-    var cancelButtonTitle: String {
-        "Cancel"
-    }
-}
-
-struct ApprovedProposalCopyPathExecutionResult: Equatable {
-    var didCopy: Bool
-    var statusMessage: String?
-}
-
-enum ApprovedProposalCopyPathConfirmationPolicy {
-    static let unavailableStatus = "Approved proposal action is no longer available for a current MindDesk resource."
-
-    static func confirmation(
-        for plan: MindDeskProposalCopyPathPlan,
-        resources: [ResourcePinModel]
-    ) -> ApprovedProposalCopyPathConfirmation? {
-        guard plan.target.kind == .resourcePin else {
-            return nil
-        }
-        guard let resource = resources.first(where: { $0.id == plan.target.id }) else {
-            return nil
-        }
-        guard !resource.displayPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        return ApprovedProposalCopyPathConfirmation(
-            plan: plan,
-            resourceID: resource.id,
-            resourceName: safeResourceName(resource.displayName),
-            clipboardPayload: resource.displayPath
-        )
-    }
-
-    private static func safeResourceName(_ name: String) -> String {
-        ProposalReviewSafeDisplayText.safeAgentText(
-            name,
-            fallback: "Selected resource"
-        )
-    }
-
-    static func execute(
-        _ confirmation: ApprovedProposalCopyPathConfirmation,
-        isConfirmed: Bool,
-        copy: (String) -> Void
-    ) -> ApprovedProposalCopyPathExecutionResult {
-        guard isConfirmed,
-              confirmation.plan.target.kind == .resourcePin,
-              !confirmation.clipboardPayload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return ApprovedProposalCopyPathExecutionResult(didCopy: false, statusMessage: nil)
-        }
-        copy(confirmation.clipboardPayload)
-        return ApprovedProposalCopyPathExecutionResult(
-            didCopy: true,
-            statusMessage: "Copied current path for approved proposal."
-        )
-    }
-}
-
 enum QuickOpenWebCardRecordPolicy {
     static func records(
         workspaces: [WorkspaceModel],
@@ -3843,7 +3343,6 @@ struct WorkspaceDetailView: View {
     let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
     let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
-    let onReviewAgentProposal: (MindDeskProposalReviewGateResult) -> Void
     private(set) var clipboardService: ClipboardService = ClipboardService()
     @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
@@ -3988,7 +3487,6 @@ struct WorkspaceDetailView: View {
                         onStatus: onStatus,
                         onInspect: onInspect,
                         onOpenWorkspace: onSelectWorkspace,
-                        onReviewAgentProposal: onReviewAgentProposal,
                         clipboardService: clipboardService
                     )
                 } else {

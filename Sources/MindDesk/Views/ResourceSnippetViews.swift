@@ -1488,6 +1488,7 @@ struct SnippetLibraryView: View {
         }
     }
 
+    // Visible snippet actions are the only entry points to the ordinary macOS Terminal bridge.
     private func openTerminal(_ snippet: SnippetModel) {
         do {
             let directory = try resolvedWorkingDirectory(for: snippet)
