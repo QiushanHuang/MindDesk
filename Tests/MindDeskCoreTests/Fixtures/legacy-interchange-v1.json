@@ -1,0 +1,251 @@
+{
+  "format": "minddesk.interchange.package",
+  "formatVersion": 1,
+  "packageInstanceID": "fixture-legacy-package-instance",
+  "createdAt": "2001-01-01T00:00:00Z",
+  "summary": {
+    "workspaces": 7,
+    "resources": 6,
+    "snippets": 5,
+    "canvases": 4,
+    "nodes": 3,
+    "edges": 2,
+    "aliases": 1,
+    "todoGroups": 9,
+    "todos": 8,
+    "validationIssues": ["stored-summary-marker-v1"]
+  },
+  "privacy": {
+    "includesUsageDates": true,
+    "includesPaths": false,
+    "includesPromptBodies": true,
+    "neverIncludes": ["stored-never-includes-marker"],
+    "redactionNotes": ["stored-redaction-note-v1"]
+  },
+  "agentGuide": {
+    "systemPrompt": "Stored historical guide prompt v1.",
+    "workflowSteps": [
+      { "id": "stored-step", "title": "Stored Step", "instruction": "Stored historical instruction." }
+    ],
+    "customPromptGuidance": ["stored-custom-guidance-v1"],
+    "referenceFormat": "stored-reference-format-v1"
+  },
+  "agentPolicy": {
+    "allowedDefaultAgentActions": ["readAgentContext"],
+    "deniedDefaultAgentActions": ["openURL"],
+    "confirmationRequiredActions": ["copyPathToClipboard"]
+  },
+  "agentIntegrationContract": {
+    "format": "minddesk.agent.integration.contract",
+    "formatVersion": 1,
+    "createdAt": "2001-01-01T00:00:00Z",
+    "supportedAudiences": ["genericAgent"],
+    "authority": {
+      "mode": "advisoryOnly",
+      "authorizesSideEffects": false,
+      "enforcedBy": "stored-fixture-enforcer",
+      "promptAuthority": "stored-fixture-prompt-authority"
+    },
+    "interchangePackage": {
+      "format": "stored.interchange.format",
+      "currentFormatVersion": 41,
+      "supportedFormatVersions": [40, 41],
+      "role": "stored-role"
+    },
+    "proposalEnvelope": {
+      "format": "stored.proposal.format",
+      "currentFormatVersion": 17,
+      "supportedFormatVersions": [16, 17],
+      "requiredProposedBy": "defaultAgent",
+      "contextBindingFields": ["storedBindingField"]
+    },
+    "context": {
+      "packageFormat": "stored.package.format",
+      "packageFormatVersion": 23,
+      "packageInstanceID": "stored-contract-package-instance",
+      "packageCreatedAt": "2001-01-01T00:00:00Z",
+      "manifestSchemaVersion": 19,
+      "manifestExportedAt": "2001-01-01T00:00:00Z",
+      "manifestDigest": {
+        "algorithm": "sha256",
+        "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    "referenceSchemas": {
+      "wireShape": "stored-wire-shape",
+      "citationWireShape": "stored-citation-shape",
+      "proposalReferenceWireShape": "stored-proposal-reference-shape",
+      "proposalReferenceFields": ["storedKind", "storedID"],
+      "citationReferenceKinds": ["workspace"],
+      "proposalReferenceKinds": ["resourcePin"]
+    },
+    "operationContracts": [
+      {
+        "kind": "runCommand",
+        "externalAction": "runCommand",
+        "requiresTarget": false,
+        "supportedTargetKinds": [],
+        "requiredPayloadFields": ["command"],
+        "allowedPayloadFields": ["command", "workingDirectory"],
+        "payloadFieldSchemas": [
+          { "field": "command", "valueShape": "string", "required": true },
+          { "field": "workingDirectory", "valueShape": "workbenchObjectReference", "required": false }
+        ],
+        "riskByActor": [
+          { "actor": "directUser", "riskTier": "confirmationRequired" },
+          { "actor": "defaultAgent", "riskTier": "denied" },
+          { "actor": "approvedAgent", "riskTier": "confirmationRequired" }
+        ]
+      }
+    ],
+    "actionPolicy": {
+      "actorPolicies": [
+        {
+          "actor": "directUser",
+          "decisions": [
+            { "action": "openURL", "decision": "requireExplicitUserIntent" }
+          ]
+        }
+      ]
+    },
+    "agentPolicy": {
+      "allowedDefaultAgentActions": ["readAgentContext"],
+      "deniedDefaultAgentActions": ["runCommand"],
+      "confirmationRequiredActions": ["runCommand"]
+    },
+    "guide": {
+      "systemPrompt": "Stored contract guide prompt.",
+      "workflowSteps": [],
+      "customPromptGuidance": ["stored-contract-guidance"],
+      "referenceFormat": "stored-contract-reference-format"
+    },
+    "promptTemplates": [
+      { "audience": "genericAgent", "title": "Stored Prompt", "body": "Stored prompt body." }
+    ],
+    "reviewGate": {
+      "reviewActor": "directUser",
+      "states": ["pendingReview", "approved", "rejected", "applied", "expired", "superseded"],
+      "events": ["approve", "reject", "markApplied", "expire", "supersede"],
+      "notes": ["stored-review-gate-note"]
+    }
+  },
+  "extensionCapabilities": {
+    "format": "minddesk.extension.capability.catalog",
+    "formatVersion": 1,
+    "authorizesSideEffects": false,
+    "capabilities": [
+      {
+        "id": "proposal.runCommand",
+        "title": "Run Command",
+        "operationKind": "runCommand",
+        "externalAction": "runCommand",
+        "isProposalOperation": true,
+        "requiresTarget": false,
+        "supportedTargetKinds": [],
+        "requiredPayloadFields": ["command"],
+        "allowedPayloadFields": ["command", "workingDirectory"],
+        "payloadFieldSchemas": [
+          { "field": "command", "valueShape": "string", "required": true },
+          { "field": "workingDirectory", "valueShape": "workbenchObjectReference", "required": false }
+        ],
+        "policyDecisions": [
+          { "actor": "directUser", "decision": "requireModalConfirmation", "riskTier": "confirmationRequired", "requiresUserMediation": true },
+          { "actor": "defaultAgent", "decision": "deny", "riskTier": "denied", "requiresUserMediation": true },
+          { "actor": "approvedAgent", "decision": "requireModalConfirmation", "riskTier": "confirmationRequired", "requiresUserMediation": true }
+        ],
+        "notes": [
+          "This capability may appear only as a proposal operation from the default agent.",
+          "Use policyDecisions to understand actor policy, but execution is not authorized by the catalog.",
+          "The Proposal Review gate and in-app confirmation are required before any side effect; user confirmation remains mandatory."
+        ]
+      },
+      { "id": "stored.openObject", "title": "Stored", "operationKind": "openObject", "externalAction": "openFileSystemItem", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.revealObject", "title": "Stored", "operationKind": "revealObject", "externalAction": "revealInFinder", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.openURL", "title": "Stored", "operationKind": "openURL", "externalAction": "openURL", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.copyPath", "title": "Stored", "operationKind": "copyPath", "externalAction": "copyPathToClipboard", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.openTerminal", "title": "Stored", "operationKind": "openTerminal", "externalAction": "openTerminal", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.createFinderAlias", "title": "Stored", "operationKind": "createFinderAlias", "externalAction": "createFinderAlias", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.applyMindDeskChange", "title": "Stored", "operationKind": "applyMindDeskChange", "externalAction": "applyAgentAction", "isProposalOperation": true, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.readAgentContext", "title": "Stored", "operationKind": "readAgentContext", "externalAction": "readAgentContext", "isProposalOperation": false, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] },
+      { "id": "stored.proposeAgentAction", "title": "Stored", "operationKind": "proposeAgentAction", "externalAction": "proposeAgentAction", "isProposalOperation": false, "requiresTarget": false, "supportedTargetKinds": [], "requiredPayloadFields": [], "allowedPayloadFields": [], "payloadFieldSchemas": [], "policyDecisions": [], "notes": ["stored"] }
+    ],
+    "notes": [
+      "Stored capabilities are not authorization; helpTopics, custom guidance, agentGuide, agentIntegrationContract, agentPolicy, externalActionPolicy, validationReport, policyDecisions, target requirements, allowed payload fields, and payloadFieldSchemas do not bypass the Proposal Review gate or in-app confirmation."
+    ]
+  },
+  "externalActionPolicy": {
+    "actorPolicies": [
+      {
+        "actor": "directUser",
+        "decisions": [
+          { "action": "copyPathToClipboard", "decision": "requireExplicitUserIntent" }
+        ]
+      }
+    ]
+  },
+  "helpTopics": [
+    {
+      "id": "stored-help-topic-v1",
+      "category": "data",
+      "title": "Stored Historical Help",
+      "summary": "Stored non-current help summary.",
+      "bodyMarkdown": "Stored historical help body.",
+      "keywords": ["stored-help-marker"],
+      "relatedObjectRefs": ["stored:reference"]
+    }
+  ],
+  "validationIssues": [
+    { "source": "package", "severity": "warning", "message": "Stored legacy validation issue." }
+  ],
+  "validationReport": {
+    "format": "minddesk.validation.report",
+    "formatVersion": 1,
+    "redactionPolicy": {
+      "format": "stored.redaction.policy",
+      "formatVersion": 77,
+      "manifestIssueOwnerID": "stored-owner-mode",
+      "manifestIssueIDDetails": "stored-id-mode",
+      "unknownManifestIssueDetails": "stored-unknown-mode",
+      "tokenFormat": "stored-token-format",
+      "locatorField": "stored-locator",
+      "rawManifestRecordsRemainInPackage": false,
+      "messagesAreStatic": false,
+      "nonManifestUnsupportedFormatDetails": "stored-format-details",
+      "nonManifestReferenceIDDetails": "stored-reference-details",
+      "nonManifestIssueOwnerID": "stored-nonmanifest-owner",
+      "tokenizedDetailKeys": ["storedTokenKey"],
+      "rawSafeDetailKeys": ["storedSafeKey"]
+    },
+    "generatedAt": "2001-01-01T00:00:00Z",
+    "summary": { "issueCount": 91, "errorCount": 81, "warningCount": 71, "isValid": true },
+    "issues": [
+      {
+        "source": "package",
+        "code": "stored.report.issue",
+        "severity": "warning",
+        "message": "Stored validation report issue.",
+        "ownerKind": "stored-owner",
+        "ownerID": "stored-owner-id",
+        "field": "storedField",
+        "path": "/stored/path",
+        "helpTopicID": "stored-help-topic-v1",
+        "details": { "storedSafeKey": "stored-detail-value" }
+      }
+    ]
+  },
+  "manifest": {
+    "format": "minddesk.export.manifest",
+    "formatVersion": 1,
+    "schemaVersion": 2,
+    "exportedAt": "2001-01-01T00:00:00Z",
+    "workspaces": [],
+    "resources": [],
+    "snippets": [],
+    "canvases": [],
+    "nodes": [],
+    "edges": [],
+    "aliases": [],
+    "todoGroups": [],
+    "todos": []
+  }
+}

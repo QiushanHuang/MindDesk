@@ -1,0 +1,42 @@
+{
+  "id": "fixture-legacy-envelope",
+  "format": "minddesk.proposal.envelope",
+  "formatVersion": 1,
+  "createdAt": "2001-01-01T00:00:00Z",
+  "proposedBy": "defaultAgent",
+  "context": {
+    "packageFormat": "minddesk.interchange.package",
+    "packageFormatVersion": 1,
+    "packageInstanceID": "fixture-legacy-package-instance",
+    "packageCreatedAt": "2001-01-01T00:00:00Z",
+    "manifestSchemaVersion": 2,
+    "manifestExportedAt": "2001-01-01T00:00:00Z",
+    "manifestDigest": {
+      "algorithm": "sha256",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  "proposals": [
+    {
+      "id": "fixture-proposal",
+      "title": "Review stored URL",
+      "rationale": "Stored historical evidence supports this proposal.",
+      "evidenceReferences": [
+        { "kind": "resourcePin", "id": "fixture-resource" }
+      ],
+      "operations": [
+        {
+          "id": "fixture-operation",
+          "kind": "openURL",
+          "title": "Open stored URL",
+          "affectedObjects": [
+            { "kind": "resourcePin", "id": "fixture-resource" }
+          ],
+          "payload": {
+            "url": "https://example.com/stored-fixture"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -412,13 +412,13 @@ public enum SnippetLibraryFiltering {
 
 public enum CommandRunConfirmationPolicy {
     public static func shouldConfirm(kind: String, requiresConfirmation _: Bool) -> Bool {
-        kind == "command" && WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand, actor: .directUser)
+        kind == "command" && WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand)
     }
 }
 
 public enum SnippetImportTrustPolicy {
     public static func requiresConfirmation(kind: String, exportedRequiresConfirmation: Bool) -> Bool {
-        kind == "command" ? WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand, actor: .directUser) : exportedRequiresConfirmation
+        kind == "command" ? WorkbenchExternalActionPolicy.requiresModalConfirmation(.runCommand) : exportedRequiresConfirmation
     }
 }
 

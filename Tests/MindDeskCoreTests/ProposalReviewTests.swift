@@ -349,15 +349,16 @@ final class ProposalReviewTests: XCTestCase {
             diagnostic.details["payloadField"] == "command"
         })
 
-        let reportIssues = MindDeskProposalValidationReport.issues(from: diagnostics)
-        let reportText = String(describing: reportIssues)
-        XCTAssertFalse(reportText.contains(secret))
-        XCTAssertTrue(reportIssues.contains { issue in
-            issue.code == "proposal.operation.payload-too-long" &&
-            issue.field == "payload.command" &&
-            issue.details["payloadField"] == "command" &&
-            issue.details["maximum"] == String(MindDeskProposalEnvelopeValidation.maximumPayloadTextLength)
-        })
+        XCTAssertEqual(
+            diagnostics.map(\.path),
+            [
+                "/proposals/0/title",
+                "/proposals/0/rationale",
+                "/proposals/0/operations/0/title",
+                "/proposals/0/operations/0/payload/command"
+            ]
+        )
+        XCTAssertFalse(String(describing: diagnostics).contains(secret))
     }
 
     func testProposalEnvelopeValidationRejectsUnexpectedOperationPayloadFieldsWithoutReportingRawPayload() throws {
@@ -411,15 +412,15 @@ final class ProposalReviewTests: XCTestCase {
             diagnostic.details["payloadField"] == "url"
         })
 
-        let reportIssues = MindDeskProposalValidationReport.issues(from: diagnostics)
-        let reportText = String(describing: reportIssues)
-        XCTAssertFalse(reportText.contains(secret))
-        XCTAssertTrue(reportIssues.contains { issue in
-            issue.code == "proposal.operation.unexpected-payload" &&
-            issue.field == "payload.command" &&
-            issue.details["kind"] == MindDeskProposalOperationKind.openURL.rawValue &&
-            issue.details["payloadField"] == "command"
-        })
+        XCTAssertEqual(
+            diagnostics.map(\.path),
+            [
+                "/proposals/0/operations/0/payload/command",
+                "/proposals/0/operations/0/payload/proposedText",
+                "/proposals/0/operations/1/payload/url"
+            ]
+        )
+        XCTAssertFalse(String(describing: diagnostics).contains(secret))
     }
 
     func testProposalEnvelopeValidationRejectsUnknownRawPayloadKeysWithoutReportingRawPayload() throws {
@@ -458,16 +459,8 @@ final class ProposalReviewTests: XCTestCase {
         }))
         XCTAssertFalse(String(describing: diagnostic).contains(secret))
 
-        let reportIssues = MindDeskProposalValidationReport.issues(from: diagnostics)
-        let reportText = String(describing: reportIssues)
-        XCTAssertFalse(reportText.contains(secret))
-        XCTAssertTrue(reportIssues.contains { issue in
-            issue.code == "proposal.operation.unknown-payload-field" &&
-            issue.field == "payload" &&
-            issue.details["kind"] == MindDeskProposalOperationKind.openURL.rawValue &&
-            issue.details["payloadFieldLength"] == String(unknownKey.count) &&
-            issue.details["payloadFieldToken"]?.hasPrefix("sha256:") == true
-        })
+        XCTAssertEqual(diagnostics.map(\.path), ["/proposals/0/operations/0/payload"])
+        XCTAssertFalse(String(describing: diagnostics).contains(secret))
     }
 
     func testProposalEnvelopeValidationAllowsOnlyKindSpecificPayloadFields() throws {
@@ -557,101 +550,6 @@ final class ProposalReviewTests: XCTestCase {
             )
         )
     }
-
-    func testProposalOperationKindsMapToExpectedExternalActions() {
-        let expected: [MindDeskProposalOperationKind: WorkbenchExternalAction] = [
-            .openObject: .openFileSystemItem,
-            .revealObject: .revealInFinder,
-            .openURL: .openURL,
-            .copyPath: .copyPathToClipboard,
-            .openTerminal: .openTerminal,
-            .runCommand: .runCommand,
-            .createFinderAlias: .createFinderAlias,
-            .applyMindDeskChange: .applyAgentAction,
-            .readAgentContext: .readAgentContext,
-            .proposeAgentAction: .proposeAgentAction
-        ]
-
-        XCTAssertEqual(Set(expected.keys), Set(MindDeskProposalOperationKind.allCases))
-        for kind in MindDeskProposalOperationKind.allCases {
-            XCTAssertEqual(kind.externalAction, expected[kind])
-        }
-    }
-
-    func testProposalOperationRiskTiersMatchPolicyForEveryKindAndActor() {
-        for kind in MindDeskProposalOperationKind.allCases {
-            for actor in WorkbenchExternalActor.allCases {
-                let expected: MindDeskProposalOperationRiskTier
-                switch WorkbenchExternalActionPolicy.decision(for: kind.externalAction, actor: actor) {
-                case .allow:
-                    expected = .readOnly
-                case .requireExplicitUserIntent:
-                    expected = .userMediated
-                case .requireModalConfirmation:
-                    expected = .confirmationRequired
-                case .deny:
-                    expected = .denied
-                }
-                XCTAssertEqual(kind.riskTier(for: actor), expected)
-            }
-        }
-    }
-
-    func testProposalReviewStateMachineMatchesDirectUserTransitionMatrix() {
-        let expected: [MindDeskProposalReviewState: [MindDeskProposalReviewEvent: MindDeskProposalReviewState?]] = [
-            .pendingReview: [
-                .approve: .approved,
-                .reject: .rejected,
-                .markApplied: nil,
-                .expire: .expired,
-                .supersede: .superseded
-            ],
-            .approved: [
-                .approve: nil,
-                .reject: .rejected,
-                .markApplied: .applied,
-                .expire: .expired,
-                .supersede: .superseded
-            ],
-            .rejected: [:],
-            .applied: [:],
-            .expired: [:],
-            .superseded: [:]
-        ]
-
-        for state in MindDeskProposalReviewState.allCases {
-            for event in MindDeskProposalReviewEvent.allCases {
-                XCTAssertEqual(
-                    MindDeskProposalReviewPolicy.nextState(from: state, event: event, actor: .directUser),
-                    expected[state]?[event] ?? nil,
-                    "\(state) + \(event)"
-                )
-            }
-        }
-    }
-
-    func testProposalReviewStateMachineRejectsEveryAgentTransition() {
-        for actor in [WorkbenchExternalActor.defaultAgent, .approvedAgent] {
-            for state in MindDeskProposalReviewState.allCases {
-                for event in MindDeskProposalReviewEvent.allCases {
-                    XCTAssertNil(MindDeskProposalReviewPolicy.nextState(from: state, event: event, actor: actor))
-                }
-            }
-        }
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     func testProposalContextDigestValidationAndFreshness() throws {
         XCTAssertNil(MindDeskProposalContextDigest(algorithm: "md5", value: validDigestValue))
@@ -747,47 +645,8 @@ final class ProposalReviewTests: XCTestCase {
         )
     }
 
-    private func makeInterchangePackage(
-        createdAt: Date = Date(timeIntervalSince1970: 100),
-        packageInstanceID: String = "package-instance"
-    ) -> MindDeskInterchangePackage {
-        MindDeskInterchangePackage(
-            manifest: ExportManifest(
-                schemaVersion: 2,
-                exportedAt: Date(timeIntervalSince1970: 0),
-                workspaces: [],
-                resources: [
-                    ResourceRecord(
-                        id: "resource",
-                        workspaceId: nil,
-                        title: "Resource",
-                        targetType: "file",
-                        displayPath: "/tmp/resource.txt",
-                        lastResolvedPath: "/tmp/resource.txt",
-                        note: "",
-                        tags: [],
-                        scope: "global",
-                        status: "available"
-                    )
-                ],
-                snippets: [],
-                canvases: [],
-                nodes: [],
-                edges: [],
-                aliases: []
-            ),
-            createdAt: createdAt,
-            packageInstanceID: packageInstanceID
-        )
-    }
-
     private func makeEncodedEnvelopeObject() throws -> [String: Any] {
         let data = try JSONEncoder.minddesk.encode(makeProposalEnvelope())
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-    }
-
-    private func makeEncodedPackageObject(_ package: MindDeskInterchangePackage) throws -> [String: Any] {
-        let data = try JSONEncoder.minddesk.encode(package)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
@@ -796,25 +655,13 @@ final class ProposalReviewTests: XCTestCase {
         return try JSONDecoder.minddesk.decode(MindDeskProposalEnvelope.self, from: data)
     }
 
-    private func assertDecodeError(
-        _ error: Error,
-        doesNotExpose rawValues: [String],
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        let text = String(describing: error)
-        for rawValue in rawValues {
-            XCTAssertFalse(text.contains(rawValue), file: file, line: line)
-        }
-    }
-
     private func makeContextSnapshot(
         digest: MindDeskProposalContextDigest? = nil
     ) throws -> MindDeskProposalContextSnapshot {
         let resolvedDigest = try digest ?? XCTUnwrap(MindDeskProposalContextDigest(algorithm: "sha256", value: validDigestValue))
         return MindDeskProposalContextSnapshot(
-            packageFormat: MindDeskInterchangePackage.currentFormat,
-            packageFormatVersion: MindDeskInterchangePackage.currentFormatVersion,
+            packageFormat: "minddesk.interchange.package",
+            packageFormatVersion: 1,
             packageInstanceID: "package-instance",
             packageCreatedAt: Date(timeIntervalSince1970: 100),
             manifestSchemaVersion: 2,
@@ -844,9 +691,5 @@ final class ProposalReviewTests: XCTestCase {
             affectedObjects: target.map { [$0] } ?? [],
             payload: payload
         )
-    }
-
-    private func assertSendable<T: Sendable>(_ value: T) {
-        _ = value
     }
 }

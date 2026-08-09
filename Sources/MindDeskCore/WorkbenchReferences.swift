@@ -1,21 +1,5 @@
 import Foundation
 
-func mindDeskDecodeStringBackedEnum<Value: RawRepresentable>(
-    _ type: Value.Type,
-    from decoder: Decoder,
-    debugDescription: String
-) throws -> Value where Value.RawValue == String {
-    let container = try decoder.singleValueContainer()
-    let rawValue = try container.decode(String.self)
-    guard let value = Value(rawValue: rawValue) else {
-        throw DecodingError.dataCorruptedError(
-            in: container,
-            debugDescription: debugDescription
-        )
-    }
-    return value
-}
-
 public enum WorkbenchObjectKind: String, Codable, CaseIterable, Sendable {
     case workspace
     case resourcePin
@@ -29,11 +13,15 @@ public enum WorkbenchObjectKind: String, Codable, CaseIterable, Sendable {
     case webURL
 
     public init(from decoder: Decoder) throws {
-        self = try mindDeskDecodeStringBackedEnum(
-            Self.self,
-            from: decoder,
-            debugDescription: "Unsupported workbench object kind."
-        )
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let value = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported workbench object kind."
+            )
+        }
+        self = value
     }
 }
 
@@ -138,11 +126,15 @@ public enum WorkbenchExternalAction: String, Codable, CaseIterable, Sendable {
     case copyPathToClipboard
 
     public init(from decoder: Decoder) throws {
-        self = try mindDeskDecodeStringBackedEnum(
-            Self.self,
-            from: decoder,
-            debugDescription: "Unsupported workbench external action."
-        )
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let value = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported workbench external action."
+            )
+        }
+        self = value
     }
 }
 
@@ -152,11 +144,15 @@ public enum WorkbenchExternalActor: String, Codable, CaseIterable, Sendable {
     case approvedAgent
 
     public init(from decoder: Decoder) throws {
-        self = try mindDeskDecodeStringBackedEnum(
-            Self.self,
-            from: decoder,
-            debugDescription: "Unsupported workbench external actor."
-        )
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let value = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported workbench external actor."
+            )
+        }
+        self = value
     }
 }
 
@@ -167,104 +163,49 @@ public enum WorkbenchExternalActionDecision: String, Codable, Equatable, Sendabl
     case deny
 
     public init(from decoder: Decoder) throws {
-        self = try mindDeskDecodeStringBackedEnum(
-            Self.self,
-            from: decoder,
-            debugDescription: "Unsupported workbench external action decision."
-        )
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        guard let value = Self(rawValue: rawValue) else {
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unsupported workbench external action decision."
+            )
+        }
+        self = value
     }
 }
 
 public enum WorkbenchExternalActionPolicy {
-    public static func decision(
-        for action: WorkbenchExternalAction,
-        actor: WorkbenchExternalActor
-    ) -> WorkbenchExternalActionDecision {
-        switch actor {
-        case .directUser:
-            return directUserDecision(for: action)
-        case .defaultAgent:
-            return defaultAgentDecision(for: action)
-        case .approvedAgent:
-            return approvedAgentDecision(for: action)
-        }
-    }
-
     public static func requiresUserConfirmation(_ action: WorkbenchExternalAction) -> Bool {
-        requiresUserMediation(action, actor: .directUser)
-    }
-
-    public static func requiresModalConfirmation(
-        _ action: WorkbenchExternalAction,
-        actor: WorkbenchExternalActor
-    ) -> Bool {
-        decision(for: action, actor: actor) == .requireModalConfirmation
-    }
-
-    public static func requiresUserMediation(
-        _ action: WorkbenchExternalAction,
-        actor: WorkbenchExternalActor
-    ) -> Bool {
-        switch decision(for: action, actor: actor) {
-        case .requireExplicitUserIntent, .requireModalConfirmation:
-            return true
-        case .deny:
-            return true
-        case .allow:
-            return false
-        }
-    }
-
-    public static func isAllowedForDefaultAgent(_ action: WorkbenchExternalAction) -> Bool {
-        decision(for: action, actor: .defaultAgent) == .allow
-    }
-
-    private static func directUserDecision(for action: WorkbenchExternalAction) -> WorkbenchExternalActionDecision {
         switch action {
         case .readAgentContext, .proposeAgentAction:
-            return .allow
+            return false
+        case .applyAgentAction,
+             .runCommand,
+             .openTerminal,
+             .openFileSystemItem,
+             .revealInFinder,
+             .createFinderAlias,
+             .openURL,
+             .copyPathToClipboard:
+            return true
+        }
+    }
+
+    public static func requiresModalConfirmation(_ action: WorkbenchExternalAction) -> Bool {
+        switch action {
         case .applyAgentAction,
              .runCommand,
              .openTerminal,
              .createFinderAlias:
-            return .requireModalConfirmation
-        case .openFileSystemItem,
-             .revealInFinder,
-             .openURL,
-             .copyPathToClipboard:
-            return .requireExplicitUserIntent
-        }
-    }
-
-    private static func defaultAgentDecision(for action: WorkbenchExternalAction) -> WorkbenchExternalActionDecision {
-        switch action {
-        case .readAgentContext, .proposeAgentAction:
-            return .allow
-        case .applyAgentAction,
-             .runCommand,
-             .openTerminal,
+            return true
+        case .readAgentContext,
+             .proposeAgentAction,
              .openFileSystemItem,
              .revealInFinder,
-             .createFinderAlias,
              .openURL,
              .copyPathToClipboard:
-            return .deny
-        }
-    }
-
-    private static func approvedAgentDecision(for action: WorkbenchExternalAction) -> WorkbenchExternalActionDecision {
-        switch action {
-        case .readAgentContext, .proposeAgentAction:
-            return .allow
-        case .applyAgentAction,
-             .runCommand,
-             .openTerminal,
-             .openFileSystemItem,
-             .revealInFinder,
-             .createFinderAlias,
-             .openURL,
-             .copyPathToClipboard:
-            return .requireModalConfirmation
+            return false
         }
     }
 }

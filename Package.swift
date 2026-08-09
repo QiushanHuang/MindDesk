@@ -26,7 +26,8 @@ let package = Package(
         .testTarget(
             name: "MindDeskCoreTests",
             dependencies: ["MindDeskCore"],
-            path: "Tests/MindDeskCoreTests"
+            path: "Tests/MindDeskCoreTests",
+            resources: [.process("Fixtures")]
         ),
         .testTarget(
             name: "MindDeskTests",

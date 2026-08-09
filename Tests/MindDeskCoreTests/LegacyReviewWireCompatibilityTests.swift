@@ -1,25 +1,20 @@
+import CoreFoundation
 import Foundation
 import XCTest
 @testable import MindDeskCore
 
 final class LegacyReviewWireCompatibilityTests: XCTestCase {
     func testLegacyInterchangePackageRoundTripPreservesManifestPayload() throws {
-        let manifest = makeManifest()
-        let package = MindDeskInterchangePackage(
-            manifest: manifest,
-            createdAt: Date(timeIntervalSince1970: 123),
-            packageInstanceID: "package-instance"
+        let data = try fixtureData(named: "legacy-interchange-v1")
+        let manifestObject = try XCTUnwrap(
+            (JSONSerialization.jsonObject(with: data) as? [String: Any])?["manifest"] as? [String: Any]
         )
-
-        let data = try JSONEncoder.minddesk.encode(package)
         let decoded = try JSONDecoder.minddesk.decode(MindDeskInterchangePackage.self, from: data)
 
         XCTAssertEqual(decoded.format, "minddesk.interchange.package")
         XCTAssertEqual(decoded.formatVersion, 1)
-        XCTAssertEqual(decoded.packageInstanceID, "package-instance")
-        XCTAssertEqual(decoded.manifest, manifest)
-        XCTAssertEqual(decoded.summary.workspaces, 1)
-        XCTAssertEqual(decoded.summary.resources, 1)
+        XCTAssertEqual(decoded.packageInstanceID, "fixture-legacy-package-instance")
+        assertStrictJSONEqual(try encodedObject(decoded.manifest), manifestObject)
         XCTAssertTrue(String(data: data, encoding: .utf8)?.contains("\"manifest\"") == true)
 
         var missingPackageInstanceID = try XCTUnwrap(
@@ -36,7 +31,7 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         }
     }
 
-    func testStoredInterchangePackageValidationDetectsStaleSummary() {
+    func testStoredInterchangePackageValidationDetectsStaleSummary() throws {
         let manifest = ExportManifest(
             schemaVersion: 2,
             exportedAt: Date(timeIntervalSince1970: 0),
@@ -50,10 +45,11 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             edges: [],
             aliases: []
         )
-        var package = MindDeskInterchangePackage(
-            manifest: manifest,
-            createdAt: Date(timeIntervalSince1970: 0)
+        var package = try JSONDecoder.minddesk.decode(
+            MindDeskInterchangePackage.self,
+            from: fixtureData(named: "legacy-interchange-v1")
         )
+        package.manifest = manifest
         package.summary.canvases = 0
 
         let issues = MindDeskInterchangePackageValidation.issues(in: package)
@@ -78,10 +74,10 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         )
     }
 
-    func testStoredInterchangePackageValidationRejectsUnsupportedFormatVersion() {
-        var package = MindDeskInterchangePackage(
-            manifest: makeManifest(),
-            createdAt: Date(timeIntervalSince1970: 0)
+    func testStoredInterchangePackageValidationRejectsUnsupportedFormatVersion() throws {
+        var package = try JSONDecoder.minddesk.decode(
+            MindDeskInterchangePackage.self,
+            from: fixtureData(named: "legacy-interchange-v1")
         )
         package.formatVersion = 999
 
@@ -97,20 +93,26 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
     }
 
     func testLegacyProposalEnvelopeFixtureRoundTripsContextAndOperations() throws {
-        let envelope = try makeProposalEnvelope()
-
-        let data = try JSONEncoder.minddesk.encode(envelope)
+        let data = try fixtureData(named: "legacy-proposal-envelope-v1")
+        let fixtureObject = try fixtureJSONObject(named: "legacy-proposal-envelope-v1")
         let decoded = try JSONDecoder.minddesk.decode(MindDeskProposalEnvelope.self, from: data)
 
-        XCTAssertEqual(decoded, envelope)
-        XCTAssertEqual(decoded.format, MindDeskProposalEnvelope.currentFormat)
-        XCTAssertEqual(decoded.formatVersion, MindDeskProposalEnvelope.currentFormatVersion)
+        XCTAssertEqual(decoded.format, "minddesk.proposal.envelope")
+        XCTAssertEqual(decoded.formatVersion, 1)
         XCTAssertEqual(decoded.proposedBy, .defaultAgent)
-        XCTAssertEqual(decoded.context.packageInstanceID, "package-instance")
-        XCTAssertEqual(decoded.context.packageCreatedAt, Date(timeIntervalSince1970: 100))
+        XCTAssertEqual(decoded.context.packageInstanceID, "fixture-legacy-package-instance")
+        XCTAssertEqual(decoded.context.packageCreatedAt, Date(timeIntervalSince1970: 978_307_200))
         XCTAssertEqual(decoded.context.manifestDigest.value, validDigestValue)
         XCTAssertEqual(decoded.proposals.first?.operations.first?.kind, .openURL)
         XCTAssertEqual(decoded.proposals.first?.evidenceReferences.first?.kind, .resourcePin)
+
+        let reencoded = try JSONEncoder.minddesk.encode(decoded)
+        let redecoded = try JSONDecoder.minddesk.decode(MindDeskProposalEnvelope.self, from: reencoded)
+        XCTAssertEqual(redecoded, decoded)
+        let reencodedObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        )
+        assertStrictJSONEqual(fixtureObject, reencodedObject)
     }
 
     func testLegacyProposalEnvelopeDecodeRejectsMissingRequiredContextBindingFieldsWithSanitizedError() throws {
@@ -131,7 +133,7 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
 
     func testLegacyProposalEnvelopeFixtureRoundTripsHeterogeneousOperationPayloads() throws {
         let reference = try makeReference()
-        var envelope = try makeProposalEnvelope()
+        var envelope = try loadLegacyProposalEnvelopeFixture()
         envelope.proposals[0].operations = [
             makeOperation(id: "open-object", kind: .openObject, target: reference),
             makeOperation(
@@ -216,7 +218,7 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         XCTAssertThrowsError(try decodeEnvelope(from: wrongFormat))
 
         var wrongVersion = object
-        wrongVersion["formatVersion"] = MindDeskProposalEnvelope.currentFormatVersion + 1
+        wrongVersion["formatVersion"] = 2
         XCTAssertThrowsError(try decodeEnvelope(from: wrongVersion))
     }
 
@@ -439,9 +441,16 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
     }
 
     func testStoredExtensionCapabilityCatalogValidationDetectsContractAndPolicyDrift() throws {
-        let data = try JSONEncoder.minddesk.encode(MindDeskExtensionCapabilityCatalog.current)
-        let stored = try JSONDecoder.minddesk.decode(MindDeskExtensionCapabilityCatalog.self, from: data)
-        XCTAssertEqual(MindDeskExtensionCapabilityCatalogValidation.issues(in: stored), [])
+        let packageObject = try fixtureJSONObject(named: "legacy-interchange-v1")
+        let catalogObject = try XCTUnwrap(packageObject["extensionCapabilities"] as? [String: Any])
+        let stored = try JSONDecoder.minddesk.decode(
+            MindDeskExtensionCapabilityCatalog.self,
+            from: JSONSerialization.data(withJSONObject: catalogObject)
+        )
+        let storedIssues = MindDeskExtensionCapabilityCatalogValidation.issues(in: stored)
+        XCTAssertFalse(storedIssues.contains(.capabilitySetMismatch))
+        XCTAssertFalse(storedIssues.contains(.operationContractMismatch(operationKind: .runCommand)))
+        XCTAssertFalse(storedIssues.contains(.policyDecisionMismatch(operationKind: .runCommand)))
 
         var missingCapability = stored
         missingCapability.capabilities.removeAll { $0.operationKind == .runCommand }
@@ -463,14 +472,24 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 .contains(.policyDecisionMismatch(operationKind: .runCommand))
         )
 
-        var contractDrift = stored
-        let aliasIndex = try XCTUnwrap(
-            contractDrift.capabilities.firstIndex { $0.operationKind == .createFinderAlias }
+        var targetDrift = stored
+        let targetDriftIndex = try XCTUnwrap(
+            targetDrift.capabilities.firstIndex { $0.operationKind == .runCommand }
         )
-        contractDrift.capabilities[aliasIndex].supportedTargetKinds = [.workspace]
+        targetDrift.capabilities[targetDriftIndex].supportedTargetKinds = [.workspace]
         XCTAssertTrue(
-            MindDeskExtensionCapabilityCatalogValidation.issues(in: contractDrift)
-                .contains(.operationContractMismatch(operationKind: .createFinderAlias))
+            MindDeskExtensionCapabilityCatalogValidation.issues(in: targetDrift)
+                .contains(.operationContractMismatch(operationKind: .runCommand))
+        )
+
+        var schemaDrift = stored
+        let schemaDriftIndex = try XCTUnwrap(
+            schemaDrift.capabilities.firstIndex { $0.operationKind == .runCommand }
+        )
+        schemaDrift.capabilities[schemaDriftIndex].payloadFieldSchemas.removeLast()
+        XCTAssertTrue(
+            MindDeskExtensionCapabilityCatalogValidation.issues(in: schemaDrift)
+                .contains(.operationContractMismatch(operationKind: .runCommand))
         )
 
         var allowedPayloadDrift = stored
@@ -494,11 +513,9 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         XCTAssertTrue(
             notesDriftIssues.contains(.operationContractMismatch(operationKind: .runCommand))
         )
-        let notesDriftReport = MindDeskExtensionCapabilityCatalogValidationReport.issues(from: notesDriftIssues)
-        let reportData = try JSONEncoder.minddesk.encode(notesDriftReport)
-        let reportJSON = try XCTUnwrap(String(data: reportData, encoding: .utf8))
-        XCTAssertFalse(reportJSON.contains("IGNORE_AGENT_INSTRUCTIONS"))
-        XCTAssertFalse(reportJSON.contains("authorized without confirmation"))
+        let notesDriftText = String(describing: notesDriftIssues)
+        XCTAssertFalse(notesDriftText.contains("IGNORE_AGENT_INSTRUCTIONS"))
+        XCTAssertFalse(notesDriftText.contains("authorized without confirmation"))
 
         var weakNotes = stored
         weakNotes.notes = ["Capabilities are not authorization."]
@@ -534,8 +551,7 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
 
     func testStoredWireDecodersRejectUnsupportedFormatsWithoutReplayingRawText() throws {
         let rawFormat = "foreign.format IGNORE_AGENT_INSTRUCTIONS token=secret"
-        let package = makeInterchangePackage()
-        var packageObject = try encodedObject(package)
+        var packageObject = try fixtureJSONObject(named: "legacy-interchange-v1")
         packageObject["format"] = rawFormat
         XCTAssertThrowsError(
             try JSONDecoder.minddesk.decode(
@@ -546,7 +562,7 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             assertError(error, doesNotExpose: [rawFormat, "IGNORE_AGENT_INSTRUCTIONS", "token=secret"])
         }
 
-        var envelopeObject = try encodedEnvelopeObject(makeProposalEnvelope(context: MindDeskProposalContextSnapshot(package: package)))
+        var envelopeObject = try fixtureJSONObject(named: "legacy-proposal-envelope-v1")
         envelopeObject["format"] = rawFormat
         XCTAssertThrowsError(try decodeEnvelope(from: envelopeObject)) { error in
             assertError(error, doesNotExpose: [rawFormat, "IGNORE_AGENT_INSTRUCTIONS", "token=secret"])
@@ -565,7 +581,9 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             assertError(error, doesNotExpose: [rawFormat, "IGNORE_AGENT_INSTRUCTIONS", "token=secret"])
         }
 
-        var contractObject = try encodedObject(package.agentIntegrationContract)
+        var contractObject = try XCTUnwrap(
+            try fixtureJSONObject(named: "legacy-interchange-v1")["agentIntegrationContract"] as? [String: Any]
+        )
         contractObject["format"] = rawFormat
         XCTAssertThrowsError(
             try JSONDecoder.minddesk.decode(
@@ -576,8 +594,8 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             assertError(error, doesNotExpose: [rawFormat, "IGNORE_AGENT_INSTRUCTIONS", "token=secret"])
         }
 
-        contractObject["format"] = MindDeskAgentIntegrationContract.currentFormat
-        contractObject["formatVersion"] = MindDeskAgentIntegrationContract.currentFormatVersion + 1
+        contractObject["format"] = "minddesk.agent.integration.contract"
+        contractObject["formatVersion"] = 2
         XCTAssertThrowsError(
             try JSONDecoder.minddesk.decode(
                 MindDeskAgentIntegrationContract.self,
@@ -645,49 +663,27 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         })
         XCTAssertNil(unknownDiagnostic.details["payloadField"])
 
-        let reportIssues = MindDeskProposalValidationReport.issues(from: diagnostics)
-        let summary = MindDeskValidationReportSummary(issues: reportIssues)
-        XCTAssertFalse(summary.isValid)
-        XCTAssertEqual(summary.errorCount, 2)
-        XCTAssertEqual(reportIssues.count, 2)
-
-        let knownIssue = try XCTUnwrap(reportIssues.first { issue in
-            issue.source == .proposalEnvelope &&
-                issue.code == "proposal.operation.unexpected-payload" &&
-                issue.field == "payload.url"
-        })
-        XCTAssertEqual(knownIssue.path, "/proposals/0/operations/0/payload/url")
-        XCTAssertEqual(knownIssue.details["kind"], "openObject")
-        XCTAssertEqual(knownIssue.details["payloadField"], "url")
-
-        let unknownIssue = try XCTUnwrap(reportIssues.first { issue in
-            issue.source == .proposalEnvelope &&
-                issue.code == "proposal.operation.unknown-payload-field" &&
-                issue.field == "payload"
-        })
-        XCTAssertEqual(unknownIssue.path, "/proposals/0/operations/0/payload")
-        XCTAssertEqual(unknownIssue.details["kind"], "openObject")
-        XCTAssertEqual(unknownIssue.details["payloadFieldLength"], String(rawUnknownKey.count))
         XCTAssertEqual(
-            unknownIssue.details["payloadFieldToken"],
-            MindDeskValidationReportToken.token(rawUnknownKey)
+            diagnostics.map(\.path),
+            [
+                "/proposals/0/operations/0/payload/url",
+                "/proposals/0/operations/0/payload"
+            ]
         )
-        XCTAssertNil(unknownIssue.details["payloadField"])
-
-        for text in [String(describing: diagnostics), String(describing: reportIssues)] {
-            for forbidden in [
-                rawKnownValue,
-                rawUnknownKey,
-                rawUnknownValue,
-                "evil.example",
-                "token=known-value-secret",
-                "token=unknown-value-secret",
-                "IGNORE_AGENT_INSTRUCTIONS",
-                "rm -rf",
-                "~/Documents"
-            ] {
-                XCTAssertFalse(text.contains(forbidden))
-            }
+        XCTAssertEqual(diagnostics.count, 2)
+        let diagnosticText = String(describing: diagnostics)
+        for forbidden in [
+            rawKnownValue,
+            rawUnknownKey,
+            rawUnknownValue,
+            "evil.example",
+            "token=known-value-secret",
+            "token=unknown-value-secret",
+            "IGNORE_AGENT_INSTRUCTIONS",
+            "rm -rf",
+            "~/Documents"
+        ] {
+            XCTAssertFalse(diagnosticText.contains(forbidden))
         }
     }
 
@@ -731,27 +727,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 String(MindDeskProposalEnvelopeValidation.maximumProposalCount)
             )
 
-            let reportIssues = MindDeskProposalValidationReport.issues(from: limitError.diagnostics)
-            let summary = MindDeskValidationReportSummary(issues: reportIssues)
-            XCTAssertFalse(summary.isValid)
-            XCTAssertEqual(summary.errorCount, 1)
-            XCTAssertEqual(reportIssues.count, 1)
-            guard let reportIssue = reportIssues.first else {
-                return XCTFail("Missing mapped proposal count issue.")
-            }
-            XCTAssertEqual(reportIssue.source, .proposalEnvelope)
-            XCTAssertEqual(reportIssue.code, "proposal.collection.too-large")
-            XCTAssertEqual(reportIssue.field, "proposals")
-            XCTAssertEqual(reportIssue.path, "/proposals")
-            XCTAssertEqual(
-                reportIssue.details["count"],
-                String(MindDeskProposalEnvelopeValidation.maximumProposalCount + 1)
-            )
-            XCTAssertEqual(
-                reportIssue.details["maximum"],
-                String(MindDeskProposalEnvelopeValidation.maximumProposalCount)
-            )
-
             let forbiddenValues = [
                 rawKind,
                 "deleteEverything",
@@ -762,10 +737,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 "~/Documents"
             ]
             assertError(error, doesNotExpose: forbiddenValues)
-            let reportText = String(describing: reportIssues)
-            for forbidden in forbiddenValues {
-                XCTAssertFalse(reportText.contains(forbidden))
-            }
         }
     }
 
@@ -809,25 +780,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 String(MindDeskProposalEnvelopeValidation.maximumPayloadTextLength)
             )
 
-            let reportIssues = MindDeskProposalValidationReport.issues(from: limitError.diagnostics)
-            let summary = MindDeskValidationReportSummary(issues: reportIssues)
-            XCTAssertFalse(summary.isValid)
-            XCTAssertEqual(summary.errorCount, 1)
-            XCTAssertEqual(reportIssues.count, 1)
-            guard let reportIssue = reportIssues.first else {
-                return XCTFail("Missing mapped payload-length issue.")
-            }
-            XCTAssertEqual(reportIssue.source, .proposalEnvelope)
-            XCTAssertEqual(reportIssue.code, "proposal.operation.payload-too-long")
-            XCTAssertEqual(reportIssue.field, "payload.command")
-            XCTAssertEqual(reportIssue.path, "/proposals/0/operations/0/payload/command")
-            XCTAssertEqual(reportIssue.details["payloadField"], "command")
-            XCTAssertEqual(reportIssue.details["actualLength"], String(rawCommand.utf8.count))
-            XCTAssertEqual(
-                reportIssue.details["maximum"],
-                String(MindDeskProposalEnvelopeValidation.maximumPayloadTextLength)
-            )
-
             let forbiddenValues = [
                 rawWorkingDirectoryKind,
                 rawCommand,
@@ -839,18 +791,12 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 "~/Documents"
             ]
             assertError(error, doesNotExpose: forbiddenValues)
-            let reportText = String(describing: reportIssues)
-            for forbidden in forbiddenValues {
-                XCTAssertFalse(reportText.contains(forbidden))
-            }
         }
     }
 
     func testProposalEnvelopeDecodeLimitsProduceSanitizedDiagnostics() throws {
         typealias DecodeLimitCase = (
             name: String,
-            code: String,
-            field: String,
             path: String,
             maximum: Int,
             issue: MindDeskProposalValidationIssue,
@@ -860,8 +806,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         let cases: [DecodeLimitCase] = [
             (
                 "proposal count",
-                "proposal.collection.too-large",
-                "proposals",
                 "/proposals",
                 MindDeskProposalEnvelopeValidation.maximumProposalCount,
                 .tooManyProposals(
@@ -879,8 +823,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "evidence count",
-                "proposal.evidence.collection-too-large",
-                "evidenceReferences",
                 "/proposals/0/evidenceReferences",
                 MindDeskProposalEnvelopeValidation.maximumProposalEvidenceReferenceCount,
                 .tooManyProposalEvidenceReferences(
@@ -903,8 +845,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "operation count",
-                "proposal.operation.collection-too-large",
-                "operations",
                 "/proposals/0/operations",
                 MindDeskProposalEnvelopeValidation.maximumProposalOperationCount,
                 .tooManyProposalOperations(
@@ -927,8 +867,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "affected-object count",
-                "proposal.operation.affected-objects-too-large",
-                "affectedObjects",
                 "/proposals/0/operations/0/affectedObjects",
                 MindDeskProposalEnvelopeValidation.maximumOperationAffectedObjectCount,
                 .tooManyOperationAffectedObjects(
@@ -955,8 +893,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "proposal title",
-                "proposal.title.too-long",
-                "title",
                 "/proposals/0/title",
                 MindDeskProposalEnvelopeValidation.maximumProposalTitleLength,
                 .proposalTitleTooLong(
@@ -975,8 +911,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "proposal rationale",
-                "proposal.rationale.too-long",
-                "rationale",
                 "/proposals/0/rationale",
                 MindDeskProposalEnvelopeValidation.maximumProposalRationaleLength,
                 .proposalRationaleTooLong(
@@ -995,8 +929,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "operation title",
-                "proposal.operation.title.too-long",
-                "title",
                 "/proposals/0/operations/0/title",
                 MindDeskProposalEnvelopeValidation.maximumOperationTitleLength,
                 .operationTitleTooLong(
@@ -1015,8 +947,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             ),
             (
                 "payload text",
-                "proposal.operation.payload-too-long",
-                "payload.command",
                 "/proposals/0/operations/0/payload/command",
                 MindDeskProposalEnvelopeValidation.maximumPayloadTextLength,
                 .operationPayloadTooLong(
@@ -1053,23 +983,6 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                 XCTAssertEqual(diagnostic.path, testCase.path, testCase.name)
                 XCTAssertEqual(diagnostic.details["maximum"], String(testCase.maximum), testCase.name)
 
-                let reportIssues = MindDeskProposalValidationReport.issues(from: error.diagnostics)
-                let summary = MindDeskValidationReportSummary(issues: reportIssues)
-                XCTAssertFalse(summary.isValid, testCase.name)
-                XCTAssertEqual(summary.errorCount, 1, testCase.name)
-                XCTAssertEqual(reportIssues.count, 1, testCase.name)
-                let reportIssue = try XCTUnwrap(reportIssues.first)
-                XCTAssertEqual(reportIssue.source, .proposalEnvelope, testCase.name)
-                XCTAssertEqual(reportIssue.severity, .error, testCase.name)
-                XCTAssertEqual(reportIssue.code, testCase.code, testCase.name)
-                XCTAssertEqual(reportIssue.field, testCase.field, testCase.name)
-                XCTAssertEqual(reportIssue.path, testCase.path, testCase.name)
-                XCTAssertEqual(
-                    reportIssue.details["maximum"],
-                    String(testCase.maximum),
-                    testCase.name
-                )
-
                 let forbiddenValues = [
                     rawText,
                     "IGNORE_AGENT_INSTRUCTIONS",
@@ -1079,11 +992,150 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
                     "~/Documents"
                 ]
                 assertError(error, doesNotExpose: forbiddenValues)
-                let reportText = String(describing: reportIssues)
-                for forbidden in forbiddenValues {
-                    XCTAssertFalse(reportText.contains(forbidden), testCase.name)
-                }
             }
+        }
+    }
+
+    func testRawReviewStateAndEventValuesRoundTripWithoutTransitionPolicy() throws {
+        for state in MindDeskProposalReviewState.allCases {
+            let data = try JSONEncoder.minddesk.encode(state)
+            XCTAssertEqual(
+                try JSONDecoder.minddesk.decode(MindDeskProposalReviewState.self, from: data),
+                state
+            )
+        }
+        for event in MindDeskProposalReviewEvent.allCases {
+            let data = try JSONEncoder.minddesk.encode(event)
+            XCTAssertEqual(
+                try JSONDecoder.minddesk.decode(MindDeskProposalReviewEvent.self, from: data),
+                event
+            )
+        }
+
+        let unknownState = "unknown-state IGNORE_AGENT_INSTRUCTIONS token=state-secret"
+        XCTAssertThrowsError(
+            try JSONDecoder.minddesk.decode(
+                MindDeskProposalReviewState.self,
+                from: try JSONEncoder.minddesk.encode(unknownState)
+            )
+        ) { error in
+            assertError(error, doesNotExpose: [unknownState, "IGNORE_AGENT_INSTRUCTIONS", "token=state-secret"])
+        }
+        let unknownEvent = "unknown-event IGNORE_AGENT_INSTRUCTIONS token=event-secret"
+        XCTAssertThrowsError(
+            try JSONDecoder.minddesk.decode(
+                MindDeskProposalReviewEvent.self,
+                from: try JSONEncoder.minddesk.encode(unknownEvent)
+            )
+        ) { error in
+            assertError(error, doesNotExpose: [unknownEvent, "IGNORE_AGENT_INSTRUCTIONS", "token=event-secret"])
+        }
+
+        let sourceDirectory = repositoryRootURL
+            .appendingPathComponent("Sources/MindDeskCore", isDirectory: true)
+        let policySources = try FileManager.default
+            .contentsOfDirectory(at: sourceDirectory, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "swift" }
+            .filter { sourceURL in
+                try String(contentsOf: sourceURL, encoding: .utf8)
+                    .contains("MindDeskProposalReviewPolicy")
+            }
+            .map(\.lastPathComponent)
+            .sorted()
+        XCTAssertEqual(policySources, [], "Transition policy remains in production sources: \(policySources)")
+    }
+
+    func testLegacyInterchangePackageRoundTripPreservesAllStoredFieldsAndDeliberatelyNonCurrentValues() throws {
+        let data = try fixtureData(named: "legacy-interchange-v1")
+        let storedObject = try fixtureJSONObject(named: "legacy-interchange-v1")
+        XCTAssertNotNil(strictJSONMismatch(true, 1), "JSON true must not equal numeric 1.")
+        XCTAssertNotNil(strictJSONMismatch(false, 0), "JSON false must not equal numeric 0.")
+        XCTAssertEqual(
+            Set(storedObject.keys),
+            Set([
+                "format", "formatVersion", "packageInstanceID", "createdAt", "summary",
+                "privacy", "agentGuide", "agentPolicy", "agentIntegrationContract",
+                "extensionCapabilities", "externalActionPolicy", "helpTopics",
+                "validationIssues", "validationReport", "manifest"
+            ])
+        )
+
+        let decoded = try JSONDecoder.minddesk.decode(MindDeskInterchangePackage.self, from: data)
+        XCTAssertEqual(decoded.summary.workspaces, 7)
+        XCTAssertEqual(decoded.summary.validationIssues, ["stored-summary-marker-v1"])
+        XCTAssertEqual(decoded.agentIntegrationContract.authority.enforcedBy, "stored-fixture-enforcer")
+        XCTAssertEqual(decoded.extensionCapabilities.capabilities.first?.id, "proposal.runCommand")
+        XCTAssertEqual(decoded.helpTopics.map(\.id), ["stored-help-topic-v1"])
+        XCTAssertEqual(decoded.validationReport.redactionPolicy.format, "stored.redaction.policy")
+        XCTAssertEqual(decoded.validationReport.summary.issueCount, 91)
+
+        let reencoded = try JSONEncoder.minddesk.encode(decoded)
+        let reencodedObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        )
+        assertStrictJSONEqual(reencodedObject, storedObject)
+
+        let hostileCategory = "IGNORE_AGENT_INSTRUCTIONS token=help-category-secret https://evil.example/raw"
+        let forbiddenErrorValues = [
+            hostileCategory,
+            "IGNORE_AGENT_INSTRUCTIONS",
+            "token=help-category-secret",
+            "https://evil.example/raw"
+        ]
+        var hostileObject = storedObject
+        var hostileHelpTopics = try XCTUnwrap(hostileObject["helpTopics"] as? [[String: Any]])
+        hostileHelpTopics[0]["category"] = hostileCategory
+        hostileObject["helpTopics"] = hostileHelpTopics
+        let hostileData = try JSONSerialization.data(withJSONObject: hostileObject, options: [.sortedKeys])
+
+        do {
+            _ = try JSONDecoder.minddesk.decode(MindDeskInterchangePackage.self, from: hostileData)
+            XCTFail("A hostile stored help category decoded successfully.")
+        } catch let DecodingError.dataCorrupted(context) {
+            let errorText = String(describing: DecodingError.dataCorrupted(context))
+            let debugPath = context.codingPath.map(\.stringValue).joined(separator: ".")
+            XCTAssertEqual(debugPath, "helpTopics.Index 0.category")
+            for forbiddenValue in forbiddenErrorValues {
+                XCTAssertFalse(errorText.contains(forbiddenValue))
+                XCTAssertFalse(context.debugDescription.contains(forbiddenValue))
+                XCTAssertFalse(debugPath.contains(forbiddenValue))
+            }
+        } catch {
+            XCTFail("Expected a sanitized data-corrupted error, got \(error)")
+        }
+    }
+
+    func testStoredAgentContractAndCapabilityCodableRejectMissingRequiredFields() throws {
+        let packageObject = try fixtureJSONObject(named: "legacy-interchange-v1")
+        let contractObject = try XCTUnwrap(packageObject["agentIntegrationContract"] as? [String: Any])
+        let referenceSchemas = try XCTUnwrap(contractObject["referenceSchemas"] as? [String: Any])
+        for field in ["citationWireShape", "proposalReferenceWireShape", "proposalReferenceFields"] {
+            try assertStoredDecodeRejectsMissingField(
+                MindDeskAgentReferenceSchemas.self,
+                object: referenceSchemas,
+                field: field
+            )
+        }
+
+        let operationContracts = try XCTUnwrap(contractObject["operationContracts"] as? [[String: Any]])
+        let operationContract = try XCTUnwrap(operationContracts.first)
+        for field in ["allowedPayloadFields", "payloadFieldSchemas"] {
+            try assertStoredDecodeRejectsMissingField(
+                MindDeskAgentOperationContract.self,
+                object: operationContract,
+                field: field
+            )
+        }
+
+        let catalogObject = try XCTUnwrap(packageObject["extensionCapabilities"] as? [String: Any])
+        let capabilities = try XCTUnwrap(catalogObject["capabilities"] as? [[String: Any]])
+        let capability = try XCTUnwrap(capabilities.first)
+        for field in ["allowedPayloadFields", "payloadFieldSchemas"] {
+            try assertStoredDecodeRejectsMissingField(
+                MindDeskExtensionCapability.self,
+                object: capability,
+                field: field
+            )
         }
     }
 
@@ -1091,86 +1143,181 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
         String(repeating: "a", count: 64)
     }
 
-    private func makeManifest() -> ExportManifest {
-        ExportManifest(
-            schemaVersion: 2,
-            exportedAt: Date(timeIntervalSince1970: 10),
-            workspaces: [
-                WorkspaceRecord(
-                    id: "workspace",
-                    title: "Workspace",
-                    details: "",
-                    createdAt: .distantPast,
-                    updatedAt: .distantPast,
-                    lastOpenedAt: nil
-                )
-            ],
-            resources: [
-                ResourceRecord(
-                    id: "resource",
-                    workspaceId: "workspace",
-                    title: "Resource",
-                    targetType: "file",
-                    displayPath: "/tmp/resource.txt",
-                    lastResolvedPath: "/tmp/resource.txt",
-                    note: "",
-                    tags: [],
-                    scope: "workspace",
-                    status: "available"
-                )
-            ],
-            snippets: [],
-            canvases: [CanvasRecord(id: "canvas", workspaceId: "workspace", title: "Canvas")],
-            nodes: [],
-            edges: [],
-            aliases: [],
-            todoGroups: [],
-            todos: []
+    private func fixtureData(named name: String) throws -> Data {
+        let url = try XCTUnwrap(
+            Bundle.module.url(forResource: name, withExtension: "json"),
+            "Missing bundled fixture \(name).json"
+        )
+        return try Data(contentsOf: url)
+    }
+
+    private func fixtureJSONObject(named name: String) throws -> [String: Any] {
+        try XCTUnwrap(
+            JSONSerialization.jsonObject(with: fixtureData(named: name)) as? [String: Any]
         )
     }
 
-    private func makeInterchangePackage() -> MindDeskInterchangePackage {
-        MindDeskInterchangePackage(
-            manifest: makeManifest(),
-            createdAt: Date(timeIntervalSince1970: 100),
-            packageInstanceID: "package-instance"
+    private func assertStrictJSONEqual(
+        _ lhs: Any,
+        _ rhs: Any,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if let mismatch = strictJSONMismatch(lhs, rhs) {
+            XCTFail(mismatch, file: file, line: line)
+        }
+    }
+
+    private func strictJSONMismatch(
+        _ lhs: Any,
+        _ rhs: Any,
+        path: String = "$"
+    ) -> String? {
+        if lhs is NSNull || rhs is NSNull {
+            return lhs is NSNull && rhs is NSNull
+                ? nil
+                : "\(path): JSON null type mismatch."
+        }
+
+        if let lhsObject = lhs as? [String: Any] {
+            guard let rhsObject = rhs as? [String: Any] else {
+                return "\(path): JSON object type mismatch."
+            }
+            let lhsKeys = Set(lhsObject.keys)
+            let rhsKeys = Set(rhsObject.keys)
+            guard lhsKeys == rhsKeys else {
+                return "\(path): JSON object keys differ: \(lhsKeys.sorted()) != \(rhsKeys.sorted())."
+            }
+            for key in lhsKeys.sorted() {
+                guard let lhsValue = lhsObject[key], let rhsValue = rhsObject[key] else {
+                    return "\(path).\(key): JSON object key lookup failed."
+                }
+                if let mismatch = strictJSONMismatch(lhsValue, rhsValue, path: "\(path).\(key)") {
+                    return mismatch
+                }
+            }
+            return nil
+        }
+        if rhs is [String: Any] {
+            return "\(path): JSON object type mismatch."
+        }
+
+        if let lhsArray = lhs as? [Any] {
+            guard let rhsArray = rhs as? [Any] else {
+                return "\(path): JSON array type mismatch."
+            }
+            guard lhsArray.count == rhsArray.count else {
+                return "\(path): JSON array counts differ: \(lhsArray.count) != \(rhsArray.count)."
+            }
+            for index in lhsArray.indices {
+                if let mismatch = strictJSONMismatch(
+                    lhsArray[index],
+                    rhsArray[index],
+                    path: "\(path)[\(index)]"
+                ) {
+                    return mismatch
+                }
+            }
+            return nil
+        }
+        if rhs is [Any] {
+            return "\(path): JSON array type mismatch."
+        }
+
+        if let lhsString = lhs as? String {
+            guard let rhsString = rhs as? String else {
+                return "\(path): JSON string type mismatch."
+            }
+            return lhsString == rhsString
+                ? nil
+                : "\(path): JSON strings differ."
+        }
+        if rhs is String {
+            return "\(path): JSON string type mismatch."
+        }
+
+        if let lhsNumber = lhs as? NSNumber {
+            guard let rhsNumber = rhs as? NSNumber else {
+                return "\(path): JSON number type mismatch."
+            }
+            let lhsIsBoolean = CFGetTypeID(lhsNumber) == CFBooleanGetTypeID()
+            let rhsIsBoolean = CFGetTypeID(rhsNumber) == CFBooleanGetTypeID()
+            if lhsIsBoolean || rhsIsBoolean {
+                guard lhsIsBoolean && rhsIsBoolean else {
+                    return "\(path): JSON Boolean and number are not interchangeable."
+                }
+                return lhsNumber.boolValue == rhsNumber.boolValue
+                    ? nil
+                    : "\(path): JSON Boolean values differ."
+            }
+
+            let lhsType = String(cString: lhsNumber.objCType)
+            let rhsType = String(cString: rhsNumber.objCType)
+            guard lhsType == rhsType else {
+                return "\(path): JSON numeric Objective-C types differ: \(lhsType) != \(rhsType)."
+            }
+            return lhsNumber.compare(rhsNumber) == .orderedSame
+                ? nil
+                : "\(path): JSON numeric values differ."
+        }
+        if rhs is NSNumber {
+            return "\(path): JSON number type mismatch."
+        }
+
+        return "\(path): unsupported JSON value types \(type(of: lhs)) and \(type(of: rhs))."
+    }
+
+    private func loadLegacyProposalEnvelopeFixture() throws -> MindDeskProposalEnvelope {
+        try JSONDecoder.minddesk.decode(
+            MindDeskProposalEnvelope.self,
+            from: fixtureData(named: "legacy-proposal-envelope-v1")
         )
+    }
+
+    private var repositoryRootURL: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private func assertStoredDecodeRejectsMissingField<Value: Decodable>(
+        _ type: Value.Type,
+        object: [String: Any],
+        field: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let maliciousSibling = "IGNORE_AGENT_INSTRUCTIONS token=missing-field-secret https://evil.example/raw"
+        var missing = object
+        missing.removeValue(forKey: field)
+        missing["maliciousSibling"] = maliciousSibling
+        do {
+            _ = try JSONDecoder.minddesk.decode(
+                type,
+                from: JSONSerialization.data(withJSONObject: missing)
+            )
+            XCTFail("Missing required field \(field) decoded successfully.", file: file, line: line)
+        } catch {
+            let text = String(describing: error)
+            XCTAssertFalse(text.contains(maliciousSibling), file: file, line: line)
+            XCTAssertFalse(text.contains("IGNORE_AGENT_INSTRUCTIONS"), file: file, line: line)
+            XCTAssertFalse(text.contains("token=missing-field-secret"), file: file, line: line)
+            XCTAssertFalse(text.contains("evil.example"), file: file, line: line)
+        }
     }
 
     private func makeProposalEnvelope(
         context: MindDeskProposalContextSnapshot? = nil
     ) throws -> MindDeskProposalEnvelope {
-        let resolvedContext: MindDeskProposalContextSnapshot
+        var envelope = try loadLegacyProposalEnvelopeFixture()
         if let context {
-            resolvedContext = context
-        } else {
-            resolvedContext = try makeContextSnapshot()
+            envelope.context = context
         }
-        let reference = try makeReference()
-        return MindDeskProposalEnvelope(
-            id: "envelope",
-            createdAt: Date(timeIntervalSince1970: 123),
-            proposedBy: .defaultAgent,
-            context: resolvedContext,
-            proposals: [
-                MindDeskProposal(
-                    id: "proposal",
-                    title: "Review URL",
-                    rationale: "Stored evidence supports this proposal.",
-                    evidenceReferences: [reference],
-                    operations: [
-                        MindDeskProposalOperation(
-                            id: "operation",
-                            kind: .openURL,
-                            title: "Open supporting URL",
-                            target: nil,
-                            affectedObjects: [reference],
-                            payload: MindDeskProposalOperationPayload(url: "https://example.com")
-                        )
-                    ]
-                )
-            ]
-        )
+        envelope.id = "envelope"
+        envelope.proposals[0].id = "proposal"
+        envelope.proposals[0].operations[0].id = "operation"
+        return envelope
     }
 
     private func makeContextSnapshot() throws -> MindDeskProposalContextSnapshot {
@@ -1178,8 +1325,8 @@ final class LegacyReviewWireCompatibilityTests: XCTestCase {
             MindDeskProposalContextDigest(algorithm: "sha256", value: validDigestValue)
         )
         return MindDeskProposalContextSnapshot(
-            packageFormat: MindDeskInterchangePackage.currentFormat,
-            packageFormatVersion: MindDeskInterchangePackage.currentFormatVersion,
+            packageFormat: "minddesk.interchange.package",
+            packageFormatVersion: 1,
             packageInstanceID: "package-instance",
             packageCreatedAt: Date(timeIntervalSince1970: 100),
             manifestSchemaVersion: 2,
