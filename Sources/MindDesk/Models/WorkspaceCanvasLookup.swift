@@ -1,4 +1,5 @@
 import Foundation
+import MindDeskCore
 import SwiftData
 
 enum WorkspaceCanvasLookup {
@@ -8,7 +9,17 @@ enum WorkspaceCanvasLookup {
                 canvas.workspaceId == workspaceId
             }
         )
-        descriptor.fetchLimit = 1
+        descriptor.sortBy = [SortDescriptor(\CanvasModel.id, comparator: .lexical)]
+        descriptor.fetchLimit = 2
         return descriptor
+    }
+
+    @MainActor
+    static func resolve(
+        for workspaceId: String,
+        in context: ModelContext
+    ) throws -> WorkspacePrimaryCanvasResolution {
+        let canvases = try context.fetch(descriptor(for: workspaceId))
+        return WorkspacePrimaryCanvasResolver.resolve(canvasIDs: canvases.map(\.id))
     }
 }

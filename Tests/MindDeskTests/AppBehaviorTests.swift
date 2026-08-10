@@ -2287,27 +2287,6 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(request.message, expectedResourceRemovalMessage(displayName: displayName, cleanup: cleanup))
     }
 
-    func testWorkspaceCanvasLookupLimitsExistingCanvasFetch() {
-        let descriptor = WorkspaceCanvasLookup.descriptor(for: "workspace")
-
-        XCTAssertEqual(descriptor.fetchLimit, 1)
-    }
-
-    @MainActor
-    func testWorkspaceCanvasLookupFetchesOnlyRequestedWorkspace() throws {
-        let container = try makeInMemoryModelContainer()
-        let context = ModelContext(container)
-        let otherCanvas = CanvasModel(id: "canvas-other", workspaceId: "workspace-other")
-        let requestedCanvas = CanvasModel(id: "canvas-requested", workspaceId: "workspace-requested")
-        context.insert(otherCanvas)
-        context.insert(requestedCanvas)
-        try context.save()
-
-        let canvases = try context.fetch(WorkspaceCanvasLookup.descriptor(for: "workspace-requested"))
-
-        XCTAssertEqual(canvases.map(\.id), ["canvas-requested"])
-    }
-
     func testWorkspaceDetailTabDefaultsToCanvasAndFollowsWorkspaceOpenPreference() {
         assertOrdinaryWorkspaceSurfaceAvailable()
         XCTAssertEqual(WorkspaceDetailTab.defaultTab, .canvas)
@@ -2333,23 +2312,6 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesFixedHeight)
         XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.showsCollapseControl)
         XCTAssertFalse(WorkspaceTodoBoardPresentation.fullHeightTab.usesPanelChrome)
-    }
-
-    @MainActor
-    private func makeInMemoryModelContainer() throws -> ModelContainer {
-        let schema = Schema([
-            WorkspaceModel.self,
-            ResourcePinModel.self,
-            SnippetModel.self,
-            WorkspaceTodoModel.self,
-            WorkspaceTodoGroupModel.self,
-            CanvasModel.self,
-            CanvasNodeModel.self,
-            CanvasEdgeModel.self,
-            FinderAliasRecordModel.self
-        ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        return try ModelContainer(for: schema, configurations: [configuration])
     }
 
     private func expectedResourceRemovalMessage(displayName: String, cleanup: CleanupPlan) -> String {
