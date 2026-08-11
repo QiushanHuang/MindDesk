@@ -204,6 +204,319 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertEqual(values, [2])
     }
 
+    @MainActor
+    func testCanvasWorldDerivedCacheReusesCameraOnlyReadsAndKeepsLiveModelReferences() throws {
+        let resource = ResourcePinModel(
+            id: "resource-a",
+            title: "Resource A",
+            targetType: .file,
+            displayPath: "/tmp/a.md",
+            lastResolvedPath: "/tmp/a.md",
+            scope: .global
+        )
+        let snippet = SnippetModel(
+            id: "snippet-a",
+            title: "Snippet A",
+            kind: .prompt,
+            body: "Before",
+            scope: .global
+        )
+        let resourceNode = CanvasNodeModel(
+            id: "node-resource",
+            canvasId: "canvas-a",
+            title: "Resource card",
+            body: "Before",
+            nodeType: .resource,
+            objectType: "resourcePin",
+            objectId: resource.id,
+            x: 10,
+            y: 20,
+            width: 214,
+            height: 132,
+            zIndex: 1
+        )
+        let snippetNode = CanvasNodeModel(
+            id: "node-snippet",
+            canvasId: "canvas-a",
+            title: "Snippet card",
+            nodeType: .snippet,
+            objectType: "snippet",
+            objectId: snippet.id,
+            x: 300,
+            y: 20,
+            width: 214,
+            height: 132,
+            zIndex: 2
+        )
+        let edge = CanvasEdgeModel(
+            id: "edge-a",
+            canvasId: "canvas-a",
+            sourceNodeId: resourceNode.id,
+            targetNodeId: snippetNode.id,
+            label: "Before"
+        )
+        let cache = CanvasWorldDerivedCache()
+
+        let first = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+        let cameraOnlyRead = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+
+        XCTAssertEqual(first.generation, 1)
+        XCTAssertEqual(cameraOnlyRead.generation, first.generation)
+        XCTAssertEqual(cameraOnlyRead.edgeIndexDiagnostics.buildCount, 1)
+        XCTAssertEqual(cameraOnlyRead.edgeIndexDiagnostics.reuseCount, 0)
+        XCTAssertTrue(cameraOnlyRead.snapshot.nodeById[resourceNode.id] === resourceNode)
+        XCTAssertTrue(cameraOnlyRead.snapshot.resource(for: resourceNode) === resource)
+        XCTAssertTrue(cameraOnlyRead.snapshot.snippet(for: snippetNode) === snippet)
+
+        resourceNode.title = "Resource card after"
+        resourceNode.body = "After"
+        resourceNode.updatedAt = resourceNode.updatedAt.addingTimeInterval(10)
+        resource.title = "Resource A after"
+        resource.updatedAt = resource.updatedAt.addingTimeInterval(10)
+        snippet.body = "After"
+        snippet.updatedAt = snippet.updatedAt.addingTimeInterval(10)
+        edge.label = "After"
+        edge.updatedAt = edge.updatedAt.addingTimeInterval(10)
+
+        let textOnlyRead = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+
+        XCTAssertEqual(textOnlyRead.generation, first.generation)
+        XCTAssertEqual(textOnlyRead.snapshot.nodeById[resourceNode.id]?.title, "Resource card after")
+        XCTAssertEqual(textOnlyRead.snapshot.resource(for: resourceNode)?.title, "Resource A after")
+        XCTAssertEqual(textOnlyRead.snapshot.snippet(for: snippetNode)?.body, "After")
+        XCTAssertEqual(textOnlyRead.snapshot.edgeById[edge.id]?.label, "After")
+    }
+
+    @MainActor
+    func testCanvasWorldDerivedCacheInvalidatesExactStructureGeometryAndOrderingChangesOnce() {
+        let resource = ResourcePinModel(
+            id: "resource-a",
+            title: "Resource A",
+            targetType: .file,
+            displayPath: "/tmp/a.md",
+            lastResolvedPath: "/tmp/a.md",
+            scope: .global
+        )
+        let snippet = SnippetModel(
+            id: "snippet-a",
+            title: "Snippet A",
+            kind: .prompt,
+            body: "Prompt",
+            scope: .global
+        )
+        let source = CanvasNodeModel(
+            id: "source",
+            canvasId: "canvas-a",
+            title: "Source",
+            nodeType: .resource,
+            objectType: "resourcePin",
+            objectId: resource.id,
+            x: 0,
+            y: 0,
+            width: 214,
+            height: 132,
+            zIndex: 1
+        )
+        let target = CanvasNodeModel(
+            id: "target",
+            canvasId: "canvas-a",
+            title: "Target",
+            nodeType: .snippet,
+            objectType: "snippet",
+            objectId: snippet.id,
+            x: 300,
+            y: 0,
+            width: 214,
+            height: 132,
+            zIndex: 2
+        )
+        let frame = CanvasNodeModel(
+            id: "frame",
+            canvasId: "canvas-a",
+            title: "Frame",
+            nodeType: .groupFrame,
+            x: -40,
+            y: -40,
+            width: 640,
+            height: 360,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let edge = CanvasEdgeModel(
+            id: "edge-a",
+            canvasId: "canvas-a",
+            sourceNodeId: source.id,
+            targetNodeId: target.id
+        )
+        let cache = CanvasWorldDerivedCache()
+        var nodes = [frame, source, target]
+        var resources = [resource]
+        var snippets = [snippet]
+        var edges = [edge]
+
+        var expectedGeneration = cache.state(
+            nodes: nodes,
+            resources: resources,
+            snippets: snippets,
+            edges: edges
+        ).generation
+
+        func expectOneRebuild(file: StaticString = #filePath, line: UInt = #line) {
+            expectedGeneration += 1
+            let rebuilt = cache.state(
+                nodes: nodes,
+                resources: resources,
+                snippets: snippets,
+                edges: edges
+            )
+            XCTAssertEqual(rebuilt.generation, expectedGeneration, file: file, line: line)
+            XCTAssertEqual(
+                cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges).generation,
+                expectedGeneration,
+                file: file,
+                line: line
+            )
+        }
+
+        source.x = 12
+        expectOneRebuild()
+
+        source.width = 220
+        expectOneRebuild()
+
+        source.zIndex = 4
+        expectOneRebuild()
+
+        nodes.swapAt(1, 2)
+        expectOneRebuild()
+
+        frame.updatedAt = frame.updatedAt.addingTimeInterval(1)
+        expectOneRebuild()
+
+        edge.sourceNodeId = frame.id
+        expectOneRebuild()
+
+        edge.controlPointX = 80
+        edge.controlPointY = 40
+        expectOneRebuild()
+
+        edges.append(CanvasEdgeModel(
+            id: "edge-b",
+            canvasId: "canvas-a",
+            sourceNodeId: source.id,
+            targetNodeId: target.id
+        ))
+        expectOneRebuild()
+
+        nodes.append(CanvasNodeModel(
+            id: "node-c",
+            canvasId: "canvas-a",
+            title: "C",
+            nodeType: .note,
+            x: 600,
+            y: 0
+        ))
+        expectOneRebuild()
+
+        resources.append(ResourcePinModel(
+            id: "resource-b",
+            title: "Resource B",
+            targetType: .file,
+            displayPath: "/tmp/b.md",
+            lastResolvedPath: "/tmp/b.md",
+            scope: .global
+        ))
+        expectOneRebuild()
+
+        let replacementResource = ResourcePinModel(
+            id: resource.id,
+            title: "Replacement resource",
+            targetType: .file,
+            displayPath: "/tmp/replacement.md",
+            lastResolvedPath: "/tmp/replacement.md",
+            scope: .global
+        )
+        resources[0] = replacementResource
+        expectOneRebuild()
+
+        let replacementSnippet = SnippetModel(
+            id: snippet.id,
+            title: "Replacement snippet",
+            kind: .prompt,
+            body: "Replacement",
+            scope: .global
+        )
+        snippets[0] = replacementSnippet
+        expectOneRebuild()
+
+        XCTAssertTrue(
+            cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges)
+                .snapshot.resourcesById[resource.id] === replacementResource
+        )
+        XCTAssertTrue(
+            cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges)
+                .snapshot.snippetsById[snippet.id] === replacementSnippet
+        )
+    }
+
+    @MainActor
+    func testCanvasWorldDerivedCacheUsesStableExactFloatingPointTokens() {
+        let node = CanvasNodeModel(
+            id: "node-a",
+            canvasId: "canvas-a",
+            title: "A",
+            nodeType: .note,
+            x: Double(bitPattern: 0x7ff8_0000_0000_0001),
+            y: 0
+        )
+        let cache = CanvasWorldDerivedCache()
+
+        let first = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+        let sameNaNPayload = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+
+        XCTAssertEqual(sameNaNPayload.generation, first.generation)
+
+        node.x = Double(bitPattern: 0x7ff8_0000_0000_0002)
+        let differentNaNPayload = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+
+        XCTAssertEqual(differentNaNPayload.generation, first.generation + 1)
+    }
+
+    func testCanvasWorldDerivedCacheIsWiredOutsideThePerFrameCameraPath() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("@State private var worldDerivedCache = CanvasWorldDerivedCache()"))
+        XCTAssertFalse(canvasSource.contains("edgeViewportIndexCache"))
+        XCTAssertFalse(canvasSource.contains("private var renderSnapshot:"))
+        XCTAssertTrue(canvasSource.contains("let worldState = worldDerivedCache.state("))
+        XCTAssertTrue(canvasSource.contains("let snapshot = worldState.snapshot"))
+        XCTAssertTrue(canvasSource.contains("let edgeIndex = worldState.edgeIndex"))
+        XCTAssertTrue(canvasSource.contains("cacheDiagnostics: worldState.edgeIndexDiagnostics"))
+        XCTAssertFalse(canvasSource.contains("snapshot.visibleEdges.map(canvasEdgeIndexRecord(for:))"))
+        XCTAssertFalse(canvasSource.contains("snapshot.workflowNodes.map(canvasEdgeIndexRect(for:))"))
+    }
+
     func testScrollWheelSequencePassThroughCacheResetsForNewBeganAndReusesChangedDecision() {
         let began = ScrollWheelEventSequencePolicy.descriptor(
             hasPreciseScrollingDeltas: true,

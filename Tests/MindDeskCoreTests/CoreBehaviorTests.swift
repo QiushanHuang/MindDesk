@@ -2006,6 +2006,34 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
+    func testCanvasEdgeViewportIndexCacheCanSuppressOnlyReuseLogEvents() {
+        var events: [MindDeskHiddenMaintenanceLogEvent] = []
+        let cache = CanvasEdgeViewportIndexCache(
+            logsReuseEvents: false,
+            logEvent: { events.append($0) }
+        )
+        let nodes = [
+            CanvasFrameRect(id: "a", x: 0, y: 0, width: 80, height: 80),
+            CanvasFrameRect(id: "b", x: 160, y: 0, width: 80, height: 80)
+        ]
+        let movedNodes = [
+            CanvasFrameRect(id: "a", x: 12, y: 0, width: 80, height: 80),
+            CanvasFrameRect(id: "b", x: 160, y: 0, width: 80, height: 80)
+        ]
+        let edges = [CanvasEdgeViewportRecord(id: "edge", sourceNodeID: "a", targetNodeID: "b")]
+
+        _ = cache.index(nodes: nodes, edges: edges, bucketSize: 128)
+        _ = cache.index(nodes: nodes, edges: edges, bucketSize: 128)
+        _ = cache.index(nodes: movedNodes, edges: edges, bucketSize: 128)
+
+        XCTAssertEqual(cache.diagnostics.buildCount, 2)
+        XCTAssertEqual(cache.diagnostics.reuseCount, 1)
+        XCTAssertEqual(
+            events.map { $0.action },
+            [.create, .cleanup, .create]
+        )
+    }
+
     func testCanvasEdgeViewportIndexCacheReusesStableNonFiniteNodeGeometryInputs() {
         let invalidNodes = [
             CanvasFrameRect(id: "a", x: .nan, y: 0, width: 80, height: 80),

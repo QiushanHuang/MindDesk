@@ -103,19 +103,6 @@ enum WorkspaceCanvasForceRetention {
     }
 }
 
-private struct CanvasEdgeSegment: Identifiable {
-    let id: String
-    let start: CGPoint
-    let end: CGPoint
-    let startDirection: CGPoint
-    let endDirection: CGPoint
-    let control: CGPoint?
-    let routePoints: [CGPoint]
-    let isControlPointLocked: Bool
-    let sourceArrowRaw: String
-    let targetArrowRaw: String
-}
-
 private struct CanvasNodeDeletionSnapshot {
     let id: String
     let canvasId: String
@@ -798,7 +785,7 @@ enum CanvasGlowTheme: String, CaseIterable, Identifiable {
     }
 }
 
-private enum CanvasNodeMetrics {
+enum CanvasNodeMetrics {
     static let cardWidth = 214.0
     static let cardHeight = 132.0
     static let cardMinWidth = 180.0
@@ -824,143 +811,6 @@ private enum CanvasNodeMetrics {
     static let scrollZoomCommitZoomEpsilon = 0.001
     static let scrollZoomCommitViewportEpsilon = 0.5
     static let textEditCommitDelayNanos: UInt64 = 350_000_000
-}
-
-private struct CanvasRenderSnapshot {
-    let workflowNodes: [CanvasNodeModel]
-    let nodeById: [String: CanvasNodeModel]
-    let resourcesById: [String: ResourcePinModel]
-    let snippetsById: [String: SnippetModel]
-    let visibleEdges: [CanvasEdgeModel]
-    let edgeById: [String: CanvasEdgeModel]
-    let frameNodes: [CanvasNodeModel]
-    let cardNodes: [CanvasNodeModel]
-
-    init(nodes: [CanvasNodeModel], resources: [ResourcePinModel], snippets: [SnippetModel], edges: [CanvasEdgeModel]) {
-        let uniqueNodes = Self.uniqueByID(nodes, id: \.id)
-        let nodeLookup = Dictionary(uniqueNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        workflowNodes = uniqueNodes
-        nodeById = nodeLookup
-        resourcesById = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        snippetsById = Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let validEdges = Self.uniqueByID(
-            edges.filter { nodeLookup[$0.sourceNodeId] != nil && nodeLookup[$0.targetNodeId] != nil },
-            id: \.id
-        )
-        visibleEdges = validEdges
-        edgeById = Dictionary(validEdges.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        frameNodes = uniqueNodes.filter { $0.nodeType == .groupFrame }.sorted { $0.updatedAt < $1.updatedAt }
-        cardNodes = uniqueNodes.filter { $0.nodeType != .groupFrame }.sorted { $0.zIndex < $1.zIndex }
-    }
-
-    private static func uniqueByID<T>(_ values: [T], id: (T) -> String) -> [T] {
-        var seen: Set<String> = []
-        return values.filter { seen.insert(id($0)).inserted }
-    }
-
-    func resource(for node: CanvasNodeModel) -> ResourcePinModel? {
-        guard node.objectType == "resourcePin", let objectId = node.objectId else { return nil }
-        return resourcesById[objectId]
-    }
-
-    func snippet(for node: CanvasNodeModel) -> SnippetModel? {
-        guard node.objectType == "snippet", let objectId = node.objectId else { return nil }
-        return snippetsById[objectId]
-    }
-
-    func edgeSegments(
-        targetClearance: Double,
-        routingClearance: Double,
-        usesObstacleRouting: Bool = true,
-        routingObstacleNodes: [CanvasNodeModel]? = nil,
-        rectFor: (CanvasNodeModel) -> CanvasFrameRect,
-        controlPointFor: (CanvasEdgeModel) -> CGPoint?,
-        candidateEdgeIDs: [String]? = nil,
-        shouldVisitEdge: ((CanvasEdgeModel) -> Bool)? = nil,
-        shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
-    ) -> [CanvasEdgeSegment] {
-        var nodeRects: [String: CanvasFrameRect] = [:]
-        func cachedRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-            if let rect = nodeRects[node.id] {
-                return rect
-            }
-            let rect = rectFor(node)
-            nodeRects[node.id] = rect
-            return rect
-        }
-
-        let obstacleRects: [(id: String, rect: CanvasFrameRect)] = usesObstacleRouting
-            ? (routingObstacleNodes ?? cardNodes).compactMap { node -> (id: String, rect: CanvasFrameRect)? in
-                guard node.nodeType != .groupFrame else { return nil }
-                return (id: node.id, rect: cachedRect(for: node))
-            }
-            : []
-        let segmentEdges = candidateEdgeIDs.map { ids in
-            ids.compactMap { edgeById[$0] }
-        } ?? visibleEdges
-        return segmentEdges.compactMap { edge -> CanvasEdgeSegment? in
-            if let shouldVisitEdge, !shouldVisitEdge(edge) {
-                return nil
-            }
-            guard let source = nodeById[edge.sourceNodeId],
-                  let target = nodeById[edge.targetNodeId] else {
-                return nil
-            }
-            let sourceRect = cachedRect(for: source)
-            let targetRect = cachedRect(for: target)
-            let control = controlPointFor(edge)
-            if let shouldIncludeEdge, !shouldIncludeEdge(edge, sourceRect, targetRect, control) {
-                return nil
-            }
-            let controlPoint = control.map { CanvasEdgePoint(x: $0.x, y: $0.y) }
-            let anchors = CanvasEdgeAnchoring.anchors(
-                source: sourceRect,
-                target: targetRect,
-                control: controlPoint,
-                targetClearance: targetClearance
-            )
-            let routePoints: [CanvasEdgePoint]
-            if usesObstacleRouting {
-                let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
-                    obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
-                }
-                if let controlPoint {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        waypoints: [controlPoint],
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                } else {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                }
-            } else {
-                routePoints = []
-            }
-            return CanvasEdgeSegment(
-                id: edge.id,
-                start: CGPoint(x: anchors.start.x, y: anchors.start.y),
-                end: CGPoint(x: anchors.end.x, y: anchors.end.y),
-                startDirection: CGPoint(x: anchors.startDirection.x, y: anchors.startDirection.y),
-                endDirection: CGPoint(x: anchors.endDirection.x, y: anchors.endDirection.y),
-                control: control,
-                routePoints: routePoints.map { CGPoint(x: $0.x, y: $0.y) },
-                isControlPointLocked: CanvasEdgeStyleOptions.isControlPointLocked(edge.style),
-                sourceArrowRaw: edge.sourceArrowRaw,
-                targetArrowRaw: edge.targetArrowRaw
-            )
-        }
-    }
 }
 
 private struct CanvasNodeDragSnapshot {
@@ -1043,7 +893,7 @@ struct WorkspaceCanvasView: View {
     @State private var frameDragControlPointEdgeIDs: Set<String> = []
     @State private var frameDragControlPointSnapshotsByID: [String: CanvasEdgeControlPointSnapshot] = [:]
     @State private var canvasSurfaceSize: CGSize = .zero
-    @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
+    @State private var worldDerivedCache = CanvasWorldDerivedCache()
     @State private var webCardDraft = ""
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
     @Environment(\.undoManager) private var undoManager
@@ -1097,15 +947,15 @@ struct WorkspaceCanvasView: View {
     }
 
     private var workflowNodeById: [String: CanvasNodeModel] {
-        Dictionary(workflowNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.nodeById
     }
 
     private var resourcesById: [String: ResourcePinModel] {
-        Dictionary(allResources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.resourcesById
     }
 
     private var snippetsById: [String: SnippetModel] {
-        Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.snippetsById
     }
 
     private var workspacesById: [String: WorkspaceModel] {
@@ -1113,8 +963,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private var visibleEdges: [CanvasEdgeModel] {
-        let nodeIDs = Set(workflowNodes.map(\.id))
-        return edges.filter { nodeIDs.contains($0.sourceNodeId) && nodeIDs.contains($0.targetNodeId) }
+        cachedRenderSnapshot.visibleEdges
     }
 
     private var glowTheme: CanvasGlowTheme {
@@ -1165,8 +1014,13 @@ struct WorkspaceCanvasView: View {
         )
     }
 
-    private var renderSnapshot: CanvasRenderSnapshot {
-        CanvasRenderSnapshot(nodes: workflowNodes, resources: allResources, snippets: snippets, edges: edges)
+    private var cachedRenderSnapshot: CanvasRenderSnapshot {
+        worldDerivedCache.state(
+            nodes: workflowNodes,
+            resources: allResources,
+            snippets: snippets,
+            edges: edges
+        ).snapshot
     }
 
     private var nodeInteractionHitPadding: CGFloat {
@@ -1800,7 +1654,13 @@ struct WorkspaceCanvasView: View {
 
     private var canvasSurface: some View {
         GeometryReader { proxy in
-            let snapshot = renderSnapshot
+            let worldState = worldDerivedCache.state(
+                nodes: workflowNodes,
+                resources: allResources,
+                snippets: snippets,
+                edges: edges
+            )
+            let snapshot = worldState.snapshot
             let nodeVisibleRect = visibleScreenRect(for: proxy.size)
             let edgeVisibleRect = edgeVisibleScreenRect(for: proxy.size)
             let visibleFrameNodes = snapshot.frameNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
@@ -1811,14 +1671,10 @@ struct WorkspaceCanvasView: View {
                 .union(resizingNodeId.map { [$0] } ?? [])
             let transientControlEdgeIDs = Set(transientEdgeControlPoints.keys).union(edgeControlDragStart.keys)
             let isGeometryEdgeCulled = !movingNodeIDs.isEmpty || !edgeControlDragStart.isEmpty
-            let edgeIndexRecords = snapshot.visibleEdges.map(canvasEdgeIndexRecord(for:))
-            let edgeIndex = edgeViewportIndexCache.index(
-                nodes: snapshot.workflowNodes.map(canvasEdgeIndexRect(for:)),
-                edges: edgeIndexRecords
-            )
+            let edgeIndex = worldState.edgeIndex
             let edgeVisibilityPlan = CanvasEdgeVisibilityPlanner.plan(
                 edgeIndex: edgeIndex,
-                cacheDiagnostics: edgeViewportIndexCache.diagnostics,
+                cacheDiagnostics: worldState.edgeIndexDiagnostics,
                 viewport: canvasViewportRectRecord(for: edgeVisibleRect),
                 overscan: canvasEdgeVisibilityOverscan,
                 selectedEdgeIDs: selectedEdgeIDs,
@@ -2373,31 +2229,6 @@ struct WorkspaceCanvasView: View {
             y: min(topLeft.y, bottomRight.y),
             width: abs(bottomRight.x - topLeft.x),
             height: abs(bottomRight.y - topLeft.y)
-        )
-    }
-
-    private func canvasEdgeIndexRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-        let size = committedNodeSize(for: node)
-        return CanvasFrameRect(
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    private func canvasEdgeIndexRecord(for edge: CanvasEdgeModel) -> CanvasEdgeViewportRecord {
-        let controlPoint: CanvasEdgePoint? = if let x = edge.controlPointX, let y = edge.controlPointY {
-            CanvasEdgePoint(x: x, y: y)
-        } else {
-            nil
-        }
-        return CanvasEdgeViewportRecord(
-            id: edge.id,
-            sourceNodeID: edge.sourceNodeId,
-            targetNodeID: edge.targetNodeId,
-            controlPoint: controlPoint
         )
     }
 
@@ -3222,7 +3053,7 @@ struct WorkspaceCanvasView: View {
         } else {
             baseNodes = [node]
         }
-        let cards = renderSnapshot.cardNodes
+        let cards = cachedRenderSnapshot.cardNodes
         let frameRectsByID = Dictionary(
             workflowNodes
                 .filter { $0.nodeType == .groupFrame }

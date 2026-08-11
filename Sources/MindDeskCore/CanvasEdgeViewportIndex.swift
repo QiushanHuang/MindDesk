@@ -470,14 +470,17 @@ public final class CanvasEdgeViewportIndexCache {
 
     private var signature: Signature?
     private var cachedIndex: CanvasEdgeViewportIndex?
+    private let logsReuseEvents: Bool
     private let logEvent: LogEventHandler
     public private(set) var diagnostics: CanvasEdgeViewportIndexCacheDiagnostics
 
     public init(
         diagnostics: CanvasEdgeViewportIndexCacheDiagnostics = CanvasEdgeViewportIndexCacheDiagnostics(),
+        logsReuseEvents: Bool = true,
         logEvent: LogEventHandler? = nil
     ) {
         self.diagnostics = diagnostics
+        self.logsReuseEvents = logsReuseEvents
         self.logEvent = logEvent ?? MindDeskHiddenMaintenanceLogger.log
     }
 
@@ -498,7 +501,9 @@ public final class CanvasEdgeViewportIndexCache {
 
         if signature == nextSignature, let cachedIndex {
             diagnostics.reuseCount += 1
-            logEvent(.canvasEdgeViewportIndexCacheReused(reuseCount: diagnostics.reuseCount))
+            if logsReuseEvents {
+                logEvent(.canvasEdgeViewportIndexCacheReused(reuseCount: diagnostics.reuseCount))
+            }
             return cachedIndex
         }
 
