@@ -2304,6 +2304,33 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(WorkspaceDetailTab.canvas.activatesCanvas)
     }
 
+    func testWorkspaceOverviewRouteRendersCurrentOverviewWhenCanvasIsUnavailable() throws {
+        XCTAssertFalse(WorkspaceDetailTab.overview.activatesCanvas)
+
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let contentViewSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Views/ContentView.swift"),
+            encoding: .utf8
+        )
+        let overviewStart = try XCTUnwrap(contentViewSource.range(of: "            case .overview:"))
+        let tasksStart = try XCTUnwrap(
+            contentViewSource.range(of: "            case .tasks:", range: overviewStart.upperBound..<contentViewSource.endIndex)
+        )
+        let canvasStart = try XCTUnwrap(
+            contentViewSource.range(of: "            case .canvas:", range: tasksStart.upperBound..<contentViewSource.endIndex)
+        )
+        let overviewRoute = String(contentViewSource[overviewStart.lowerBound..<tasksStart.lowerBound])
+        let canvasRoute = String(contentViewSource[canvasStart.lowerBound...])
+
+        XCTAssertTrue(overviewRoute.contains("WorkspaceResumeBriefView("))
+        XCTAssertFalse(overviewRoute.contains("primaryCanvasAvailability"))
+        XCTAssertFalse(overviewRoute.contains("primaryCanvasUnavailableView"))
+        XCTAssertTrue(canvasRoute.contains("primaryCanvasUnavailableView"))
+    }
+
     func testWorkspaceTodoBoardPresentationSeparatesCanvasPanelFromFullHeightTab() {
         XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.usesFixedHeight)
         XCTAssertTrue(WorkspaceTodoBoardPresentation.canvasPanel.showsCollapseControl)

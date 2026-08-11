@@ -5706,182 +5706,110 @@ final class CoreBehaviorTests: XCTestCase {
 
 
 
-    func testAgentReviewHelpTopicsContractIsDocumentedForHumansAndAgents() throws {
+    func testCanvasReviewOffNoticeHasExactApprovedDocumentationPlacement() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+        let englishNotice = "**Canvas Review is currently off.** This version does not start an Agent or review helper, generate an AI context package, or provide Canvas content to a model through this feature. MindDesk's normal storage, system backup, sync, and any external services you use remain subject to their own privacy settings."
+        let chineseNotice = "**Canvas Review 当前处于关闭状态。** 此版本不会通过该功能启动 Agent 或审阅助手、生成 AI 上下文包，也不会向模型提供 Canvas 内容。MindDesk 的常规存储、系统备份、同步以及您使用的任何外部服务，仍受其各自隐私设置约束。"
+        let expectedEnglishPlacements = [
+            ("README.md", "### Data, Privacy, and Reliability"),
+            ("docs/user-manual.md", "## Safety Boundary Quick Reference"),
+            ("docs/releases/v3.0.0.md", "## Current capability notice"),
+            ("docs/feature-checklist.md", "# MindDesk 功能回归清单")
+        ]
+
+        for (relativePath, heading) in expectedEnglishPlacements {
+            let document = try String(
+                contentsOf: repositoryRoot.appendingPathComponent(relativePath),
+                encoding: .utf8
+            )
+            XCTAssertEqual(
+                document.components(separatedBy: englishNotice).count - 1,
+                1,
+                "\(relativePath) must contain the canonical English notice exactly once."
+            )
+            let headingRange = try XCTUnwrap(document.range(of: heading), "\(relativePath) missing \(heading)")
+            let noticeRange = try XCTUnwrap(document.range(of: englishNotice), "\(relativePath) missing canonical notice")
+            XCTAssertLessThan(headingRange.lowerBound, noticeRange.lowerBound, "\(relativePath) notice must follow \(heading).")
+        }
+
         let readme = try String(
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
         )
-        let checklist = try String(
-            contentsOf: repositoryRoot.appendingPathComponent("docs/feature-checklist.md"),
+        XCTAssertEqual(readme.components(separatedBy: chineseNotice).count - 1, 1)
+        let chineseHeading = try XCTUnwrap(readme.range(of: "### 数据、隐私与稳定性"))
+        let chineseNoticeRange = try XCTUnwrap(readme.range(of: chineseNotice))
+        XCTAssertLessThan(chineseHeading.lowerBound, chineseNoticeRange.lowerBound)
+
+        let changelog = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("CHANGELOG.md"),
             encoding: .utf8
         )
+        XCTAssertFalse(changelog.contains(englishNotice), "CHANGELOG carries a historical note, not the current privacy notice.")
+        XCTAssertFalse(changelog.contains(chineseNotice))
+    }
 
-        for required in [
-            "helpTopics",
-            "curated",
-            "non-authoritative retrieval help",
-            "MindDeskAgentWorkflowSearchRequest",
-            "MindDeskAgentWorkflowSearch.response(request:)",
-            "response(package:request:)",
-            "minddesk.agent.workflow.search.response",
-            "MindDeskHelpSearchRequest",
-            "minddesk.help.search.response",
-            "MindDeskExtensionCapabilitySearchRequest",
-            "MindDeskExtensionCapabilitySearch.response(request:)",
-            "minddesk.extension.capability.search.response",
-            "helpLimit",
-            "capabilityLimit",
-            "includeMetaActions",
-            "query cap",
-            "limit cap",
-            "bounded read-only retrieval result",
-            "does not override validationReport",
-            "agentIntegrationContract",
-            "extensionCapabilities",
-            "serialized `validationReport`",
-            "MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)",
-            "Forged source-package authority mirrors",
-            "`agentIntegrationContract` drift",
-            "top-level `agentPolicy`",
-            "top-level `externalActionPolicy`",
-            "`package.validation-report.*` diagnostics",
-            "Missing raw authority mirrors",
-            "`contract.raw.missing`",
-            "`package.agent-policy.missing`",
-            "`package.external-action-policy.missing`",
-            "`capability-catalog.raw.missing`",
-            "Top-level `helpTopics` are ignored/replaced",
-            "Top-level `agentGuide` defaults are regenerated",
-            "agentPolicy",
-            "externalActionPolicy",
-            "in-app confirmation",
-            "explicit immediate in-app confirmation",
-            "outside the proposal review sheet",
-            "approval is not authorization"
-        ] {
-            XCTAssertTrue(readme.contains(required), "README missing Agent Review helpTopics contract: \(required)")
+    func testCurrentCapabilityDocumentationContainsNoActionableAgentCodexOrProposalReviewInstructions() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        var currentDocuments = try [
+            "README.md",
+            "docs/user-manual.md",
+            "docs/feature-checklist.md"
+        ].map { relativePath in
+            (relativePath, try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8))
         }
-        XCTAssertTrue(
-            readme.contains("id, title, summary, bodyMarkdown, keywords, relatedObjectRefs, and category"),
-            "README must document every runtime-searchable helpTopics field, including id."
+        let release = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/releases/v3.0.0.md"),
+            encoding: .utf8
         )
-        let chineseAgentReviewSection = try XCTUnwrap(
-            readme
-                .components(separatedBy: "### Agent Review 工作流")
-                .dropFirst()
-                .first?
-                .components(separatedBy: "###")
-                .first,
-            "README missing Chinese Agent Review workflow section."
-        )
-        for required in [
-            "approval is not authorization",
-            "explicit immediate in-app confirmation",
-            "outside the proposal review sheet",
-            "accepted proposal JSON fields",
-            "MindDeskAgentWorkflowSearchRequest",
-            "MindDeskAgentWorkflowSearch.response(request:)",
-            "response(package:request:)",
-            "minddesk.agent.workflow.search.response",
-            "MindDeskHelpSearchRequest",
-            "minddesk.help.search.response",
-            "MindDeskExtensionCapabilitySearchRequest",
-            "MindDeskExtensionCapabilitySearch.response(request:)",
-            "minddesk.extension.capability.search.response",
-            "helpLimit",
-            "capabilityLimit",
-            "includeMetaActions",
-            "query cap",
-            "limit cap",
-            "Review Agent Proposal sheet 是 human review surface only"
-        ] {
-            XCTAssertTrue(
-                chineseAgentReviewSection.contains(required),
-                "README Chinese Agent Review section missing boundary text: \(required)"
-            )
-        }
-        XCTAssertTrue(
-            chineseAgentReviewSection.contains("id、title、summary、bodyMarkdown、keywords、relatedObjectRefs 和 category"),
-            "README Chinese Agent Review section must document every runtime-searchable helpTopics field, including id."
-        )
+        let historicalBoundary = try XCTUnwrap(release.range(of: "## Historical / no longer current"))
+        currentDocuments.append(("docs/releases/v3.0.0.md (current)", String(release[..<historicalBoundary.lowerBound])))
 
-        for required in [
-            "helpTopics",
-            "agent-readonly-mip",
-            "agent-prompt-workflow",
-            "agent-extension-capabilities",
-            "agent-proposal-review",
-            "import-export",
-            "canvas-performance",
-            "validationReport.redactionPolicy",
-            "forged validationReport",
-            "validationReport drift",
-            "package.validation-report.missing",
-            "package.validation-report.mismatch",
-            "missing raw authority mirrors",
-            "missing agentIntegrationContract",
-            "contract.raw.missing",
-            "missing agentPolicy",
-            "package.agent-policy.missing",
-            "missing externalActionPolicy",
-            "package.external-action-policy.missing",
-            "missing extensionCapabilities",
-            "capability-catalog.raw.missing",
-            "MindDeskProposalReviewGate.evaluate(proposalEnvelopeData:sourcePackageData:gatedAt:)",
-            "proposal.runCommand",
-            "proposal JSON schema",
-            "accepted proposal JSON fields",
-            "required proposal JSON fields",
-            "schema is for review only",
-            "duplicateEdgeCount",
-            "forged extensionCapabilities",
-            "forged agentIntegrationContract",
-            "forged agentPolicy",
-            "forged externalActionPolicy",
-            "extensionCapabilityCatalog",
-            "contract.*.mismatch",
-            "explicit immediate in-app confirmation",
-            "outside the proposal review sheet",
-            "approval is not authorization",
-            "reader sections",
-            "presentation-only",
-            "single Overview",
-            "bounded Details sections",
-            "not encoded into `.mip.json` `helpTopics`",
-            "`id`、`title`、`summary`、`bodyMarkdown`、`keywords`、`relatedObjectRefs` 和 `category`",
-            "篡改",
-            "授权"
-        ] {
-            XCTAssertTrue(checklist.contains(required), "Feature checklist missing Agent Review helpTopics regression item: \(required)")
+        for (relativePath, document) in currentDocuments {
+            for forbidden in [
+                "Export Agent Review Package",
+                "Review Agent Proposal",
+                "Start Canvas Codex",
+                "Resume Canvas Codex",
+                "Canvas Codex",
+                "Codex session",
+                "Agent Review Package",
+                "Proposal Review",
+                "minddesk.proposal.envelope",
+                ".mip.json"
+            ] {
+                XCTAssertFalse(document.contains(forbidden), "\(relativePath) still gives current instructions for removed capability: \(forbidden)")
+            }
         }
-        let checklistLowercased = checklist.lowercased()
-        for forbidden in [
-            "input signature",
-            "cache signature",
-            "inputsignature",
-            "fingerprint"
-        ] {
-            XCTAssertFalse(
-                checklistLowercased.contains(forbidden),
-                "Feature checklist should not require public cache fingerprint diagnostics: \(forbidden)"
-            )
-        }
-        for required in [
-            "buildcount",
-            "reusecount",
-            "lastinvalidationreason",
-            "non-finite node geometry",
-            "ignored control point"
-        ] {
-            XCTAssertTrue(
-                checklistLowercased.contains(required),
-                "Feature checklist missing aggregate cache diagnostics contract: \(required)"
-            )
-        }
+    }
+
+    func testV3ReleaseNotesPlaceRetiredAgentMaterialBelowSingleHistoricalBoundary() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let release = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("docs/releases/v3.0.0.md"),
+            encoding: .utf8
+        )
+        let boundary = "## Historical / no longer current"
+        XCTAssertEqual(release.components(separatedBy: boundary).count - 1, 1)
+        let parts = release.components(separatedBy: boundary)
+        let current = try XCTUnwrap(parts.first)
+        let historical = try XCTUnwrap(parts.last)
+
+        XCTAssertTrue(current.contains("## Current capability notice"))
+        XCTAssertTrue(current.contains("**Canvas Review is currently off.**"))
+        XCTAssertFalse(current.contains(".mip.json"))
+        XCTAssertFalse(current.contains("Proposal Review"))
+        XCTAssertTrue(historical.contains("Agent Review"), "Retired release material must remain visibly historical.")
+        XCTAssertTrue(historical.contains("Proposal Review"), "Retired proposal material must remain visibly historical.")
     }
 
     func testSettingsResetDescriptorContractIsDocumentedInFeatureChecklist() throws {
@@ -5898,7 +5826,6 @@ final class CoreBehaviorTests: XCTestCase {
             "Reset All Settings",
             "shared reset descriptor",
             "default values",
-            "Custom Agent Review Guidance",
             "obsolete settings keys",
             "workspaces",
             "resources",

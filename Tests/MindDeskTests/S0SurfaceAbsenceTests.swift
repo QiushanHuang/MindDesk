@@ -4,6 +4,24 @@ import XCTest
 @testable import MindDesk
 
 final class S0SurfaceAbsenceTests: XCTestCase {
+    func testCanvasReviewOffNoticeIsAbsentFromProductSourcesDefaultHelpOnboardingMenusAndRails() throws {
+        let rule = "A122"
+        let root = try repositoryRoot(rule: rule)
+        let productDocuments = try productionSwiftDocuments(root: root, rule: rule)
+            + resourceDocuments(root: root, rule: rule)
+        let notices = [
+            "**Canvas Review is currently off.** This version does not start an Agent or review helper, generate an AI context package, or provide Canvas content to a model through this feature. MindDesk's normal storage, system backup, sync, and any external services you use remain subject to their own privacy settings.",
+            "**Canvas Review 当前处于关闭状态。** 此版本不会通过该功能启动 Agent 或审阅助手、生成 AI 上下文包，也不会向模型提供 Canvas 内容。MindDesk 的常规存储、系统备份、同步以及您使用的任何外部服务，仍受其各自隐私设置约束。"
+        ]
+
+        for notice in notices {
+            XCTAssertTrue(
+                sourceOccurrences(of: notice, in: productDocuments).isEmpty,
+                "[\(rule)] current privacy documentation must not appear in product UI, default Help, onboarding, menus, or rails."
+            )
+        }
+    }
+
     func testDeletedReviewRuntimePathsAndResourceMarkersAreAbsent() throws {
         let rule = "A024"
         let root = try repositoryRoot(rule: rule)

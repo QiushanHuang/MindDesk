@@ -1,5 +1,7 @@
 # Changelog
 
+> Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
+
 ## 2026-06-27 - v3.0.0 foundation documentation and ad-hoc packaging
 
 ### Added
