@@ -290,7 +290,7 @@ python3 - \
   "$BUILT_BINARY" \
   "$description_hash_before" \
   "$S0_PACKAGE_MANIFEST_SHA256" \
-  "$S0_RESOURCE_ACCESSOR_NORMALIZED_SHA256" \
+  "$S0_RESOURCE_ACCESSOR_NORMALIZED_SHA256S" \
   "$WORK_DIR/normalized-build-plan.json" \
   "$WORK_DIR/source-policy-evidence.json" <<'PY'
 import hashlib
@@ -308,13 +308,14 @@ import sys
     binary_path,
     build_description_hash,
     manifest_hash,
-    expected_generated_hash,
+    expected_generated_hashes,
     normalized_output,
     policy_output,
 ) = sys.argv[1:]
 repo = os.path.realpath(repo)
 scratch_argument = scratch
 scratch = os.path.realpath(scratch)
+expected_generated_hashes = set(expected_generated_hashes.split())
 
 def load_strict(path):
     def pairs(values):
@@ -422,8 +423,11 @@ for module in sorted(production_commands):
             module_sources.append({"path": repo_relative, "sha256": sha(source)})
         elif scratch_relative is not None and scratch_relative.endswith("/release/MindDesk.build/DerivedSources/resource_bundle_accessor.swift"):
             normalized_hash = sha(source, "${SCRATCH}")
-            if normalized_hash != expected_generated_hash:
-                raise SystemExit("S0 verification failed: generated resource accessor does not match frozen template")
+            if normalized_hash not in expected_generated_hashes:
+                raise SystemExit(
+                    "S0 verification failed: generated resource accessor does not match an approved toolchain template "
+                    f"(normalized SHA-256: {normalized_hash})"
+                )
             generated_sources.append({"path": "${SCRATCH}/" + scratch_relative, "normalizedSha256": normalized_hash})
             module_sources.append({"path": "${SCRATCH}/" + scratch_relative, "normalizedSha256": normalized_hash})
         else:
