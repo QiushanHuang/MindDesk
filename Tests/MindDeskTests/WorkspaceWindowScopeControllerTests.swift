@@ -1190,6 +1190,7 @@ private let task8MinimalControllerData = Data(
         @Published private(set) var pendingFocus: WorkspaceFocusScopeIdentity?
         @Published private(set) var boundCanvas: WorkspaceCanvasScopeIdentity?
         @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
+        private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
 
         private struct CancellationRegistration {
             let scope: WorkspaceScopeOperationIdentity
@@ -1358,6 +1359,61 @@ private let task8MinimalControllerData = Data(
             primaryResolution = nil
             pendingFocus = nil
             cancel(detachedRegistrations)
+        }
+
+        func resolutionSlotMatches(
+            attempt: WorkspacePrimaryCanvasResolutionAttempt,
+            operationID: Foundation.UUID
+        ) -> Bool {
+            primaryCanvasResolutionSlot?.attempt == attempt
+                && primaryCanvasResolutionSlot?.operationID == operationID
+        }
+
+        func installPrimaryCanvasResolutionSlot(
+            _ slot: WorkspacePrimaryCanvasResolutionSlot
+        ) -> WorkspacePrimaryCanvasResolutionSlot? {
+            let displacedSlot = primaryCanvasResolutionSlot
+            primaryCanvasResolutionSlot = slot
+            return displacedSlot
+        }
+
+        func replacePrimaryCanvasResolutionAttempt(
+            _ attempt: WorkspacePrimaryCanvasResolutionAttempt,
+            operationID: Foundation.UUID
+        ) -> Bool {
+            guard var slot = primaryCanvasResolutionSlot,
+                  slot.operationID == operationID
+            else {
+                return false
+            }
+            slot.attempt = attempt
+            primaryCanvasResolutionSlot = slot
+            return true
+        }
+
+        func clearPrimaryCanvasResolutionSlot(
+            attempt: WorkspacePrimaryCanvasResolutionAttempt,
+            operationID: Foundation.UUID
+        ) -> Bool {
+            guard resolutionSlotMatches(
+                attempt: attempt,
+                operationID: operationID
+            ) else {
+                return false
+            }
+            primaryCanvasResolutionSlot = nil
+            return true
+        }
+
+        func cancelPrimaryCanvasResolutionSlot(operationID: Foundation.UUID) {
+            guard var slot = primaryCanvasResolutionSlot,
+                  slot.operationID == operationID
+            else {
+                return
+            }
+            slot.cancellationObserved = true
+            primaryCanvasResolutionSlot = nil
+            slot.task.cancel()
         }
 
         private func accepts(_ scope: WorkspaceScopeOperationIdentity) -> Bool {
