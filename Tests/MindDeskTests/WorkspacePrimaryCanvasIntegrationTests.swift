@@ -687,6 +687,288 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
         )
     }
 
+    func testInitialLookupRequiresExactAttemptFocusAndFingerprintAndClearsBeforeBind() async throws {
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let store = ScriptedPrimaryCanvasStore(
+            initial: [.unique(canvasID: "canvas-A")]
+        )
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: "fingerprint-A",
+                store: store.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        XCTAssertNil(controller.primaryCanvasResolutionSlot)
+        XCTAssertEqual(controller.primaryResolution, .unique(canvasID: "canvas-A"))
+        XCTAssertEqual(controller.boundCanvas?.canvasID, "canvas-A")
+        XCTAssertEqual(store.initialLookupCount, 1)
+
+        let staleController = WorkspaceWindowScopeController()
+        let staleFocus = staleController.focus(workspaceID: "workspace-A")
+        let staleStore = ScriptedPrimaryCanvasStore(
+            initial: [.unique(canvasID: "canvas-stale")]
+        )
+        staleStore.onLookup = { phase in
+            if phase == .initialLookup {
+                _ = staleController.focus(workspaceID: "workspace-B")
+            }
+        }
+        _ = try XCTUnwrap(
+            staleController.startPrimaryCanvasResolution(
+                for: staleFocus,
+                fingerprint: "fingerprint-stale",
+                store: staleStore.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(staleController)
+        XCTAssertNil(staleController.primaryResolution)
+        XCTAssertNil(staleController.boundCanvas)
+    }
+
+    func testMissingInitialResultProvisionsUsingFocusReturnedByBind() async throws {
+        let controller = WorkspaceWindowScopeController()
+        let capturedFocus = controller.focus(workspaceID: "workspace-A")
+        _ = controller.bind(.unique(canvasID: "canvas-old"), for: capturedFocus)
+        let store = ScriptedPrimaryCanvasStore(
+            initial: [.missing],
+            preInsert: [.unique(canvasID: "canvas-race")]
+        )
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: capturedFocus,
+                fingerprint: "fingerprint-A",
+                store: store.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        let finalFocus = try XCTUnwrap(controller.pendingFocus)
+        XCTAssertNotEqual(finalFocus, capturedFocus)
+        XCTAssertEqual(controller.boundCanvas?.canvasID, "canvas-race")
+        XCTAssertEqual(store.preInsertLookupCount, 1)
+        XCTAssertEqual(store.insertCount, 0)
+    }
+
+    func testPreInsertUniqueOrDuplicateBindsWithoutInsert() async throws {
+        for resolution in [
+            WorkspacePrimaryCanvasResolution.unique(canvasID: "canvas-A"),
+            .duplicate(canvasIDs: ["canvas-A", "canvas-B"]),
+        ] {
+            let controller = WorkspaceWindowScopeController()
+            let focus = controller.focus(workspaceID: "workspace-A")
+            let store = ScriptedPrimaryCanvasStore(
+                initial: [.missing],
+                preInsert: [resolution]
+            )
+
+            _ = try XCTUnwrap(
+                controller.startPrimaryCanvasResolution(
+                    for: focus,
+                    fingerprint: "fingerprint-A",
+                    store: store.store
+                )
+            )
+            await waitForPrimaryCanvasPipelineToSettle(controller)
+
+            XCTAssertEqual(controller.primaryResolution, resolution)
+            XCTAssertEqual(store.insertCount, 0)
+            XCTAssertEqual(store.saveCount, 0)
+            XCTAssertEqual(store.postSaveLookupCount, 0)
+        }
+    }
+
+    func testConsecutiveMissingPerformsExactlyOneAtomicInsertAndSave() async throws {
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let store = ScriptedPrimaryCanvasStore(
+            initial: [.missing],
+            preInsert: [.missing],
+            postSave: [.unique(canvasID: "canvas-created")]
+        )
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: "fingerprint-A",
+                store: store.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        XCTAssertEqual(store.initialLookupCount, 1)
+        XCTAssertEqual(store.preInsertLookupCount, 1)
+        XCTAssertEqual(store.insertCount, 1)
+        XCTAssertEqual(store.saveCount, 1)
+        XCTAssertEqual(store.postSaveLookupCount, 1)
+        XCTAssertEqual(controller.boundCanvas?.canvasID, "canvas-created")
+    }
+
+    func testProvisioningUsesIsolatedAutosaveDisabledContextWithoutSavingOrRollingBackSceneChanges() async throws {
+        let schema = Schema([CanvasModel.self])
+        let configuration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: true
+        )
+        let container = try ModelContainer(
+            for: schema,
+            configurations: [configuration]
+        )
+        let sceneContext = ModelContext(container)
+        sceneContext.autosaveEnabled = false
+        sceneContext.insert(
+            CanvasModel(id: "scene-unsaved", workspaceId: "workspace-scene")
+        )
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-A")
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: "fingerprint-A",
+                store: .live(container: container)
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        XCTAssertTrue(sceneContext.hasChanges)
+        let verificationContext = ModelContext(container)
+        XCTAssertEqual(
+            try WorkspaceCanvasLookup.resolve(
+                for: "workspace-A",
+                in: verificationContext
+            ),
+            .unique(canvasID: try XCTUnwrap(controller.boundCanvas?.canvasID))
+        )
+        XCTAssertEqual(
+            try WorkspaceCanvasLookup.resolve(
+                for: "workspace-scene",
+                in: verificationContext
+            ),
+            .missing
+        )
+        let lookupSource = try integrationRepositorySource(
+            "Sources/MindDesk/Models/WorkspaceCanvasLookup.swift"
+        )
+        XCTAssertTrue(lookupSource.contains("autosaveEnabled = false"))
+        XCTAssertFalse(lookupSource.contains(".rollback()"))
+    }
+
+    func testPostSaveHandoffKeepsOperationWithFreshRequestIDAndDifferentContext() async throws {
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let store = ScriptedPrimaryCanvasStore(
+            initial: [.missing],
+            preInsert: [.missing],
+            postSave: [.missing]
+        )
+        var preInsertOperationID: UUID?
+        var postSaveOperationID: UUID?
+        var preInsertRequestID: UUID?
+        var postSaveRequestID: UUID?
+        store.onLookup = { phase in
+            guard let slot = controller.primaryCanvasResolutionSlot else {
+                return
+            }
+            switch phase {
+            case .initialLookup:
+                break
+            case .preInsertRecheck:
+                preInsertOperationID = slot.operationID
+                preInsertRequestID = slot.attempt.requestID
+            case .postSaveRecheck:
+                postSaveOperationID = slot.operationID
+                postSaveRequestID = slot.attempt.requestID
+            }
+        }
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: "fingerprint-A",
+                store: store.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        XCTAssertEqual(preInsertOperationID, postSaveOperationID)
+        XCTAssertNotEqual(preInsertRequestID, postSaveRequestID)
+        XCTAssertEqual(Set(store.contextIDs).count, 3)
+        XCTAssertEqual(store.activeProvisioningContextCount, 0)
+    }
+
+    func testSuccessfulSaveReconcilesMissingUniqueAndDuplicateWithoutRetryRepairOrDeletion() async throws {
+        let terminalResolutions: [WorkspacePrimaryCanvasResolution] = [
+            .missing,
+            .unique(canvasID: "canvas-created"),
+            .duplicate(canvasIDs: ["canvas-created", "canvas-race"]),
+        ]
+        for terminalResolution in terminalResolutions {
+            let controller = WorkspaceWindowScopeController()
+            let focus = controller.focus(workspaceID: "workspace-A")
+            let store = ScriptedPrimaryCanvasStore(
+                initial: [.missing],
+                preInsert: [.missing],
+                postSave: [terminalResolution]
+            )
+
+            _ = try XCTUnwrap(
+                controller.startPrimaryCanvasResolution(
+                    for: focus,
+                    fingerprint: "fingerprint-A",
+                    store: store.store
+                )
+            )
+            await waitForPrimaryCanvasPipelineToSettle(controller)
+
+            XCTAssertEqual(store.insertCount, 1)
+            XCTAssertEqual(store.saveCount, 1)
+            XCTAssertEqual(store.postSaveLookupCount, 1)
+            XCTAssertEqual(store.discardCount, 1)
+            XCTAssertEqual(controller.primaryResolution, terminalResolution)
+            XCTAssertNil(controller.primaryCanvasResolutionSlot)
+        }
+    }
+
+    func testFailedSaveDiscardsProvisioningContextAndReconcilesOnceWithoutRetry() async throws {
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let store = ScriptedPrimaryCanvasStore(
+            initial: [.missing],
+            preInsert: [.missing],
+            postSave: [.missing],
+            saveSucceeds: false
+        )
+        var activeContextsAtPostSave = -1
+        store.onLookup = { phase in
+            if phase == .postSaveRecheck {
+                activeContextsAtPostSave = store.activeProvisioningContextCount
+            }
+        }
+
+        _ = try XCTUnwrap(
+            controller.startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: "fingerprint-A",
+                store: store.store
+            )
+        )
+        await waitForPrimaryCanvasPipelineToSettle(controller)
+
+        XCTAssertEqual(store.insertCount, 1)
+        XCTAssertEqual(store.saveCount, 1)
+        XCTAssertEqual(store.postSaveLookupCount, 1)
+        XCTAssertEqual(store.discardCount, 1)
+        XCTAssertEqual(activeContextsAtPostSave, 0)
+        XCTAssertEqual(store.activeProvisioningContextCount, 0)
+        XCTAssertEqual(controller.primaryResolution, .missing)
+    }
+
     private func expectedFingerprintPayload(canvasIDs: [String]) -> Data {
         let sortedCanvasIDs = canvasIDs.sorted {
             $0.utf8.lexicographicallyPrecedes($1.utf8)
@@ -796,11 +1078,137 @@ private final class SuspendedResolutionWorker {
 
 private final class ResolutionTaskLifetimeToken {}
 
+private enum ScriptedPrimaryCanvasStoreError: Error {
+    case missingResolution(WorkspacePrimaryCanvasResolutionPhase)
+}
+
+@MainActor
+private final class ScriptedPrimaryCanvasStore {
+    private var initialResolutions: [WorkspacePrimaryCanvasResolution]
+    private var preInsertResolutions: [WorkspacePrimaryCanvasResolution]
+    private var postSaveResolutions: [WorkspacePrimaryCanvasResolution]
+    private let saveSucceeds: Bool
+    private var contextSerial = 0
+    private var activeProvisioningContexts: Set<UUID> = []
+
+    private(set) var initialLookupCount = 0
+    private(set) var preInsertLookupCount = 0
+    private(set) var postSaveLookupCount = 0
+    private(set) var insertCount = 0
+    private(set) var saveCount = 0
+    private(set) var discardCount = 0
+    private(set) var contextIDs: [UUID] = []
+    var onLookup: ((WorkspacePrimaryCanvasResolutionPhase) -> Void)?
+
+    init(
+        initial: [WorkspacePrimaryCanvasResolution],
+        preInsert: [WorkspacePrimaryCanvasResolution] = [],
+        postSave: [WorkspacePrimaryCanvasResolution] = [],
+        saveSucceeds: Bool = true
+    ) {
+        initialResolutions = initial
+        preInsertResolutions = preInsert
+        postSaveResolutions = postSave
+        self.saveSucceeds = saveSucceeds
+    }
+
+    var activeProvisioningContextCount: Int {
+        activeProvisioningContexts.count
+    }
+
+    lazy var store = WorkspacePrimaryCanvasStore(
+        lookup: { [unowned self] _, phase in
+            try scopedResolution(for: phase)
+        },
+        beginProvisioning: { [unowned self] _ in
+            try scopedResolution(for: .preInsertRecheck, retainContext: true)
+        },
+        saveProvisionedCanvas: { [unowned self] contextID, _ in
+            insertCount += 1
+            saveCount += 1
+            activeProvisioningContexts.remove(contextID)
+            return saveSucceeds
+        },
+        discardProvisioning: { [unowned self] contextID in
+            discardCount += 1
+            activeProvisioningContexts.remove(contextID)
+        }
+    )
+
+    private func scopedResolution(
+        for phase: WorkspacePrimaryCanvasResolutionPhase,
+        retainContext: Bool = false
+    ) throws -> WorkspacePrimaryCanvasScopedResolution {
+        onLookup?(phase)
+        let resolution: WorkspacePrimaryCanvasResolution
+        switch phase {
+        case .initialLookup:
+            initialLookupCount += 1
+            guard !initialResolutions.isEmpty else {
+                throw ScriptedPrimaryCanvasStoreError.missingResolution(phase)
+            }
+            resolution = initialResolutions.removeFirst()
+        case .preInsertRecheck:
+            preInsertLookupCount += 1
+            guard !preInsertResolutions.isEmpty else {
+                throw ScriptedPrimaryCanvasStoreError.missingResolution(phase)
+            }
+            resolution = preInsertResolutions.removeFirst()
+        case .postSaveRecheck:
+            postSaveLookupCount += 1
+            guard !postSaveResolutions.isEmpty else {
+                throw ScriptedPrimaryCanvasStoreError.missingResolution(phase)
+            }
+            resolution = postSaveResolutions.removeFirst()
+        }
+        let contextID = nextContextID()
+        contextIDs.append(contextID)
+        if retainContext, resolution == .missing {
+            activeProvisioningContexts.insert(contextID)
+        }
+        return WorkspacePrimaryCanvasScopedResolution(
+            resolution: resolution,
+            contextID: contextID
+        )
+    }
+
+    private func nextContextID() -> UUID {
+        contextSerial += 1
+        return UUID(
+            uuid: (
+                0, 0, 0, 0,
+                0, 0,
+                0, 0,
+                0, 0,
+                0, 0, 0, 0,
+                UInt8(contextSerial >> 8),
+                UInt8(contextSerial & 0xFF)
+            )
+        )
+    }
+}
+
 @MainActor
 private func allowResolutionTasksToSettle() async {
     for _ in 0..<20 {
         await Task.yield()
     }
+}
+
+@MainActor
+private func waitForPrimaryCanvasPipelineToSettle(
+    _ controller: WorkspaceWindowScopeController
+) async {
+    for _ in 0..<2_000 {
+        if controller.primaryCanvasResolutionSlot == nil {
+            await Task.yield()
+            if controller.primaryCanvasResolutionSlot == nil {
+                return
+            }
+        }
+        await Task.yield()
+    }
+    XCTFail("Primary Canvas pipeline did not settle")
 }
 
 private func integrationRepositorySource(
