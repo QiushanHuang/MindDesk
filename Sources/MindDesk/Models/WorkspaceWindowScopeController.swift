@@ -58,6 +58,10 @@ final class WorkspaceWindowScopeController: ObservableObject {
     @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
     @Published private(set) var primaryCanvasRecoverableError: String?
     @Published private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
+    @Published var canvasNodeOpenFlow: WorkspaceCanvasNodeOpenFlow = .idle
+    @Published var canvasNodeOpenRecoverableError: String?
+    var nextCanvasNodeOpenRequestSequence: UInt64 = 1
+    var lastConsumedCanvasNodeOpenRequestSequence: UInt64?
 
     private struct CancellationRegistration {
         let scope: WorkspaceScopeOperationIdentity
@@ -79,6 +83,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         }
 
         let detachedRegistrations = detachCancellationRegistrations()
+        prepareCanvasNodeFlowForFocus(workspaceID: workspaceID)
         let focus = WorkspaceFocusScopeIdentity(
             windowSessionID: windowSessionID,
             workspaceID: workspaceID,
@@ -101,6 +106,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         }
 
         let detachedRegistrations = detachCancellationRegistrations()
+        prepareCanvasNodeFlowForSameWorkspaceRotation()
         let rotatedFocus = WorkspaceFocusScopeIdentity(
             windowSessionID: windowSessionID,
             workspaceID: focus.workspaceID,
@@ -150,6 +156,9 @@ final class WorkspaceWindowScopeController: ObservableObject {
             detachedRegistrations = []
         } else {
             detachedRegistrations = detachCancellationRegistrations()
+            prepareCanvasNodeFlowForSameWorkspaceRotation(
+                preservingPendingCorrelation: true
+            )
             let rotatedFocus = WorkspaceFocusScopeIdentity(
                 windowSessionID: focus.windowSessionID,
                 workspaceID: focus.workspaceID,
@@ -225,6 +234,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
 
     func clear() {
         let detachedRegistrations = detachCancellationRegistrations()
+        clearCanvasNodeOpenFlow()
         boundCanvas = nil
         primaryResolution = nil
         primaryCanvasRecoverableError = nil

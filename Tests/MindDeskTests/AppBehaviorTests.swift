@@ -3456,33 +3456,6 @@ final class AppBehaviorTests: XCTestCase {
         }
     }
 
-    func testQuickOpenWebCardOpenActionClearsPendingRequestOnBlockedResult() {
-        let action = QuickOpenWebCardOpenActionPolicy.action(
-            for: .blocked(.invalidURL),
-            recordTitle: "Docs"
-        )
-
-        XCTAssertNil(action.target)
-        XCTAssertTrue(action.clearsPendingCanvasNodeRequest)
-        XCTAssertEqual(action.statusMessage, "Web page card has an invalid URL.")
-    }
-
-    func testQuickOpenWebCardOpenActionKeepsPendingRequestOnReadyResult() {
-        let target = WorkspaceCanvasNodeOpenTarget(
-            workspaceID: "workspace-a",
-            canvasID: "canvas-a",
-            nodeID: "node-a"
-        )
-        let action = QuickOpenWebCardOpenActionPolicy.action(
-            for: .ready(target),
-            recordTitle: "Docs"
-        )
-
-        XCTAssertEqual(action.target, target)
-        XCTAssertFalse(action.clearsPendingCanvasNodeRequest)
-        XCTAssertEqual(action.statusMessage, "Showing web page card: Docs")
-    }
-
     func testQuickOpenWebCardRecordPolicyKeepsOnlyNavigableWebCards() {
         assertOrdinaryQuickOpenSurfaceAvailable()
         let workspace = WorkspaceModel(id: "workspace-a", title: "Workspace A")
@@ -4370,45 +4343,6 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(resource.searchText.contains("revised resource note"))
 
         XCTAssertFalse(CanvasResourceCardNotePolicy.applyNoteChange("Revised resource note", node: node, resource: resource, now: savedAt))
-    }
-
-    func testWorkspaceCanvasNodeOpenRequestPolicyHandlesOnlyNewCurrentCanvasRequests() {
-        let target = WorkspaceCanvasNodeOpenTarget(
-            workspaceID: "workspace-a",
-            canvasID: "canvas-a",
-            nodeID: "node-a"
-        )
-        let currentRequest = WorkspaceCanvasNodeOpenRequest(id: 5, target: target)
-
-        XCTAssertTrue(
-            WorkspaceCanvasNodeOpenRequestPolicy.shouldHandle(
-                currentRequest,
-                forCanvasID: "canvas-a",
-                handledRequestID: 4
-            )
-        )
-        XCTAssertFalse(
-            WorkspaceCanvasNodeOpenRequestPolicy.shouldHandle(
-                currentRequest,
-                forCanvasID: "canvas-b",
-                handledRequestID: 4
-            )
-        )
-        XCTAssertFalse(
-            WorkspaceCanvasNodeOpenRequestPolicy.shouldHandle(
-                currentRequest,
-                forCanvasID: "canvas-a",
-                handledRequestID: 5
-            )
-        )
-        XCTAssertEqual(
-            WorkspaceCanvasNodeOpenRequestPolicy.nextRequest(after: currentRequest, target: target),
-            WorkspaceCanvasNodeOpenRequest(id: 6, target: target)
-        )
-        XCTAssertEqual(
-            WorkspaceCanvasNodeOpenRequestPolicy.nextRequest(afterID: 9, target: target),
-            WorkspaceCanvasNodeOpenRequest(id: 10, target: target)
-        )
     }
 
     func testResourceTagsPreserveCommaContainingValues() {

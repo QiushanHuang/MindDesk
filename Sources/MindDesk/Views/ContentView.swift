@@ -159,8 +159,6 @@ struct ContentView: View {
     @State private var isInspectorVisible = false
     @State private var isQuickOpenPresented = false
     @State private var quickOpenRecordsSnapshot: [QuickOpenRecord] = []
-    @State private var openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
-    @State private var openCanvasNodeRequestID = 0
     @State private var didApplyStartupDestination = false
 
     private var defaultCanvasZoom: Double {
@@ -773,8 +771,6 @@ struct ContentView: View {
                     onRemoveResource: beginResourceRemoval,
                     onEditSnippet: { editingSnippet = $0 },
                     onDeleteSnippet: { snippetToDelete = $0 },
-                    openCanvasNodeRequest: openCanvasNodeRequest,
-                    onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
                     onSelectWorkspace: { selection = .workspace($0) },
                     onRetryPrimaryCanvas: retryPrimaryCanvas,
                     clipboardService: clipboardService
@@ -951,26 +947,36 @@ struct ContentView: View {
                 recordTitle: record.title
             )
             if action.clearsPendingCanvasNodeRequest {
-                openCanvasNodeRequest = nil
+                workspaceWindowScopeController.clearCanvasNodeOpenFlow()
             }
             guard let target = action.target else {
                 setStatus(action.statusMessage)
                 return
             }
-            selection = .workspace(target.workspaceID)
-            openCanvasNodeRequestID += 1
-            openCanvasNodeRequest = WorkspaceCanvasNodeOpenRequestPolicy.nextRequest(
-                afterID: openCanvasNodeRequestID - 1,
-                target: target
+            let observationAlreadyTargetsWorkspace =
+                primaryCanvasSceneObservation.workspaceID == target.workspaceID
+            let pendingTarget = workspaceWindowScopeController.claimCanvasNodeTarget(
+                workspaceID: target.workspaceID,
+                canvasID: target.canvasID,
+                nodeID: target.nodeID
             )
+            selection = .workspace(target.workspaceID)
+            if observationAlreadyTargetsWorkspace,
+               workspaceWindowScopeController.canvasNodeLaunchCorrelation == nil,
+               let focus = workspaceWindowScopeController.pendingFocus,
+               focus.workspaceID == pendingTarget.workspaceID,
+               let fingerprint = primaryCanvasSceneObservation.fingerprint {
+                _ = workspaceWindowScopeController
+                    .startPrimaryCanvasResolutionForActiveCanvasNodeTarget(
+                        for: focus,
+                        fingerprint: fingerprint,
+                        store: .live(container: modelContext.container),
+                        onTerminalOutcome: handlePrimaryCanvasTerminalOutcome
+                    )
+            }
             setStatus(action.statusMessage)
         }
         isQuickOpenPresented = false
-    }
-
-    private func handleOpenCanvasNodeRequestHandled(_ request: WorkspaceCanvasNodeOpenRequest) {
-        guard openCanvasNodeRequest == request else { return }
-        openCanvasNodeRequest = nil
     }
 
     private func saveWorkspaceRename(_ workspace: WorkspaceModel) {
@@ -2611,11 +2617,6 @@ struct WorkspaceCanvasNodeOpenTarget: Equatable, Sendable {
     var nodeID: String
 }
 
-struct WorkspaceCanvasNodeOpenRequest: Equatable, Sendable {
-    var id: Int
-    var target: WorkspaceCanvasNodeOpenTarget
-}
-
 enum WorkspaceResourceDisplayPolicy {
     static func resources(
         forWorkspaceID workspaceID: String,
@@ -2837,36 +2838,6 @@ enum QuickOpenWebCardDeepLinkPolicy {
 
     private static func payloadID(from record: QuickOpenRecord) -> String {
         record.id.split(separator: ":", maxSplits: 1).last.map(String.init) ?? record.id
-    }
-}
-
-enum WorkspaceCanvasNodeOpenRequestPolicy {
-    nonisolated static func nextRequest(
-        after currentRequest: WorkspaceCanvasNodeOpenRequest?,
-        target: WorkspaceCanvasNodeOpenTarget
-    ) -> WorkspaceCanvasNodeOpenRequest {
-        nextRequest(afterID: currentRequest?.id ?? 0, target: target)
-    }
-
-    nonisolated static func nextRequest(
-        afterID currentID: Int,
-        target: WorkspaceCanvasNodeOpenTarget
-    ) -> WorkspaceCanvasNodeOpenRequest {
-        WorkspaceCanvasNodeOpenRequest(
-            id: currentID + 1,
-            target: target
-        )
-    }
-
-    nonisolated static func shouldHandle(
-        _ request: WorkspaceCanvasNodeOpenRequest?,
-        forCanvasID canvasID: String,
-        handledRequestID: Int
-    ) -> Bool {
-        guard let request, request.target.canvasID == canvasID else {
-            return false
-        }
-        return request.id > handledRequestID
     }
 }
 
@@ -3394,8 +3365,6 @@ struct WorkspaceDetailView: View {
     let onRemoveResource: (ResourcePinModel) -> Void
     let onEditSnippet: (SnippetModel) -> Void
     let onDeleteSnippet: (SnippetModel) -> Void
-    let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
-    let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
     let onRetryPrimaryCanvas: () -> Void
     private(set) var clipboardService: ClipboardService = ClipboardService()
@@ -3542,8 +3511,6 @@ struct WorkspaceDetailView: View {
                         edges: edges.filter { $0.canvasId == canvas.id },
                         openTodoPanelRequest: openTodoPanelRequest,
                         onOpenTodoPanelRequestHandled: handleOpenTodoPanelRequestHandled,
-                        openCanvasNodeRequest: openCanvasNodeRequest,
-                        onOpenCanvasNodeRequestHandled: onOpenCanvasNodeRequestHandled,
                         onStatus: onStatus,
                         onInspect: onInspect,
                         onOpenWorkspace: onSelectWorkspace,
@@ -3562,7 +3529,6 @@ struct WorkspaceDetailView: View {
             applyWorkspaceOpenDestinationIfNeeded()
             onCanvasTabActiveChange(tab.activatesCanvas)
             markWorkspaceOpened()
-            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: workspace.id) { _, _ in
             tab = WorkspaceDetailTab.tabAfterWorkspaceChange(
@@ -3572,13 +3538,9 @@ struct WorkspaceDetailView: View {
             initializedWorkspaceTabForWorkspaceID = workspace.id
             onCanvasTabActiveChange(tab.activatesCanvas)
             markWorkspaceOpened()
-            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue.activatesCanvas)
-        }
-        .onChange(of: openCanvasNodeRequest) { _, request in
-            handleOpenCanvasNodeRequest(request)
         }
     }
 
@@ -3718,11 +3680,6 @@ struct WorkspaceDetailView: View {
     private func handleOpenTodoPanelRequestHandled(_ request: WorkspaceTodoPanelOpenRequest) {
         guard openTodoPanelRequest == request else { return }
         openTodoPanelRequest = nil
-    }
-
-    private func handleOpenCanvasNodeRequest(_ request: WorkspaceCanvasNodeOpenRequest?) {
-        guard let request, request.target.workspaceID == workspace.id else { return }
-        activateTab(.canvas)
     }
 
 }

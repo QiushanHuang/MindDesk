@@ -1002,8 +1002,6 @@ struct WorkspaceCanvasView: View {
     let edges: [CanvasEdgeModel]
     let openTodoPanelRequest: WorkspaceTodoPanelOpenRequest?
     let onOpenTodoPanelRequestHandled: (WorkspaceTodoPanelOpenRequest) -> Void
-    let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
-    let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onStatus: (String) -> Void
     let onInspect: (InspectorSelection) -> Void
     let onOpenWorkspace: (String) -> Void
@@ -1035,7 +1033,6 @@ struct WorkspaceCanvasView: View {
     @State private var isTodoDoneColumnOpen = false
     @State private var isTodoPanelInitialized = false
     @State private var handledOpenTodoPanelRequestID = 0
-    @State private var handledOpenCanvasNodeRequestID = 0
     @State private var didAlignLeftRailScroll = false
     @State private var edgeControlDragStart: [String: CGPoint] = [:]
     @State private var transientEdgeControlPoints: [String: CGPoint] = [:]
@@ -1260,7 +1257,6 @@ struct WorkspaceCanvasView: View {
                 initializeTodoPanelDefaults()
             }
             handleOpenTodoPanelRequest(openTodoPanelRequest)
-            handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
             .onDisappear {
                 flushPendingScrollZoomCommit()
@@ -1278,13 +1274,9 @@ struct WorkspaceCanvasView: View {
             .onChange(of: canvas.id) { _, _ in
                 initializeTodoPanelDefaults()
                 resetTransientCanvasInteractionState()
-                handledOpenCanvasNodeRequestID = 0
             }
             .onChange(of: openTodoPanelRequest) { _, request in
                 handleOpenTodoPanelRequest(request)
-            }
-            .onChange(of: openCanvasNodeRequest) { _, request in
-                handleOpenCanvasNodeRequest(request)
             }
             .background(canvasCommandShortcuts.frame(width: 0, height: 0).opacity(0))
     }
@@ -1314,36 +1306,6 @@ struct WorkspaceCanvasView: View {
         isTodoPanelOpen = true
         handledOpenTodoPanelRequestID = request.id
         onOpenTodoPanelRequestHandled(request)
-    }
-
-    private func handleOpenCanvasNodeRequest(_ request: WorkspaceCanvasNodeOpenRequest?) {
-        guard WorkspaceCanvasNodeOpenRequestPolicy.shouldHandle(
-            request,
-            forCanvasID: canvas.id,
-            handledRequestID: handledOpenCanvasNodeRequestID
-        ) else {
-            return
-        }
-        guard let request, request.target.workspaceID == canvas.workspaceId else { return }
-        guard let node = workflowNodeById[request.target.nodeID] else {
-            handledOpenCanvasNodeRequestID = request.id
-            onOpenCanvasNodeRequestHandled(request)
-            onStatus("Web page card is no longer available")
-            return
-        }
-
-        selectedNodeIDs = [node.id]
-        selectedEdgeIDs = []
-        editingNodeIDs.removeAll()
-        mode = .select
-        connectionSourceNodeId = nil
-
-        guard canvasSurfaceSize.width > 0, canvasSurfaceSize.height > 0 else {
-            return
-        }
-        fitViewport(to: [node], status: "Showing web page card: \(node.title)")
-        handledOpenCanvasNodeRequestID = request.id
-        onOpenCanvasNodeRequestHandled(request)
     }
 
     private func resetTransientCanvasInteractionState() {
@@ -2073,11 +2035,9 @@ struct WorkspaceCanvasView: View {
             )
             .onAppear {
                 canvasSurfaceSize = proxy.size
-                handleOpenCanvasNodeRequest(openCanvasNodeRequest)
             }
             .onChange(of: proxy.size) { _, newSize in
                 canvasSurfaceSize = newSize
-                handleOpenCanvasNodeRequest(openCanvasNodeRequest)
             }
         }
         .background(.quaternary.opacity(0.25))

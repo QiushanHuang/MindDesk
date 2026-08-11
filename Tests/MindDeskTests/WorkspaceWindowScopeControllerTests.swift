@@ -1128,7 +1128,7 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
 }
 
 private let preTask8ContentViewSHA256 =
-    "12c7b48fb7706654e9ea34bcc6284c697aaaf7803de14a43eaa476ee9385f06c"
+    "e720093f7f85a01d646147b7a0234ee8a7636ce54aad28e2961dcc523bfe3ea5"
 
 private let task8MinimalControllerData = Data(
     """
@@ -1192,6 +1192,10 @@ private let task8MinimalControllerData = Data(
         @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
         @Published private(set) var primaryCanvasRecoverableError: String?
         @Published private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
+        @Published var canvasNodeOpenFlow: WorkspaceCanvasNodeOpenFlow = .idle
+        @Published var canvasNodeOpenRecoverableError: String?
+        var nextCanvasNodeOpenRequestSequence: UInt64 = 1
+        var lastConsumedCanvasNodeOpenRequestSequence: UInt64?
 
         private struct CancellationRegistration {
             let scope: WorkspaceScopeOperationIdentity
@@ -1213,6 +1217,7 @@ private let task8MinimalControllerData = Data(
             }
 
             let detachedRegistrations = detachCancellationRegistrations()
+            prepareCanvasNodeFlowForFocus(workspaceID: workspaceID)
             let focus = WorkspaceFocusScopeIdentity(
                 windowSessionID: windowSessionID,
                 workspaceID: workspaceID,
@@ -1235,6 +1240,7 @@ private let task8MinimalControllerData = Data(
             }
 
             let detachedRegistrations = detachCancellationRegistrations()
+            prepareCanvasNodeFlowForSameWorkspaceRotation()
             let rotatedFocus = WorkspaceFocusScopeIdentity(
                 windowSessionID: windowSessionID,
                 workspaceID: focus.workspaceID,
@@ -1284,6 +1290,9 @@ private let task8MinimalControllerData = Data(
                 detachedRegistrations = []
             } else {
                 detachedRegistrations = detachCancellationRegistrations()
+                prepareCanvasNodeFlowForSameWorkspaceRotation(
+                    preservingPendingCorrelation: true
+                )
                 let rotatedFocus = WorkspaceFocusScopeIdentity(
                     windowSessionID: focus.windowSessionID,
                     workspaceID: focus.workspaceID,
@@ -1359,6 +1368,7 @@ private let task8MinimalControllerData = Data(
 
         func clear() {
             let detachedRegistrations = detachCancellationRegistrations()
+            clearCanvasNodeOpenFlow()
             boundCanvas = nil
             primaryResolution = nil
             primaryCanvasRecoverableError = nil

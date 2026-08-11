@@ -165,48 +165,6 @@ extension WorkspaceWindowScopeController {
         )
     }
 
-    func reducePrimaryCanvasSceneObservation(
-        from previous: WorkspacePrimaryCanvasSceneObservation?,
-        to current: WorkspacePrimaryCanvasSceneObservation,
-        store: WorkspacePrimaryCanvasStore,
-        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback = { _ in },
-        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback = { _ in }
-    ) {
-        guard let workspaceID = current.workspaceID,
-              let fingerprint = current.fingerprint
-        else {
-            clear()
-            return
-        }
-
-        guard previous?.workspaceID == workspaceID,
-              pendingFocus?.workspaceID == workspaceID
-        else {
-            let focus = focus(workspaceID: workspaceID)
-            _ = startPrimaryCanvasResolution(
-                for: focus,
-                fingerprint: fingerprint,
-                store: store,
-                onTerminalOutcome: onTerminalOutcome,
-                onOperationHandoff: onOperationHandoff
-            )
-            return
-        }
-
-        guard previous?.fingerprint != fingerprint,
-              let focus = pendingFocus
-        else {
-            return
-        }
-        _ = invalidatePrimaryCanvasResolutionAndStart(
-            for: focus,
-            fingerprint: fingerprint,
-            store: store,
-            onTerminalOutcome: onTerminalOutcome,
-            onOperationHandoff: onOperationHandoff
-        )
-    }
-
     @discardableResult
     func startPrimaryCanvasResolution(
         for focus: WorkspaceFocusScopeIdentity,
