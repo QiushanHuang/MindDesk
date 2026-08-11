@@ -2,6 +2,11 @@
 
 > Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
 
+## Unreleased
+
+### Improved
+- Canvas zooming, background panning, and moving cards now feel smoother through continuous gestures, with fewer pauses while keeping connection animations and card details intact. Releasing a gesture still saves the exact final position and zoom.
+
 ## 2026-08-11 - v3.1.0 private manual Canvas release
 
 ### New and improved
