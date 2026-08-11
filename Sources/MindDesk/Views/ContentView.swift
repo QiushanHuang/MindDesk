@@ -172,6 +172,26 @@ struct ContentView: View {
         )
     }
 
+    private var primaryCanvasSceneObservation: WorkspacePrimaryCanvasSceneObservation {
+        guard case let .workspace(workspaceID) = selection,
+              workspaces.contains(where: { $0.id == workspaceID })
+        else {
+            return WorkspacePrimaryCanvasSceneObservation(
+                workspaceID: nil,
+                fingerprint: nil
+            )
+        }
+        let canvasIDs = canvases
+            .filter { $0.workspaceId == workspaceID }
+            .map(\.id)
+        return WorkspacePrimaryCanvasSceneObservation(
+            workspaceID: workspaceID,
+            fingerprint: WorkspacePrimaryCanvasFingerprint.make(
+                canvasIDs: canvasIDs
+            )
+        )
+    }
+
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
@@ -341,6 +361,16 @@ struct ContentView: View {
                     return
                 }
                 workspaceCanvasTabActive = false
+            }
+            .onChange(of: primaryCanvasSceneObservation, initial: true) {
+                previous,
+                current in
+                workspaceWindowScopeController.reducePrimaryCanvasSceneObservation(
+                    from: previous,
+                    to: current,
+                    store: .live(container: modelContext.container),
+                    onTerminalOutcome: handlePrimaryCanvasTerminalOutcome
+                )
             }
         }
         .sheet(item: $renamingWorkspace) { workspace in
@@ -746,12 +776,33 @@ struct ContentView: View {
                     openCanvasNodeRequest: openCanvasNodeRequest,
                     onOpenCanvasNodeRequestHandled: handleOpenCanvasNodeRequestHandled,
                     onSelectWorkspace: { selection = .workspace($0) },
+                    onRetryPrimaryCanvas: retryPrimaryCanvas,
                     clipboardService: clipboardService
                 )
             } else {
                 ContentUnavailableView("Workspace missing", systemImage: "questionmark.folder")
             }
         }
+    }
+
+    private func handlePrimaryCanvasTerminalOutcome(
+        _ outcome: WorkspacePrimaryCanvasTerminalOutcome
+    ) {
+        guard case let .recoverableError(message) = outcome.kind else {
+            return
+        }
+        setStatus(message)
+    }
+
+    private func retryPrimaryCanvas() {
+        guard let fingerprint = primaryCanvasSceneObservation.fingerprint else {
+            return
+        }
+        _ = workspaceWindowScopeController.retryPrimaryCanvasResolution(
+            fingerprint: fingerprint,
+            store: .live(container: modelContext.container),
+            onTerminalOutcome: handlePrimaryCanvasTerminalOutcome
+        )
     }
 
     private func showInspector(_ selection: InspectorSelection) {
@@ -3346,24 +3397,14 @@ struct WorkspaceDetailView: View {
     let openCanvasNodeRequest: WorkspaceCanvasNodeOpenRequest?
     let onOpenCanvasNodeRequestHandled: (WorkspaceCanvasNodeOpenRequest) -> Void
     let onSelectWorkspace: (String) -> Void
+    let onRetryPrimaryCanvas: () -> Void
     private(set) var clipboardService: ClipboardService = ClipboardService()
-    @AppStorage(AppPreferenceKeys.canvasDefaultZoomPercent) private var canvasDefaultZoomPercent = AppPreferenceDefaults.canvasDefaultZoomPercent
     @AppStorage(AppPreferenceKeys.workspaceOpenDestination) private var workspaceOpenDestinationRaw = AppPreferenceDefaults.workspaceOpenDestination
     @State private var tab = WorkspaceDetailTab.defaultTab
     @State private var initializedWorkspaceTabForWorkspaceID: String?
-    @State private var createdCanvasByWorkspaceId: [String: CanvasModel] = [:]
     @State private var openTodoPanelRequest: WorkspaceTodoPanelOpenRequest?
     @State private var isTasksTabOpen = true
     @State private var isTasksDoneColumnOpen = true
-
-    private var defaultCanvasZoom: Double {
-        CanvasZoomBaseline.actualZoom(
-            percent: canvasDefaultZoomPercent,
-            standardBaseline: CanvasZoomBaseline.standardBaseline,
-            minimum: CanvasZoomBaseline.minimumZoom,
-            maximum: CanvasZoomBaseline.maximumZoom
-        )
-    }
 
     private var workspaceResourceTabResources: [ResourcePinModel] {
         WorkspaceResourceDisplayPolicy.resources(
@@ -3412,12 +3453,28 @@ struct WorkspaceDetailView: View {
     }
 
     private var workspaceCanvas: CanvasModel? {
-        if let openCanvasNodeRequest,
-           openCanvasNodeRequest.target.workspaceID == workspace.id,
-           let requestedCanvas = canvases.first(where: { $0.id == openCanvasNodeRequest.target.canvasID }) {
-            return requestedCanvas
+        guard case let .ready(canvasID) = primaryCanvasAvailability else {
+            return nil
         }
-        return canvases.first { $0.workspaceId == workspace.id } ?? createdCanvasByWorkspaceId[workspace.id]
+        let exactMatches = canvases.filter {
+            $0.id == canvasID && $0.workspaceId == workspace.id
+        }
+        guard exactMatches.count == 1 else {
+            return nil
+        }
+        return exactMatches[0]
+    }
+
+    private var primaryCanvasAvailability: WorkspacePrimaryCanvasAvailability {
+        WorkspacePrimaryCanvasPresentation.availability(
+            controller: workspaceWindowScopeController,
+            canvases: canvases.map {
+                WorkspacePrimaryCanvasQueryRecord(
+                    id: $0.id,
+                    workspaceID: $0.workspaceId
+                )
+            }
+        )
     }
 
     var body: some View {
@@ -3493,11 +3550,7 @@ struct WorkspaceDetailView: View {
                         clipboardService: clipboardService
                     )
                 } else {
-                    ProgressView("Preparing canvas...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .onAppear {
-                            ensureCanvas()
-                        }
+                    primaryCanvasUnavailableView
                 }
             }
         }
@@ -3508,9 +3561,6 @@ struct WorkspaceDetailView: View {
         .onAppear {
             applyWorkspaceOpenDestinationIfNeeded()
             onCanvasTabActiveChange(tab.activatesCanvas)
-            if tab.activatesCanvas {
-                ensureCanvas()
-            }
             markWorkspaceOpened()
             handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
@@ -3521,17 +3571,11 @@ struct WorkspaceDetailView: View {
             )
             initializedWorkspaceTabForWorkspaceID = workspace.id
             onCanvasTabActiveChange(tab.activatesCanvas)
-            if tab.activatesCanvas {
-                ensureCanvas()
-            }
             markWorkspaceOpened()
             handleOpenCanvasNodeRequest(openCanvasNodeRequest)
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue.activatesCanvas)
-            if newValue.activatesCanvas {
-                ensureCanvas()
-            }
         }
         .onChange(of: openCanvasNodeRequest) { _, request in
             handleOpenCanvasNodeRequest(request)
@@ -3574,6 +3618,57 @@ struct WorkspaceDetailView: View {
         .frame(width: 460)
     }
 
+    @ViewBuilder
+    private var primaryCanvasUnavailableView: some View {
+        VStack(spacing: 12) {
+            switch primaryCanvasAvailability {
+            case .checking:
+                ProgressView("Checking Canvas…")
+            case .preparing:
+                ProgressView("Preparing Canvas…")
+            case .missing:
+                Image(systemName: "rectangle.slash")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+                Text(WorkspacePrimaryCanvasPresentation.missingTitle)
+                    .font(.headline)
+                Text(WorkspacePrimaryCanvasPresentation.missingMessage)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                Button("Try Again", action: onRetryPrimaryCanvas)
+            case .duplicate:
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+                Text(WorkspacePrimaryCanvasPresentation.duplicateTitle)
+                    .font(.headline)
+                Text(WorkspacePrimaryCanvasPresentation.duplicateMessage)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            case let .recoverableError(message):
+                Image(systemName: "exclamationmark.circle")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+                Text(WorkspacePrimaryCanvasPresentation.unavailableTitle)
+                    .font(.headline)
+                Text(message)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            case .ready, .unavailable:
+                Image(systemName: "rectangle.slash")
+                    .font(.title)
+                    .foregroundStyle(.secondary)
+                Text(WorkspacePrimaryCanvasPresentation.unavailableTitle)
+                    .font(.headline)
+                Text(WorkspacePrimaryCanvasPresentation.unavailableMessage)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private func markWorkspaceOpened() {
         workspace.lastOpenedAt = .now
         do {
@@ -3586,9 +3681,6 @@ struct WorkspaceDetailView: View {
 
     private func activateTab(_ nextTab: WorkspaceDetailTab) {
         tab = nextTab
-        if nextTab.activatesCanvas {
-            ensureCanvas()
-        }
     }
 
     private func activateTab(titled title: String) {
@@ -3633,26 +3725,6 @@ struct WorkspaceDetailView: View {
         activateTab(.canvas)
     }
 
-    private func ensureCanvas() {
-        do {
-            guard try modelContext.fetch(WorkspaceCanvasLookup.descriptor(for: workspace.id)).first == nil else { return }
-        } catch {
-            modelContext.rollback()
-            onStatus(error.localizedDescription)
-            return
-        }
-        guard createdCanvasByWorkspaceId[workspace.id] == nil else { return }
-        let created = CanvasModel(workspaceId: workspace.id, title: "Workspace Map", zoom: defaultCanvasZoom)
-        createdCanvasByWorkspaceId[workspace.id] = created
-        modelContext.insert(created)
-        do {
-            try modelContext.save()
-        } catch {
-            modelContext.rollback()
-            createdCanvasByWorkspaceId[workspace.id] = nil
-            onStatus(error.localizedDescription)
-        }
-    }
 }
 
 struct InspectorView: View {

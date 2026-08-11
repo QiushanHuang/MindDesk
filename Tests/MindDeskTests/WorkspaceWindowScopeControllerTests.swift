@@ -1128,7 +1128,7 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
 }
 
 private let preTask8ContentViewSHA256 =
-    "b6a36177ef2c36226483fe4fa417ac82cc28d2457e12c19e8a1b13e28ef4aaa3"
+    "12c7b48fb7706654e9ea34bcc6284c697aaaf7803de14a43eaa476ee9385f06c"
 
 private let task8MinimalControllerData = Data(
     """
@@ -1190,7 +1190,8 @@ private let task8MinimalControllerData = Data(
         @Published private(set) var pendingFocus: WorkspaceFocusScopeIdentity?
         @Published private(set) var boundCanvas: WorkspaceCanvasScopeIdentity?
         @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
-        private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
+        @Published private(set) var primaryCanvasRecoverableError: String?
+        @Published private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
 
         private struct CancellationRegistration {
             let scope: WorkspaceScopeOperationIdentity
@@ -1218,6 +1219,7 @@ private let task8MinimalControllerData = Data(
                 focusRevision: WorkspaceFocusRevision(rawValue: Foundation.UUID())
             )
             primaryResolution = nil
+            primaryCanvasRecoverableError = nil
             boundCanvas = nil
             pendingFocus = focus
             cancel(detachedRegistrations)
@@ -1240,6 +1242,7 @@ private let task8MinimalControllerData = Data(
             )
             boundCanvas = nil
             primaryResolution = nil
+            primaryCanvasRecoverableError = nil
             pendingFocus = rotatedFocus
             cancel(detachedRegistrations)
             return rotatedFocus
@@ -1253,6 +1256,7 @@ private let task8MinimalControllerData = Data(
             guard pendingFocus == focus else {
                 return .stale
             }
+            primaryCanvasRecoverableError = nil
 
             if primaryResolution == resolution {
                 switch resolution {
@@ -1357,6 +1361,7 @@ private let task8MinimalControllerData = Data(
             let detachedRegistrations = detachCancellationRegistrations()
             boundCanvas = nil
             primaryResolution = nil
+            primaryCanvasRecoverableError = nil
             pendingFocus = nil
             cancel(detachedRegistrations)
         }
@@ -1375,6 +1380,62 @@ private let task8MinimalControllerData = Data(
             let displacedSlot = primaryCanvasResolutionSlot
             primaryCanvasResolutionSlot = slot
             return displacedSlot
+        }
+
+        func beginPrimaryCanvasResolution(for focus: WorkspaceFocusScopeIdentity) {
+            guard accepts(focus) else {
+                return
+            }
+            primaryCanvasRecoverableError = nil
+        }
+
+        func finishPrimaryCanvasResolutionError(
+            attempt: WorkspacePrimaryCanvasResolutionAttempt,
+            operationID: Foundation.UUID,
+            message: String
+        ) -> Bool {
+            guard resolutionSlotMatches(
+                attempt: attempt,
+                operationID: operationID
+            ), accepts(attempt.focus) else {
+                return false
+            }
+            guard complete(
+                operationID: operationID,
+                for: .focus(attempt.focus)
+            ) else {
+                return false
+            }
+            guard clearPrimaryCanvasResolutionSlot(
+                attempt: attempt,
+                operationID: operationID
+            ) else {
+                return false
+            }
+            primaryCanvasRecoverableError = message
+            return true
+        }
+
+        func finishPrimaryCanvasResolutionCancellation(
+            attempt: WorkspacePrimaryCanvasResolutionAttempt,
+            operationID: Foundation.UUID
+        ) -> Bool {
+            guard resolutionSlotMatches(
+                attempt: attempt,
+                operationID: operationID
+            ), accepts(attempt.focus) else {
+                return false
+            }
+            guard complete(
+                operationID: operationID,
+                for: .focus(attempt.focus)
+            ) else {
+                return false
+            }
+            return clearPrimaryCanvasResolutionSlot(
+                attempt: attempt,
+                operationID: operationID
+            )
         }
 
         func replacePrimaryCanvasResolutionAttempt(

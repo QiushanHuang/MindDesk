@@ -58,6 +58,12 @@ typealias WorkspacePrimaryCanvasCancellationRegistrar =
         @escaping @MainActor @Sendable () -> Void
     ) -> Foundation.UUID?
 
+typealias WorkspacePrimaryCanvasTerminalCallback =
+    @MainActor @Sendable (WorkspacePrimaryCanvasTerminalOutcome) -> Void
+
+typealias WorkspacePrimaryCanvasHandoffCallback =
+    @MainActor @Sendable (WorkspacePrimaryCanvasOperationHandoff) -> Void
+
 @MainActor
 private final class WorkspacePrimaryCanvasStartGate {
     let stream: AsyncStream<Void>
@@ -99,7 +105,9 @@ extension WorkspaceWindowScopeController {
     func startPrimaryCanvasResolution(
         for focus: WorkspaceFocusScopeIdentity,
         fingerprint: String,
-        store: WorkspacePrimaryCanvasStore
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback = { _ in },
+        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback = { _ in }
     ) -> Foundation.UUID? {
         startPrimaryCanvasResolution(
             for: focus,
@@ -108,9 +116,95 @@ extension WorkspaceWindowScopeController {
             controller?.runInitialPrimaryCanvasLookup(
                 attempt: attempt,
                 operationID: operationID,
-                store: store
+                store: store,
+                onTerminalOutcome: onTerminalOutcome,
+                onOperationHandoff: onOperationHandoff
             )
         }
+    }
+
+    @discardableResult
+    func invalidatePrimaryCanvasResolutionAndStart(
+        for focus: WorkspaceFocusScopeIdentity,
+        fingerprint: String,
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback = { _ in },
+        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback = { _ in }
+    ) -> Foundation.UUID? {
+        guard let freshFocus = invalidatePrimaryResolution(for: focus) else {
+            return nil
+        }
+        return startPrimaryCanvasResolution(
+            for: freshFocus,
+            fingerprint: fingerprint,
+            store: store,
+            onTerminalOutcome: onTerminalOutcome,
+            onOperationHandoff: onOperationHandoff
+        )
+    }
+
+    @discardableResult
+    func retryPrimaryCanvasResolution(
+        fingerprint: String,
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback = { _ in },
+        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback = { _ in }
+    ) -> Foundation.UUID? {
+        guard primaryResolution == .missing,
+              primaryCanvasResolutionSlot == nil,
+              let focus = pendingFocus
+        else {
+            return nil
+        }
+        return invalidatePrimaryCanvasResolutionAndStart(
+            for: focus,
+            fingerprint: fingerprint,
+            store: store,
+            onTerminalOutcome: onTerminalOutcome,
+            onOperationHandoff: onOperationHandoff
+        )
+    }
+
+    func reducePrimaryCanvasSceneObservation(
+        from previous: WorkspacePrimaryCanvasSceneObservation?,
+        to current: WorkspacePrimaryCanvasSceneObservation,
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback = { _ in },
+        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback = { _ in }
+    ) {
+        guard let workspaceID = current.workspaceID,
+              let fingerprint = current.fingerprint
+        else {
+            clear()
+            return
+        }
+
+        guard previous?.workspaceID == workspaceID,
+              pendingFocus?.workspaceID == workspaceID
+        else {
+            let focus = focus(workspaceID: workspaceID)
+            _ = startPrimaryCanvasResolution(
+                for: focus,
+                fingerprint: fingerprint,
+                store: store,
+                onTerminalOutcome: onTerminalOutcome,
+                onOperationHandoff: onOperationHandoff
+            )
+            return
+        }
+
+        guard previous?.fingerprint != fingerprint,
+              let focus = pendingFocus
+        else {
+            return
+        }
+        _ = invalidatePrimaryCanvasResolutionAndStart(
+            for: focus,
+            fingerprint: fingerprint,
+            store: store,
+            onTerminalOutcome: onTerminalOutcome,
+            onOperationHandoff: onOperationHandoff
+        )
     }
 
     @discardableResult
@@ -121,6 +215,7 @@ extension WorkspaceWindowScopeController {
         registerCancellation: WorkspacePrimaryCanvasCancellationRegistrar? = nil,
         worker: @escaping WorkspacePrimaryCanvasResolutionWorker
     ) -> Foundation.UUID? {
+        beginPrimaryCanvasResolution(for: focus)
         let attempt = WorkspacePrimaryCanvasResolutionAttempt(
             requestID: Foundation.UUID(),
             focus: focus,
@@ -264,7 +359,9 @@ extension WorkspaceWindowScopeController {
     private func runInitialPrimaryCanvasLookup(
         attempt: WorkspacePrimaryCanvasResolutionAttempt,
         operationID: Foundation.UUID,
-        store: WorkspacePrimaryCanvasStore
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback,
+        onOperationHandoff: @escaping WorkspacePrimaryCanvasHandoffCallback
     ) {
         guard attempt.phase == .initialLookup,
               !Task.isCancelled,
@@ -283,6 +380,12 @@ extension WorkspaceWindowScopeController {
                 phase: .initialLookup
             )
         } catch {
+            finishPrimaryCanvasResolutionFailure(
+                error,
+                attempt: attempt,
+                operationID: operationID,
+                onTerminalOutcome: onTerminalOutcome
+            )
             return
         }
 
@@ -300,10 +403,17 @@ extension WorkspaceWindowScopeController {
             return
         }
         guard case let .unbound(returnedFocus, .missing) = result else {
+            onTerminalOutcome(
+                WorkspacePrimaryCanvasTerminalOutcome(
+                    operationID: operationID,
+                    attempt: attempt,
+                    kind: .resolution(scopedResolution.resolution)
+                )
+            )
             return
         }
 
-        _ = startPrimaryCanvasResolution(
+        let provisioningOperationID = startPrimaryCanvasResolution(
             for: returnedFocus,
             fingerprint: attempt.fingerprint,
             phase: .preInsertRecheck
@@ -311,7 +421,29 @@ extension WorkspaceWindowScopeController {
             controller?.runPrimaryCanvasProvisioning(
                 attempt: provisioningAttempt,
                 operationID: provisioningOperationID,
-                store: store
+                store: store,
+                onTerminalOutcome: onTerminalOutcome
+            )
+        }
+        if let provisioningOperationID,
+           let newAttempt = primaryCanvasResolutionSlot?.attempt,
+           primaryCanvasResolutionSlot?.operationID == provisioningOperationID {
+            onOperationHandoff(
+                WorkspacePrimaryCanvasOperationHandoff(
+                    oldOperationID: operationID,
+                    newOperationID: provisioningOperationID,
+                    newAttempt: newAttempt
+                )
+            )
+        } else if primaryCanvasResolutionSlot == nil,
+                  pendingFocus == returnedFocus,
+                  primaryResolution == .missing {
+            onTerminalOutcome(
+                WorkspacePrimaryCanvasTerminalOutcome(
+                    operationID: operationID,
+                    attempt: attempt,
+                    kind: .resolution(.missing)
+                )
             )
         }
     }
@@ -319,7 +451,8 @@ extension WorkspaceWindowScopeController {
     private func runPrimaryCanvasProvisioning(
         attempt: WorkspacePrimaryCanvasResolutionAttempt,
         operationID: Foundation.UUID,
-        store: WorkspacePrimaryCanvasStore
+        store: WorkspacePrimaryCanvasStore,
+        onTerminalOutcome: @escaping WorkspacePrimaryCanvasTerminalCallback
     ) {
         guard attempt.phase == .preInsertRecheck,
               !Task.isCancelled,
@@ -337,10 +470,19 @@ extension WorkspaceWindowScopeController {
                 workspaceID: attempt.focus.workspaceID
             )
         } catch {
+            finishPrimaryCanvasResolutionFailure(
+                error,
+                attempt: attempt,
+                operationID: operationID,
+                onTerminalOutcome: onTerminalOutcome
+            )
             return
         }
+        var provisioningContextWasDiscarded = false
         defer {
-            store.discardProvisioning(contextID: scopedResolution.contextID)
+            if !provisioningContextWasDiscarded {
+                store.discardProvisioning(contextID: scopedResolution.contextID)
+            }
         }
 
         guard !Task.isCancelled,
@@ -349,14 +491,33 @@ extension WorkspaceWindowScopeController {
                 operationID: operationID
               )
         else {
+            if Task.isCancelled {
+                store.discardProvisioning(contextID: scopedResolution.contextID)
+                provisioningContextWasDiscarded = true
+                _ = finishPrimaryCanvasResolutionCancellation(
+                    attempt: attempt,
+                    operationID: operationID
+                )
+            }
             return
         }
 
         guard scopedResolution.resolution == .missing else {
-            _ = finishPrimaryCanvasResolution(
+            store.discardProvisioning(contextID: scopedResolution.contextID)
+            provisioningContextWasDiscarded = true
+            guard finishPrimaryCanvasResolution(
                 attempt: attempt,
                 operationID: operationID,
                 resolution: scopedResolution.resolution
+            ) != nil else {
+                return
+            }
+            onTerminalOutcome(
+                WorkspacePrimaryCanvasTerminalOutcome(
+                    operationID: operationID,
+                    attempt: attempt,
+                    kind: .resolution(scopedResolution.resolution)
+                )
             )
             return
         }
@@ -365,6 +526,8 @@ extension WorkspaceWindowScopeController {
             contextID: scopedResolution.contextID,
             workspaceID: attempt.focus.workspaceID
         )
+        store.discardProvisioning(contextID: scopedResolution.contextID)
+        provisioningContextWasDiscarded = true
 
         guard !Task.isCancelled,
               primaryCanvasAttemptIsCurrent(
@@ -377,6 +540,12 @@ extension WorkspaceWindowScopeController {
                 to: .postSaveRecheck
               )
         else {
+            if Task.isCancelled {
+                _ = finishPrimaryCanvasResolutionCancellation(
+                    attempt: attempt,
+                    operationID: operationID
+                )
+            }
             return
         }
 
@@ -387,6 +556,12 @@ extension WorkspaceWindowScopeController {
                 phase: .postSaveRecheck
             )
         } catch {
+            finishPrimaryCanvasResolutionFailure(
+                error,
+                attempt: postSaveAttempt,
+                operationID: operationID,
+                onTerminalOutcome: onTerminalOutcome
+            )
             return
         }
 
@@ -396,12 +571,57 @@ extension WorkspaceWindowScopeController {
                 operationID: operationID
               )
         else {
+            if Task.isCancelled {
+                _ = finishPrimaryCanvasResolutionCancellation(
+                    attempt: postSaveAttempt,
+                    operationID: operationID
+                )
+            }
             return
         }
-        _ = finishPrimaryCanvasResolution(
+        guard finishPrimaryCanvasResolution(
             attempt: postSaveAttempt,
             operationID: operationID,
             resolution: postSaveResolution.resolution
+        ) != nil else {
+            return
+        }
+        onTerminalOutcome(
+            WorkspacePrimaryCanvasTerminalOutcome(
+                operationID: operationID,
+                attempt: postSaveAttempt,
+                kind: .resolution(postSaveResolution.resolution)
+            )
+        )
+    }
+
+    private func finishPrimaryCanvasResolutionFailure(
+        _ error: Error,
+        attempt: WorkspacePrimaryCanvasResolutionAttempt,
+        operationID: Foundation.UUID,
+        onTerminalOutcome: WorkspacePrimaryCanvasTerminalCallback
+    ) {
+        if error is CancellationError || Task.isCancelled {
+            _ = finishPrimaryCanvasResolutionCancellation(
+                attempt: attempt,
+                operationID: operationID
+            )
+            return
+        }
+        let message = WorkspacePrimaryCanvasPresentation.sanitizedErrorMessage(error)
+        guard finishPrimaryCanvasResolutionError(
+            attempt: attempt,
+            operationID: operationID,
+            message: message
+        ) else {
+            return
+        }
+        onTerminalOutcome(
+            WorkspacePrimaryCanvasTerminalOutcome(
+                operationID: operationID,
+                attempt: attempt,
+                kind: .recoverableError(message: message)
+            )
         )
     }
 

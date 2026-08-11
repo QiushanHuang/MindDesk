@@ -56,7 +56,8 @@ final class WorkspaceWindowScopeController: ObservableObject {
     @Published private(set) var pendingFocus: WorkspaceFocusScopeIdentity?
     @Published private(set) var boundCanvas: WorkspaceCanvasScopeIdentity?
     @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
-    private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
+    @Published private(set) var primaryCanvasRecoverableError: String?
+    @Published private(set) var primaryCanvasResolutionSlot: WorkspacePrimaryCanvasResolutionSlot?
 
     private struct CancellationRegistration {
         let scope: WorkspaceScopeOperationIdentity
@@ -84,6 +85,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
             focusRevision: WorkspaceFocusRevision(rawValue: Foundation.UUID())
         )
         primaryResolution = nil
+        primaryCanvasRecoverableError = nil
         boundCanvas = nil
         pendingFocus = focus
         cancel(detachedRegistrations)
@@ -106,6 +108,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         )
         boundCanvas = nil
         primaryResolution = nil
+        primaryCanvasRecoverableError = nil
         pendingFocus = rotatedFocus
         cancel(detachedRegistrations)
         return rotatedFocus
@@ -119,6 +122,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         guard pendingFocus == focus else {
             return .stale
         }
+        primaryCanvasRecoverableError = nil
 
         if primaryResolution == resolution {
             switch resolution {
@@ -223,6 +227,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         let detachedRegistrations = detachCancellationRegistrations()
         boundCanvas = nil
         primaryResolution = nil
+        primaryCanvasRecoverableError = nil
         pendingFocus = nil
         cancel(detachedRegistrations)
     }
@@ -241,6 +246,62 @@ final class WorkspaceWindowScopeController: ObservableObject {
         let displacedSlot = primaryCanvasResolutionSlot
         primaryCanvasResolutionSlot = slot
         return displacedSlot
+    }
+
+    func beginPrimaryCanvasResolution(for focus: WorkspaceFocusScopeIdentity) {
+        guard accepts(focus) else {
+            return
+        }
+        primaryCanvasRecoverableError = nil
+    }
+
+    func finishPrimaryCanvasResolutionError(
+        attempt: WorkspacePrimaryCanvasResolutionAttempt,
+        operationID: Foundation.UUID,
+        message: String
+    ) -> Bool {
+        guard resolutionSlotMatches(
+            attempt: attempt,
+            operationID: operationID
+        ), accepts(attempt.focus) else {
+            return false
+        }
+        guard complete(
+            operationID: operationID,
+            for: .focus(attempt.focus)
+        ) else {
+            return false
+        }
+        guard clearPrimaryCanvasResolutionSlot(
+            attempt: attempt,
+            operationID: operationID
+        ) else {
+            return false
+        }
+        primaryCanvasRecoverableError = message
+        return true
+    }
+
+    func finishPrimaryCanvasResolutionCancellation(
+        attempt: WorkspacePrimaryCanvasResolutionAttempt,
+        operationID: Foundation.UUID
+    ) -> Bool {
+        guard resolutionSlotMatches(
+            attempt: attempt,
+            operationID: operationID
+        ), accepts(attempt.focus) else {
+            return false
+        }
+        guard complete(
+            operationID: operationID,
+            for: .focus(attempt.focus)
+        ) else {
+            return false
+        }
+        return clearPrimaryCanvasResolutionSlot(
+            attempt: attempt,
+            operationID: operationID
+        )
     }
 
     func replacePrimaryCanvasResolutionAttempt(
