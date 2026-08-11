@@ -93,7 +93,7 @@ final class AppBehaviorTests: XCTestCase {
         let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
         var executionCount = 0
         var owner: NSObject? = NSObject()
-        weak let weakOwner: NSObject? = owner
+        let weakOwner = WeakTestReference(owner)
 
         driver.submitLatest(channel: .viewport) { [owner] in
             XCTAssertNotNil(owner)
@@ -101,10 +101,10 @@ final class AppBehaviorTests: XCTestCase {
         }
         owner = nil
 
-        XCTAssertNotNil(weakOwner)
+        XCTAssertNotNil(weakOwner.value)
         driver.cancelAll()
 
-        XCTAssertNil(weakOwner)
+        XCTAssertNil(weakOwner.value)
         driver.fireForTesting()
         XCTAssertEqual(executionCount, 0)
         XCTAssertEqual(driver.pendingChannelCount, 0)
@@ -5644,4 +5644,12 @@ private final class PostOpenMaintenanceRunnerRecorder: @unchecked Sendable {
     var immediateRuns: [[PersistentStorePostOpenMaintenanceWork]] = []
     var deferredRuns: [[PersistentStorePostOpenMaintenanceWork]] = []
     var scheduledDeferredWork: [@Sendable () -> Void] = []
+}
+
+final class WeakTestReference<Value: AnyObject> {
+    weak var value: Value?
+
+    init(_ value: Value?) {
+        self.value = value
+    }
 }
