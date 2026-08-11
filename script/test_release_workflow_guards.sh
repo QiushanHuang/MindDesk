@@ -1,138 +1,67 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CI_WORKFLOW="$ROOT_DIR/.github/workflows/ci.yml"
-RELEASE_WORKFLOW="$ROOT_DIR/.github/workflows/release.yml"
-PACKAGE_SCRIPT="$ROOT_DIR/script/package_release.sh"
-
-fail() {
-  echo "$1" >&2
-  exit 1
+ROOT_DIR="$(cd -P "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PACKAGE="$ROOT_DIR/script/package_release.sh"
+CI="$ROOT_DIR/.github/workflows/ci.yml"
+RELEASE="$ROOT_DIR/.github/workflows/release.yml"
+fail() { echo "$1" >&2; exit 1; }
+contains() { grep -Fq -- "$2" "$1" || fail "$1 must contain: $2"; }
+forbids() { ! grep -Fq -- "$2" "$1" || fail "$1 must not contain: $2"; }
+line_of() { grep -nF -- "$2" "$1" | head -1 | cut -d: -f1; }
+before() {
+  local a b; a="$(line_of "$1" "$2")"; b="$(line_of "$1" "$3")"
+  [[ -n "$a" && -n "$b" && "$a" -lt "$b" ]] || fail "$1 must place '$2' before '$3'"
 }
 
-require_contains() {
-  local file="$1"
-  local needle="$2"
-  grep -Fq -- "$needle" "$file" || fail "$file must contain: $needle"
-}
+for file in "$PACKAGE" "$CI" "$RELEASE"; do
+  contains "$file" "--package-manifest-only"
+  before "$file" "--package-manifest-only" "swift build"
+  forbids "$file" "dist/**"
+  forbids "$file" "--clobber"
+done
 
-line_of() {
-  local file="$1"
-  local needle="$2"
-  local match
-  match="$(grep -nF -- "$needle" "$file" | head -n 1 || true)"
-  [[ -n "$match" ]] || fail "$file must contain: $needle"
-  printf '%s\n' "${match%%:*}"
-}
+contains "$PACKAGE" 'SOURCE_HEAD="$(git rev-parse HEAD)"'
+contains "$PACKAGE" 'BUILD_SCRATCH="$(mktemp -d'
+contains "$PACKAGE" 'BUILD_EVIDENCE="$(mktemp -d'
+contains "$PACKAGE" '--scratch-path "$BUILD_SCRATCH"'
+contains "$PACKAGE" '--evidence-dir "$BUILD_EVIDENCE"'
+contains "$PACKAGE" 'build-provenance.json'
+contains "$PACKAGE" 'pre-sign.bundle.manifest.json'
+contains "$PACKAGE" 'final-app.bundle.manifest.json'
+contains "$PACKAGE" 'verified-artifacts.json'
+contains "$PACKAGE" 'hdiutil attach -readonly -nobrowse'
+contains "$PACKAGE" 'compare_bundle_manifest "$ZIP_EXTRACT/$APP_DISPLAY_NAME.app"'
+contains "$PACKAGE" 'compare_bundle_manifest "$DMG_MOUNT/$APP_DISPLAY_NAME.app"'
+forbids "$PACKAGE" '"$ROOT_DIR/.build'
 
-assert_before() {
-  local file="$1"
-  local earlier="$2"
-  local later="$3"
-  local earlier_line
-  local later_line
-  earlier_line="$(line_of "$file" "$earlier")"
-  later_line="$(line_of "$file" "$later")"
-  if [[ "$earlier_line" -ge "$later_line" ]]; then
-    fail "$file must place '$earlier' before '$later'"
-  fi
-}
+for workflow in "$CI" "$RELEASE"; do
+  contains "$workflow" 'SOURCE_HEAD=$(git rev-parse HEAD)'
+  contains "$workflow" 'id: verified_release_artifacts'
+  contains "$workflow" '--scratch-path "$scratch"'
+  contains "$workflow" '--evidence-dir "$evidence"'
+  contains "$workflow" 'build_provenance_path'
+  contains "$workflow" 'normalized_plan_path'
+  contains "$workflow" 'source_policy_path'
+  contains "$workflow" 'pre_sign_manifest_path'
+  contains "$workflow" 'final_app_manifest_path'
+  contains "$workflow" 'verified_artifacts_path'
+  contains "$workflow" 'checksums_path'
+  contains "$workflow" 'build_provenance_sha256'
+  contains "$workflow" 'normalized_plan_sha256'
+  contains "$workflow" 'source_policy_sha256'
+  contains "$workflow" 'pre_sign_manifest_sha256'
+  contains "$workflow" 'final_app_manifest_sha256'
+  contains "$workflow" 'verified_artifacts_sha256'
+  contains "$workflow" 'checksums_sha256'
+  forbids "$workflow" 'dist/release/*'
+done
 
-require_near() {
-  local file="$1"
-  local anchor="$2"
-  local needle="$3"
-  local window="${4:-10}"
-  local start
-  local end
-  start="$(line_of "$file" "$anchor")"
-  end=$((start + window))
-  sed -n "${start},${end}p" "$file" | grep -Fq -- "$needle" || {
-    fail "$file must contain near '$anchor': $needle"
-  }
-}
-
-require_not_near() {
-  local file="$1"
-  local anchor="$2"
-  local needle="$3"
-  local window="${4:-12}"
-  local start
-  local end
-  start="$(line_of "$file" "$anchor")"
-  end=$((start + window))
-  if sed -n "${start},${end}p" "$file" | grep -Fq -- "$needle"; then
-    fail "$file must not contain near '$anchor': $needle"
-  fi
-}
-
-require_contains "$CI_WORKFLOW" "bash -n script/test_release_workflow_guards.sh"
-require_contains "$CI_WORKFLOW" "bash script/test_release_workflow_guards.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/preserve_release_failure_artifacts.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/verify_release_artifacts.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/test_build_and_run_ui_smoke_guard.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/test_release_artifact_verifier.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/test_release_failure_artifact_preserver.sh"
-require_contains "$CI_WORKFLOW" "bash -n script/test_release_package_failure_diagnostics.sh"
-require_contains "$CI_WORKFLOW" "bash script/test_build_and_run_ui_smoke_guard.sh"
-require_contains "$CI_WORKFLOW" "bash script/test_release_artifact_verifier.sh"
-require_contains "$CI_WORKFLOW" "bash script/test_release_failure_artifact_preserver.sh"
-require_contains "$CI_WORKFLOW" "bash script/test_release_package_failure_diagnostics.sh"
-require_contains "$CI_WORKFLOW" "./script/package_release.sh --mode adhoc --allow-adhoc"
-require_near "$CI_WORKFLOW" "      - name: Package ad-hoc release smoke" 'RELEASE_PLATFORM_SUFFIX: macOS-ci-${{ github.run_id }}-${{ github.run_attempt }}'
-assert_before "$CI_WORKFLOW" "./script/package_release.sh --mode adhoc --allow-adhoc" "bash script/verify_release_artifacts.sh"
-require_near "$CI_WORKFLOW" "bash script/verify_release_artifacts.sh" '--artifact-dir "dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}-adhoc/artifacts"'
-require_near "$CI_WORKFLOW" "bash script/verify_release_artifacts.sh" "--mode adhoc"
-
-require_contains "$RELEASE_WORKFLOW" "bash -n script/verify_release_artifacts.sh"
-require_contains "$RELEASE_WORKFLOW" "bash -n script/preserve_release_failure_artifacts.sh"
-require_contains "$RELEASE_WORKFLOW" "bash -n script/test_build_and_run_ui_smoke_guard.sh"
-require_contains "$RELEASE_WORKFLOW" "bash -n script/test_release_failure_artifact_preserver.sh"
-require_contains "$RELEASE_WORKFLOW" "bash -n script/test_release_package_failure_diagnostics.sh"
-require_contains "$RELEASE_WORKFLOW" "bash script/test_build_and_run_ui_smoke_guard.sh"
-require_contains "$RELEASE_WORKFLOW" "bash script/test_release_failure_artifact_preserver.sh"
-require_contains "$RELEASE_WORKFLOW" "bash script/test_release_package_failure_diagnostics.sh"
-require_contains "$RELEASE_WORKFLOW" "bash -n script/test_release_workflow_guards.sh"
-require_contains "$RELEASE_WORKFLOW" "bash script/test_release_workflow_guards.sh"
-require_contains "$RELEASE_WORKFLOW" "      - name: Set release artifact suffix"
-require_contains "$RELEASE_WORKFLOW" "          echo \"RELEASE_PLATFORM_SUFFIX=macOS-\${ARCH}\" >>\"\$GITHUB_ENV\""
-require_contains "$RELEASE_WORKFLOW" "          echo \"release_platform_suffix=macOS-\${ARCH}\" >>\"\$GITHUB_OUTPUT\""
-
-require_contains "$RELEASE_WORKFLOW" "      - name: Verify notarized release artifacts"
-require_contains "$RELEASE_WORKFLOW" "bash script/verify_release_artifacts.sh"
-require_near "$RELEASE_WORKFLOW" "      - name: Verify notarized release artifacts" "bash script/verify_release_artifacts.sh"
-require_near "$RELEASE_WORKFLOW" "bash script/verify_release_artifacts.sh" '--artifact-dir "dist/release/MindDesk-v${VERSION}-${RELEASE_PLATFORM_SUFFIX}/artifacts"'
-require_near "$RELEASE_WORKFLOW" "bash script/verify_release_artifacts.sh" '--version "$VERSION"'
-require_near "$RELEASE_WORKFLOW" "bash script/verify_release_artifacts.sh" '--suffix "$RELEASE_PLATFORM_SUFFIX"'
-require_near "$RELEASE_WORKFLOW" "bash script/verify_release_artifacts.sh" "--mode notarized"
-require_contains "$RELEASE_WORKFLOW" "      - name: Upload release artifacts"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" 'name: minddesk-${{ steps.release_suffix.outputs.release_platform_suffix }}-release'
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.zip"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.dmg"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/SHA256SUMS.txt"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/INSTALL.txt"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/RELEASE-NOTES.md"
-require_not_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.txt"
-require_not_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.md"
-require_not_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.json"
-require_not_near "$RELEASE_WORKFLOW" "      - name: Upload release artifacts" "dist/release/*/artifacts/*.plist"
-require_contains "$RELEASE_WORKFLOW" "      - name: Upload release diagnostics"
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release diagnostics" 'name: minddesk-${{ steps.release_suffix.outputs.release_platform_suffix }}-release-diagnostics'
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release diagnostics" 'if: ${{ always() }}'
-require_near "$RELEASE_WORKFLOW" "      - name: Upload release diagnostics" "if-no-files-found: ignore"
-require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/notary-*.json"
-require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/notary-*.stderr"
-require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/codesign-*.txt"
-require_contains "$RELEASE_WORKFLOW" "dist/release/*/artifacts/codesign-*.plist"
-require_contains "$PACKAGE_SCRIPT" 'SWIFTPM_RESOURCE_BUNDLES=("$BUILD_DIR"/*.bundle)'
-require_contains "$PACKAGE_SCRIPT" 'for resource_bundle in "${SWIFTPM_RESOURCE_BUNDLES[@]}"; do'
-require_contains "$PACKAGE_SCRIPT" 'cp -R "$resource_bundle" "$APP_RESOURCES/"'
-
-assert_before "$RELEASE_WORKFLOW" "      - name: Build, sign, notarize, and staple release artifacts" "      - name: Verify notarized release artifacts"
-assert_before "$RELEASE_WORKFLOW" "      - name: Build, sign, notarize, and staple release artifacts" "      - name: Upload release diagnostics"
-assert_before "$RELEASE_WORKFLOW" "      - name: Verify notarized release artifacts" "      - name: Upload release artifacts"
-assert_before "$RELEASE_WORKFLOW" "      - name: Verify notarized release artifacts" "      - name: Create draft GitHub Release"
-assert_before "$RELEASE_WORKFLOW" "      - name: Upload release diagnostics" "      - name: Create draft GitHub Release"
+before "$CI" 'Direct private Release evidence' 'Debug and Release suites'
+before "$CI" 'Debug and Release suites' 'Package ad-hoc release smoke'
+before "$CI" 'Recheck exported release digests' 'Upload verified release bundle'
+before "$RELEASE" 'Direct private Release evidence' 'Build, sign, notarize, and staple verified release'
+before "$RELEASE" 'Recheck exported release digests' 'Upload verified release bundle'
+contains "$RELEASE" 'refusing to replace assets'
 
 echo "Release workflow guard tests passed."

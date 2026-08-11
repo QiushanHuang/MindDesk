@@ -46,14 +46,18 @@ fi
 
 RELEASE_CRITICAL_PATHS=(
   Package.swift
+  'Package@swift-*.swift'
   Package.resolved
   Sources
   Tests
   script
   .github
   README.md
+  CHANGELOG.md
   VERSION
   docs
+  Fixtures
+  fixtures
 )
 
 print_list() {
@@ -76,10 +80,10 @@ append_line() {
 is_ignored_release_critical_file() {
   local path="$1"
   case "$path" in
-    Package.swift|Package.resolved|README.md|VERSION)
+    Package.swift|Package@swift-*.swift|Package.resolved|README.md|CHANGELOG.md|VERSION)
       return 0
       ;;
-    Sources/*.swift|Tests/*.swift|script/*.sh|.github/workflows/*.yml|.github/workflows/*.yaml|docs/*.md)
+    Sources/*|Tests/*|script/*|.github/*|docs/*|Fixtures/*|fixtures/*)
       return 0
       ;;
     *)
@@ -118,7 +122,29 @@ if [[ -n "$ignored_critical_files" ]]; then
   print_list "Ignored release-critical files must be added or removed before release:" "$ignored_critical_files"
 fi
 
-if [[ -n "$tracked_changes" || -n "$untracked_files" || -n "$ignored_critical_files" ]]; then
+symlink_files=""
+while IFS= read -r -d '' tracked_path; do
+  [[ -L "$ROOT_DIR/$tracked_path" ]] || continue
+  symlink_files="$(append_line "$symlink_files" "$tracked_path")"
+done < <(git -C "$ROOT_DIR" ls-files -z -- "${RELEASE_CRITICAL_PATHS[@]}")
+while IFS= read -r candidate; do
+  [[ -n "$candidate" && -L "$ROOT_DIR/$candidate" ]] || continue
+  symlink_files="$(append_line "$symlink_files" "$candidate")"
+done <<<"$(printf '%s\n%s\n' "$untracked_files" "$ignored_candidates" | sort -u)"
+
+versioned_manifests=""
+while IFS= read -r -d '' manifest; do
+  versioned_manifests="$(append_line "$versioned_manifests" "${manifest#$ROOT_DIR/}")"
+done < <(find -P "$ROOT_DIR" -mindepth 1 -maxdepth 1 -name 'Package@swift-*.swift' -print0)
+
+if [[ -n "$symlink_files" ]]; then
+  print_list "Release-critical symlinks are forbidden:" "$(printf '%s\n' "$symlink_files" | sort -u)"
+fi
+if [[ -n "$versioned_manifests" ]]; then
+  print_list "Version-specific package manifests are forbidden:" "$versioned_manifests"
+fi
+
+if [[ -n "$tracked_changes" || -n "$untracked_files" || -n "$ignored_critical_files" || -n "$symlink_files" || -n "$versioned_manifests" ]]; then
   exit 1
 fi
 

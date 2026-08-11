@@ -130,6 +130,31 @@ printf 'test changed\n' >>"$staged_repo/Tests/AppTests/AppTests.swift"
 git -C "$staged_repo" add Tests/AppTests/AppTests.swift
 assert_fails_with "$staged_repo" "Tracked release-critical changes"
 
+changelog_repo="$(make_repo changelog)"
+printf '# Changes\n' >"$changelog_repo/CHANGELOG.md"
+git -C "$changelog_repo" add CHANGELOG.md
+git -C "$changelog_repo" commit -q -m changelog
+printf 'uncommitted\n' >>"$changelog_repo/CHANGELOG.md"
+assert_fails_with "$changelog_repo" "Tracked release-critical changes"
+
+versioned_repo="$(make_repo versioned-manifest)"
+printf '// alternate\n' >"$versioned_repo/Package@swift-6.0.swift"
+assert_fails_with "$versioned_repo" "Version-specific package manifests are forbidden"
+
+symlink_repo="$(make_repo critical-symlink)"
+ln -s main.swift "$symlink_repo/Sources/App/Linked.swift"
+git -C "$symlink_repo" add Sources/App/Linked.swift
+git -C "$symlink_repo" commit -q -m symlink
+assert_fails_with "$symlink_repo" "Release-critical symlinks are forbidden"
+
+ignored_fixture_repo="$(make_repo ignored-fixture)"
+mkdir -p "$ignored_fixture_repo/Tests/Fixtures"
+printf 'Tests/Fixtures/\n' >>"$ignored_fixture_repo/.gitignore"
+git -C "$ignored_fixture_repo" add .gitignore
+git -C "$ignored_fixture_repo" commit -q -m ignore-fixture
+printf 'fixture\n' >"$ignored_fixture_repo/Tests/Fixtures/payload.bin"
+assert_fails_with "$ignored_fixture_repo" "Ignored release-critical files must be added or removed before release"
+
 combined_repo="$(make_repo combined-tracked-untracked)"
 printf 'print("changed")\n' >>"$combined_repo/Sources/App/main.swift"
 printf 'struct Extra {}\n' >"$combined_repo/Sources/App/Extra.swift"
