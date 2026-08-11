@@ -991,6 +991,9 @@ struct WorkspaceCanvasView: View {
     @AppStorage(AppPreferenceKeys.canvasConnectSingleShot) private var connectSingleShot = AppPreferenceDefaults.canvasConnectSingleShot
     @AppStorage(AppPreferenceKeys.canvasAnimationFrameRate) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
     @AppStorage(AppPreferenceKeys.canvasZoomCommitCadence) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
+    @ObservedObject var workspaceWindowScopeController: WorkspaceWindowScopeController
+    let canvasScope: WorkspaceCanvasScopeIdentity
+    let nodeOwnershipReader: WorkspaceCanvasNodeOwnershipReader
     let canvas: CanvasModel
     let resources: [ResourcePinModel]
     let allResources: [ResourcePinModel]
@@ -1072,6 +1075,25 @@ struct WorkspaceCanvasView: View {
 
     private var workflowNodes: [CanvasNodeModel] {
         nodes
+    }
+
+    private var nodeObservationFingerprint: String {
+        WorkspaceCanvasNodeObservationFingerprint.make(
+            records: nodes.map {
+                WorkspaceCanvasNodeObservationRecord(
+                    nodeID: $0.id,
+                    canvasID: $0.canvasId
+                )
+            }
+        )
+    }
+
+    private var canvasNodeOwnershipObservation: WorkspaceCanvasNodeOwnershipObservation {
+        WorkspaceCanvasNodeOwnershipObservation(
+            scope: canvasScope,
+            flow: workspaceWindowScopeController.canvasNodeOpenFlow,
+            fingerprint: nodeObservationFingerprint
+        )
     }
 
     private var workflowNodeById: [String: CanvasNodeModel] {
@@ -1271,6 +1293,12 @@ struct WorkspaceCanvasView: View {
             .onChange(of: nodes.map(\.id)) { _, nodeIDs in
                 reconcileNodeState(existingNodeIDs: Set(nodeIDs))
             }
+            .onChange(of: canvasNodeOwnershipObservation, initial: true) { _, _ in
+                reconcileCanvasNodeOwnership()
+            }
+            .onChange(of: canvasSurfaceSize) { _, _ in
+                consumeReadyCanvasNodeOpenRequest()
+            }
             .onChange(of: canvas.id) { _, _ in
                 initializeTodoPanelDefaults()
                 resetTransientCanvasInteractionState()
@@ -1279,6 +1307,50 @@ struct WorkspaceCanvasView: View {
                 handleOpenTodoPanelRequest(request)
             }
             .background(canvasCommandShortcuts.frame(width: 0, height: 0).opacity(0))
+    }
+
+    private func reconcileCanvasNodeOwnership() {
+        let previousError = workspaceWindowScopeController.canvasNodeOpenRecoverableError
+        let result = workspaceWindowScopeController.reconcileCanvasNodeOwnership(
+            scope: canvasScope,
+            nodeObservationFingerprint: nodeObservationFingerprint,
+            reader: nodeOwnershipReader
+        )
+        if case .ready = result {
+            consumeReadyCanvasNodeOpenRequest()
+        }
+        if workspaceWindowScopeController.canvasNodeOpenRecoverableError != previousError,
+           let message = workspaceWindowScopeController.canvasNodeOpenRecoverableError {
+            onStatus(message)
+        }
+    }
+
+    private func consumeReadyCanvasNodeOpenRequest() {
+        guard case let .issued(target, request, _) =
+                workspaceWindowScopeController.canvasNodeOpenFlow
+        else {
+            return
+        }
+        let decision = workspaceWindowScopeController.consumeCanvasNodeOpenRequestForRender(
+            target: target,
+            request: request,
+            scope: canvasScope,
+            nodeObservationFingerprint: nodeObservationFingerprint,
+            renderedNodeIDs: workflowNodes.map(\.id),
+            surfaceWidth: Double(canvasSurfaceSize.width),
+            surfaceHeight: Double(canvasSurfaceSize.height)
+        )
+        switch decision {
+        case .accept:
+            guard let node = workflowNodes.first(where: { $0.id == request.nodeID }) else {
+                return
+            }
+            selectedNodeIDs = [request.nodeID]
+            selectedEdgeIDs = []
+            fitViewport(to: [node], status: "Opened card")
+        case .rejectAndConsume, .defer:
+            break
+        }
     }
 
     private func initializeTodoPanelDefaults() {

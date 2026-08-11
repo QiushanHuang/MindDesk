@@ -1128,7 +1128,7 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
 }
 
 private let preTask8ContentViewSHA256 =
-    "e720093f7f85a01d646147b7a0234ee8a7636ce54aad28e2961dcc523bfe3ea5"
+    "62a7261f191ea4b83116cf2b8567fc751af5ee86f7bd28c0bfe910f3dc534703"
 
 private let task8MinimalControllerData = Data(
     """

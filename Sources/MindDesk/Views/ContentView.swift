@@ -744,6 +744,7 @@ struct ContentView: View {
                 WorkspaceDetailView(
                     workspaceWindowScopeController: self.workspaceWindowScopeController,
                     workspace: workspace,
+                    canvasNodeTarget: workspaceWindowScopeController.activeCanvasNodeTarget,
                     reentryBrief: WorkspaceReentryBriefMapper.brief(
                         for: workspace,
                         resources: resources,
@@ -3347,6 +3348,7 @@ struct WorkspaceDetailView: View {
     @Environment(\.modelContext) private var modelContext
     let workspaceWindowScopeController: WorkspaceWindowScopeController
     let workspace: WorkspaceModel
+    let canvasNodeTarget: PendingWorkspaceCanvasNodeTarget?
     let reentryBrief: WorkspaceReentryBrief
     let workspaces: [WorkspaceModel]
     let resources: [ResourcePinModel]
@@ -3498,8 +3500,14 @@ struct WorkspaceDetailView: View {
             case .snippets:
                 SnippetLibraryView(snippets: workspaceSnippets, resources: workspaceAvailableResources, scope: .workspace, workspaceId: workspace.id, onStatus: onStatus, onInspect: onInspect, onEdit: onEditSnippet, onDelete: onDeleteSnippet, clipboardService: clipboardService)
             case .canvas:
-                if let canvas = workspaceCanvas {
+                if let canvas = workspaceCanvas,
+                   let canvasScope = workspaceWindowScopeController.boundCanvas,
+                   canvasScope.canvasID == canvas.id,
+                   canvasScope.focus.workspaceID == workspace.id {
                     WorkspaceCanvasView(
+                        workspaceWindowScopeController: workspaceWindowScopeController,
+                        canvasScope: canvasScope,
+                        nodeOwnershipReader: .live(container: modelContext.container),
                         canvas: canvas,
                         resources: workspaceAvailableResources,
                         allResources: resources,
@@ -3535,9 +3543,13 @@ struct WorkspaceDetailView: View {
                 from: tab,
                 openDestinationRaw: workspaceOpenDestinationRaw
             )
+            activateCanvasForNodeTargetIfNeeded(canvasNodeTarget)
             initializedWorkspaceTabForWorkspaceID = workspace.id
             onCanvasTabActiveChange(tab.activatesCanvas)
             markWorkspaceOpened()
+        }
+        .onChange(of: canvasNodeTarget, initial: true) { _, target in
+            activateCanvasForNodeTargetIfNeeded(target)
         }
         .onChange(of: tab) { _, newValue in
             onCanvasTabActiveChange(newValue.activatesCanvas)
@@ -3547,7 +3559,18 @@ struct WorkspaceDetailView: View {
     private func applyWorkspaceOpenDestinationIfNeeded() {
         guard initializedWorkspaceTabForWorkspaceID != workspace.id else { return }
         tab = WorkspaceDetailTab.defaultTab(for: workspaceOpenDestinationRaw)
+        activateCanvasForNodeTargetIfNeeded(canvasNodeTarget)
         initializedWorkspaceTabForWorkspaceID = workspace.id
+    }
+
+    private func activateCanvasForNodeTargetIfNeeded(
+        _ target: PendingWorkspaceCanvasNodeTarget?
+    ) {
+        guard target?.workspaceID == workspace.id else {
+            return
+        }
+        tab = .canvas
+        onCanvasTabActiveChange(true)
     }
 
     private var workspaceActionButtons: some View {

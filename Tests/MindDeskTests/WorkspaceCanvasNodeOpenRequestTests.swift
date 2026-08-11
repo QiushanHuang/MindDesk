@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import XCTest
 @testable import MindDesk
 
@@ -255,6 +256,204 @@ final class WorkspaceCanvasNodeOpenRequestTests: XCTestCase {
         XCTAssertNil(controller.activeCanvasNodeTarget)
     }
 
+    func testOwnershipLookupRequiresUniqueCanvasWorkspaceAndNodeMatchesWithBothFetchLimitsTwo() throws {
+        let container = try nodeContainer()
+        let context = ModelContext(container)
+        context.insert(CanvasModel(id: "canvas-a", workspaceId: "workspace-a"))
+        context.insert(CanvasModel(id: "canvas-b", workspaceId: "workspace-b"))
+        context.insert(CanvasNodeModel(id: "node-a", canvasId: "canvas-a", title: "A", nodeType: .note, x: 0, y: 0))
+        context.insert(CanvasNodeModel(id: "node-b", canvasId: "canvas-b", title: "B", nodeType: .note, x: 0, y: 0))
+        try context.save()
+
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        XCTAssertEqual(WorkspaceCanvasNodeLookup.canvasDescriptor(for: scope).fetchLimit, 2)
+        XCTAssertEqual(WorkspaceCanvasNodeLookup.nodeDescriptor(nodeID: "node-a", scope: scope).fetchLimit, 2)
+        XCTAssertEqual(
+            try WorkspaceCanvasNodeOwnershipReader.live(container: container).resolve(nodeID: "node-a", scope: scope),
+            .readyOwned
+        )
+    }
+
+    func testOwnershipLookupTreatsZeroCrossCanvasAndCollisionEvidenceAsDefinitelyAbsent() throws {
+        let container = try nodeContainer()
+        let context = ModelContext(container)
+        context.insert(CanvasModel(id: "canvas-a", workspaceId: "workspace-a"))
+        context.insert(CanvasNodeModel(id: "node-other", canvasId: "canvas-other", title: "Other", nodeType: .note, x: 0, y: 0))
+        try context.save()
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let reader = WorkspaceCanvasNodeOwnershipReader.live(container: container)
+
+        XCTAssertEqual(try reader.resolve(nodeID: "missing", scope: scope), .definitelyAbsentOrCrossCanvas)
+        XCTAssertEqual(try reader.resolve(nodeID: "node-other", scope: scope), .definitelyAbsentOrCrossCanvas)
+        let collisionReader = WorkspaceCanvasNodeOwnershipReader { _, _ in .definitelyAbsentOrCrossCanvas }
+        XCTAssertEqual(try collisionReader.resolve(nodeID: "node-a", scope: scope), .definitelyAbsentOrCrossCanvas)
+    }
+
+    func testOwnershipLookupIsSynchronousMainActorFreshReadOnlyAndCreatesNoTaskOrCancellationRegistration() throws {
+        let lookup = try source("Sources/MindDesk/Models/WorkspaceCanvasNodeLookup.swift")
+        XCTAssertTrue(lookup.contains("ModelContext(container)"))
+        XCTAssertTrue(lookup.contains("autosaveEnabled = false"))
+        XCTAssertTrue(lookup.contains("@MainActor"))
+        XCTAssertFalse(lookup.contains("Task {"))
+        XCTAssertFalse(lookup.contains("Task.detached"))
+        XCTAssertFalse(lookup.contains("registerCancellation"))
+
+        var callCount = 0
+        let reader = WorkspaceCanvasNodeOwnershipReader { _, _ in
+            callCount += 1
+            return .readyOwned
+        }
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        XCTAssertEqual(try reader.resolve(nodeID: "node-a", scope: scope), .readyOwned)
+        XCTAssertEqual(callCount, 1)
+    }
+
+    func testOwnershipLookupThrowRetainsPendingOrDirtyIssuedFlowAndNeverReusesOldReadyEvidence() throws {
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let pending = target(220, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(pending)
+        let throwing = WorkspaceCanvasNodeOwnershipReader { _, _ in throw TestError.lookupFailed }
+
+        XCTAssertEqual(
+            controller.reconcileCanvasNodeOwnership(scope: scope, nodeObservationFingerprint: "fp-1", reader: throwing),
+            .deferred
+        )
+        XCTAssertEqual(controller.activeCanvasNodeTarget, pending)
+        XCTAssertNil(controller.issuedCanvasNodeOpenRequest)
+        XCTAssertFalse((controller.canvasNodeOpenRecoverableError ?? "").isEmpty)
+
+        let ready = WorkspaceCanvasNodeOwnershipReader { _, _ in .readyOwned }
+        guard case let .ready(request) = controller.reconcileCanvasNodeOwnership(
+            scope: scope,
+            nodeObservationFingerprint: "fp-1",
+            reader: ready
+        ) else { return XCTFail("Expected ready request") }
+        XCTAssertEqual(
+            controller.reconcileCanvasNodeOwnership(scope: scope, nodeObservationFingerprint: "fp-2", reader: throwing),
+            .deferred
+        )
+        XCTAssertEqual(controller.issuedCanvasNodeOpenRequest, request)
+        XCTAssertEqual(
+            controller.consumeCanvasNodeOpenRequestForRender(
+                target: pending,
+                request: request,
+                scope: scope,
+                nodeObservationFingerprint: "fp-2",
+                renderedNodeIDs: ["node-a"],
+                surfaceWidth: 800,
+                surfaceHeight: 600
+            ),
+            .defer
+        )
+    }
+
+    func testOwnershipResultCommitsOnlyForExactBoundIdentityAndCurrentFourFieldTarget() throws {
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let old = target(221, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        let replacement = target(222, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(old)
+        let staleReader = WorkspaceCanvasNodeOwnershipReader { _, _ in
+            controller.claimCanvasNodeTarget(replacement)
+            return .readyOwned
+        }
+
+        XCTAssertEqual(
+            controller.reconcileCanvasNodeOwnership(scope: scope, nodeObservationFingerprint: "fp", reader: staleReader),
+            .deferred
+        )
+        XCTAssertEqual(controller.activeCanvasNodeTarget, replacement)
+        XCTAssertNil(controller.issuedCanvasNodeOpenRequest)
+    }
+
+    func testSameWorkspaceRotationRestoresDeferredIssuedTargetWhileWorkspaceSwitchAndOwnershipDriftPreventOldConsumption() throws {
+        let container = try nodeContainer()
+        let context = ModelContext(container)
+        let canvas = CanvasModel(id: "canvas-a", workspaceId: "workspace-a")
+        context.insert(canvas)
+        context.insert(CanvasNodeModel(id: "node-a", canvasId: "canvas-a", title: "A", nodeType: .note, x: 0, y: 0))
+        try context.save()
+        let controller = WorkspaceWindowScopeController()
+        let focus = controller.focus(workspaceID: "workspace-a")
+        let scope = try bind(controller, focus: focus, canvasID: "canvas-a")
+        let pending = target(223, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(pending)
+        guard case let .ready(request) = controller.reconcileCanvasNodeOwnership(
+            scope: scope,
+            nodeObservationFingerprint: "fp",
+            reader: .live(container: container)
+        ) else { return XCTFail("Expected ready request") }
+        XCTAssertEqual(controller.consumeCanvasNodeOpenRequestForRender(target: pending, request: request, scope: scope, nodeObservationFingerprint: "fp", renderedNodeIDs: [], surfaceWidth: 800, surfaceHeight: 600), .defer)
+
+        let rotated = try XCTUnwrap(controller.invalidatePrimaryResolution(for: focus))
+        XCTAssertEqual(controller.activeCanvasNodeTarget, pending)
+        XCTAssertNil(controller.issuedCanvasNodeOpenRequest)
+        _ = try bind(controller, focus: rotated, canvasID: "canvas-a")
+        canvas.workspaceId = "workspace-b"
+        try context.save()
+        XCTAssertEqual(
+            controller.reconcileCanvasNodeOwnership(scope: try XCTUnwrap(controller.boundCanvas), nodeObservationFingerprint: "fp-2", reader: .live(container: container)),
+            .consumed
+        )
+        XCTAssertNil(controller.activeCanvasNodeTarget)
+
+        controller.claimCanvasNodeTarget(pending)
+        _ = controller.focus(workspaceID: "workspace-b")
+        XCTAssertNil(controller.activeCanvasNodeTarget)
+    }
+
+    func testMissingRenderEntryAndZeroSurfaceDeferWhileNodeChangesDirtyAndRerunExactOwnershipBeforeConfirmedDeletionConsumes() throws {
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let pending = target(224, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(pending)
+        let ready = WorkspaceCanvasNodeOwnershipReader { _, _ in .readyOwned }
+        guard case let .ready(request) = controller.reconcileCanvasNodeOwnership(scope: scope, nodeObservationFingerprint: "fp-1", reader: ready) else {
+            return XCTFail("Expected ready request")
+        }
+        XCTAssertEqual(controller.consumeCanvasNodeOpenRequestForRender(target: pending, request: request, scope: scope, nodeObservationFingerprint: "fp-1", renderedNodeIDs: [], surfaceWidth: 800, surfaceHeight: 600), .defer)
+        XCTAssertEqual(controller.consumeCanvasNodeOpenRequestForRender(target: pending, request: request, scope: scope, nodeObservationFingerprint: "fp-1", renderedNodeIDs: ["node-a"], surfaceWidth: 0, surfaceHeight: 600), .defer)
+
+        let absent = WorkspaceCanvasNodeOwnershipReader { _, _ in .definitelyAbsentOrCrossCanvas }
+        XCTAssertEqual(controller.reconcileCanvasNodeOwnership(scope: scope, nodeObservationFingerprint: "fp-2", reader: absent), .consumed)
+        XCTAssertNil(controller.activeCanvasNodeTarget)
+    }
+
+    func testAcceptAloneChangesSelectionAndViewportWhileRejectConsumesWithoutCounterMutation() throws {
+        let canvasSource = try source("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift")
+        XCTAssertTrue(canvasSource.contains("case .accept:"))
+        XCTAssertTrue(canvasSource.contains("selectedNodeIDs = [request.nodeID]"))
+        XCTAssertTrue(canvasSource.contains("fitViewport(to: [node]"))
+
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let pending = target(225, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(pending)
+        let request = try issued(controller.issueCanvasNodeOpenRequest(for: pending, scope: scope, nodeObservationFingerprint: "fp"))
+        XCTAssertEqual(controller.decideCanvasNodeOpenRequest(request, readiness: .definitelyAbsentOrCrossCanvas), .rejectAndConsume)
+        XCTAssertEqual(controller.lastConsumedCanvasNodeOpenRequestSequence, request.sequence)
+        XCTAssertEqual(controller.nextCanvasNodeOpenRequestSequence, 2)
+    }
+
+    func testDeferredIssuedFlowRetainsOriginatingTargetAndEmitsNoDeletedStatus() throws {
+        let controller = WorkspaceWindowScopeController()
+        let scope = try bind(controller, focus: controller.focus(workspaceID: "workspace-a"), canvasID: "canvas-a")
+        let pending = target(226, workspaceID: "workspace-a", canvasID: "canvas-a", nodeID: "node-a")
+        controller.claimCanvasNodeTarget(pending)
+        let request = try issued(controller.issueCanvasNodeOpenRequest(for: pending, scope: scope, nodeObservationFingerprint: "fp"))
+        XCTAssertEqual(controller.consumeCanvasNodeOpenRequestForRender(target: pending, request: request, scope: scope, nodeObservationFingerprint: "fp", renderedNodeIDs: [], surfaceWidth: 800, surfaceHeight: 600), .defer)
+        XCTAssertEqual(controller.activeCanvasNodeTarget, pending)
+        XCTAssertEqual(controller.issuedCanvasNodeOpenRequest, request)
+        XCTAssertNil(controller.lastConsumedCanvasNodeOpenRequestSequence)
+        let canvasSource = try source("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift")
+        XCTAssertFalse(canvasSource.localizedCaseInsensitiveContains("deleted status"))
+        XCTAssertFalse(canvasSource.contains("Requested card was deleted"))
+    }
+
     func testLegacyIntRequestTargetPolicyAndCanvasConsumerSymbolsAreAbsent() throws {
         let content = try source("Sources/MindDesk/Views/ContentView.swift")
         let canvas = try source("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift")
@@ -313,8 +512,15 @@ final class WorkspaceCanvasNodeOpenRequestTests: XCTestCase {
         return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
+    private func nodeContainer() throws -> ModelContainer {
+        let schema = Schema([CanvasModel.self, CanvasNodeModel.self])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        return try ModelContainer(for: schema, configurations: [configuration])
+    }
+
     private enum TestError: Error {
         case expectedBoundScope
         case expectedIssuedRequest
+        case lookupFailed
     }
 }
