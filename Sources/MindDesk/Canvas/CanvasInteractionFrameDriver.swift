@@ -16,6 +16,10 @@ final class CanvasInteractionFrameDriver: NSObject, ObservableObject {
     private var pendingUpdates: [Channel: () -> Void] = [:]
     private var scrollAccumulator = CanvasScrollFrameAccumulator()
     private var pendingScrollUpdate: ((CanvasScrollFrameSample) -> Void)?
+    private var pendingDebouncedCommit: (() -> Void)?
+    private var nextDebouncedCommitGeneration: UInt64 = 0
+    private var pendingDebouncedCommitGeneration: UInt64?
+    private var debouncedCommitTask: Task<Void, Never>?
     private var displayLinkLifetime: CanvasInteractionDisplayLinkLifetime?
 
     init(automaticallySchedulesDisplayLink: Bool = true) {
@@ -25,6 +29,10 @@ final class CanvasInteractionFrameDriver: NSObject, ObservableObject {
 
     var pendingChannelCount: Int {
         pendingUpdates.count
+    }
+
+    var pendingDebouncedCommitGenerationForTesting: UInt64? {
+        pendingDebouncedCommitGeneration
     }
 
     func submitLatest(channel: Channel, update: @escaping () -> Void) {
@@ -46,10 +54,54 @@ final class CanvasInteractionFrameDriver: NSObject, ObservableObject {
         pauseDisplayLinkIfIdle()
     }
 
+    func flushScroll() {
+        performPendingScrollUpdate()
+        pauseDisplayLinkIfIdle()
+    }
+
+    func scheduleDebouncedCommit(
+        delayNanos: UInt64,
+        action: @escaping () -> Void
+    ) {
+        cancelDebouncedCommit()
+        nextDebouncedCommitGeneration &+= 1
+        let generation = nextDebouncedCommitGeneration
+        pendingDebouncedCommitGeneration = generation
+        pendingDebouncedCommit = action
+        debouncedCommitTask = Task { @MainActor [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: delayNanos)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            self?.performDebouncedCommit(generation: generation)
+        }
+    }
+
+    func flushDebouncedCommit() {
+        debouncedCommitTask?.cancel()
+        debouncedCommitTask = nil
+        guard let generation = pendingDebouncedCommitGeneration else { return }
+        performDebouncedCommit(generation: generation)
+    }
+
+    func cancelDebouncedCommit() {
+        debouncedCommitTask?.cancel()
+        debouncedCommitTask = nil
+        pendingDebouncedCommit = nil
+        pendingDebouncedCommitGeneration = nil
+    }
+
+    func fireDebouncedCommitForTesting(generation: UInt64) {
+        performDebouncedCommit(generation: generation)
+    }
+
     func cancelAll() {
         pendingUpdates.removeAll()
         scrollAccumulator = CanvasScrollFrameAccumulator()
         pendingScrollUpdate = nil
+        cancelDebouncedCommit()
         displayLinkLifetime?.invalidate()
         displayLinkLifetime = nil
     }
@@ -94,18 +146,31 @@ final class CanvasInteractionFrameDriver: NSObject, ObservableObject {
     private func drainPendingUpdates() {
         let updates = pendingUpdates
         pendingUpdates.removeAll(keepingCapacity: true)
-        let scrollSample = scrollAccumulator.consume()
-        let scrollUpdate = pendingScrollUpdate
-        pendingScrollUpdate = nil
 
         for update in updates.values {
             update()
         }
-        if let scrollSample {
-            scrollUpdate?(scrollSample)
-        }
+        performPendingScrollUpdate()
 
         pauseDisplayLinkIfIdle()
+    }
+
+    private func performPendingScrollUpdate() {
+        let sample = scrollAccumulator.consume()
+        let update = pendingScrollUpdate
+        pendingScrollUpdate = nil
+        if let sample {
+            update?(sample)
+        }
+    }
+
+    private func performDebouncedCommit(generation: UInt64) {
+        guard pendingDebouncedCommitGeneration == generation else { return }
+        debouncedCommitTask = nil
+        let action = pendingDebouncedCommit
+        pendingDebouncedCommit = nil
+        pendingDebouncedCommitGeneration = nil
+        action?()
     }
 
     private func pauseDisplayLinkIfIdle() {

@@ -992,6 +992,7 @@ struct WorkspaceCanvasView: View {
     @AppStorage(AppPreferenceKeys.canvasAnimationFrameRate) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
     @AppStorage(AppPreferenceKeys.canvasZoomCommitCadence) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
     @ObservedObject var workspaceWindowScopeController: WorkspaceWindowScopeController
+    @StateObject private var interactionFrameDriver = CanvasInteractionFrameDriver()
     let canvasScope: WorkspaceCanvasScopeIdentity
     let nodeOwnershipReader: WorkspaceCanvasNodeOwnershipReader
     let canvas: CanvasModel
@@ -1044,7 +1045,6 @@ struct WorkspaceCanvasView: View {
     @State private var canvasSurfaceSize: CGSize = .zero
     @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
     @State private var webCardDraft = ""
-    @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
     @Environment(\.undoManager) private var undoManager
 
@@ -1283,6 +1283,7 @@ struct WorkspaceCanvasView: View {
             .onDisappear {
                 flushPendingScrollZoomCommit()
                 flushPendingNodeTextCommits()
+                interactionFrameDriver.cancelAll()
             }
             .onChange(of: canvasDefaultZoomPercent) { _, _ in
                 onStatus("Canvas display baseline updated")
@@ -1381,7 +1382,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func resetTransientCanvasInteractionState() {
-        cancelPendingScrollZoomCommit()
+        interactionFrameDriver.cancelAll()
         flushPendingNodeTextCommits()
         selectedNodeIDs.removeAll()
         selectedEdgeIDs.removeAll()
@@ -2032,7 +2033,17 @@ struct WorkspaceCanvasView: View {
             }
             .overlay {
                 CanvasScrollWheelMonitor { deltaY, location in
-                    zoomFromScroll(deltaY: deltaY, location: location)
+                    interactionFrameDriver.submitScroll(
+                        CanvasScrollFrameSample(
+                            deltaY: deltaY,
+                            location: CanvasEdgePoint(x: Double(location.x), y: Double(location.y))
+                        )
+                    ) { sample in
+                        zoomFromScroll(
+                            deltaY: sample.deltaY,
+                            location: CGPoint(x: sample.location.x, y: sample.location.y)
+                        )
+                    }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -2052,38 +2063,15 @@ struct WorkspaceCanvasView: View {
             .onDeleteCommand(perform: handleDeleteCommand)
             .simultaneousGesture(MagnifyGesture().onChanged { value in
                 let screenAnchor = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                if zoomStart == nil {
-                    flushPendingScrollZoomCommit()
+                interactionFrameDriver.submitLatest(channel: .magnify) {
+                    updateMagnification(value, screenAnchor: screenAnchor)
                 }
-                let start = zoomStart ?? effectiveZoom
-                if zoomStart == nil {
-                    zoomStart = start
-                    magnifyAnchor = CanvasViewportProjection.canvasPoint(
-                        screenX: Double(screenAnchor.x),
-                        screenY: Double(screenAnchor.y),
-                        zoom: start,
-                        viewportX: effectiveViewportX,
-                        viewportY: effectiveViewportY
-                    )
+            }.onEnded { value in
+                let screenAnchor = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                interactionFrameDriver.submitLatest(channel: .magnify) {
+                    updateMagnification(value, screenAnchor: screenAnchor)
                 }
-                if let magnifyAnchor {
-                    let update = CanvasPinchZoomPolicy.update(
-                        startZoom: start,
-                        magnification: Double(value.magnification),
-                        screenX: Double(screenAnchor.x),
-                        screenY: Double(screenAnchor.y),
-                        anchorCanvasX: magnifyAnchor.x,
-                        anchorCanvasY: magnifyAnchor.y,
-                        minimumZoom: CanvasNodeMetrics.zoomMinimum,
-                        maximumZoom: CanvasNodeMetrics.zoomMaximum
-                    )
-                    transientZoom = update.zoom
-                    transientZoomViewportOffset = CGSize(
-                        width: update.viewportX - canvas.viewportX,
-                        height: update.viewportY - canvas.viewportY
-                    )
-                }
-            }.onEnded { _ in
+                interactionFrameDriver.flush(.magnify)
                 if let transientZoom {
                     persistCanvasViewport(
                         zoom: transientZoom,
@@ -2608,9 +2596,15 @@ struct WorkspaceCanvasView: View {
             .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        resizeNode(node, screenTranslation: value.translation, commit: false)
+                        interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                            resizeNode(node, screenTranslation: value.translation, commit: false)
+                        }
                     }
                     .onEnded { value in
+                        interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                            resizeNode(node, screenTranslation: value.translation, commit: false)
+                        }
+                        interactionFrameDriver.flush(.nodeDrag)
                         resizeNode(node, screenTranslation: value.translation, commit: true)
                     }
             )
@@ -2625,18 +2619,15 @@ struct WorkspaceCanvasView: View {
     private func edgeControlDragGesture(for segment: CanvasEdgeSegment) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard !(segment.control != nil && segment.isControlPointLocked) else { return }
-                if edgeControlDragStart[segment.id] == nil {
-                    edgeControlDragStart[segment.id] = edgeControlPoint(for: segment)
+                interactionFrameDriver.submitLatest(channel: .edgeControl) {
+                    updateEdgeControlDrag(value, for: segment)
                 }
-                guard let start = edgeControlDragStart[segment.id] else { return }
-                guard let screenPoint = CanvasEdgeControlPointDragPolicy.movedScreenPoint(
-                    startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
-                    translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height))
-                ) else { return }
-                transientEdgeControlPoints[segment.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .edgeControl) {
+                    updateEdgeControlDrag(value, for: segment)
+                }
+                interactionFrameDriver.flush(.edgeControl)
                 guard !(segment.control != nil && segment.isControlPointLocked) else {
                     transientEdgeControlPoints[segment.id] = nil
                     edgeControlDragStart[segment.id] = nil
@@ -2660,6 +2651,19 @@ struct WorkspaceCanvasView: View {
                 transientEdgeControlPoints[segment.id] = nil
                 edgeControlDragStart[segment.id] = nil
             }
+    }
+
+    private func updateEdgeControlDrag(_ value: DragGesture.Value, for segment: CanvasEdgeSegment) {
+        guard !(segment.control != nil && segment.isControlPointLocked) else { return }
+        if edgeControlDragStart[segment.id] == nil {
+            edgeControlDragStart[segment.id] = edgeControlPoint(for: segment)
+        }
+        guard let start = edgeControlDragStart[segment.id] else { return }
+        guard let screenPoint = CanvasEdgeControlPointDragPolicy.movedScreenPoint(
+            startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
+            translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height))
+        ) else { return }
+        transientEdgeControlPoints[segment.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
     }
 
     private func addEdgeControlPoint(for segment: CanvasEdgeSegment) {
@@ -2914,24 +2918,15 @@ struct WorkspaceCanvasView: View {
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
         DragGesture()
             .onChanged { value in
-                guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else { return }
-                if resizingNodeId == node.id {
-                    return
+                interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                    updateNodeDrag(value, for: node)
                 }
-                if nodeDragStart.isEmpty {
-                    beginNodeDrag(for: node)
-                }
-                guard CanvasNodeDragPersistencePolicy.action(
-                    for: .changed,
-                    hasActiveDrag: !nodeDragStart.isEmpty
-                ) == .updateTransientOffset else { return }
-                let delta = nodeDragDelta(for: value)
-                transientNodeOffsets = Dictionary(
-                    uniqueKeysWithValues: nodeDragStart.keys.map { ($0, delta) }
-                )
-                updateFrameDragControlPointOffsets(delta: delta)
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                    updateNodeDrag(value, for: node)
+                }
+                interactionFrameDriver.flush(.nodeDrag)
                 guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else {
                     resetNodeDragState()
                     return
@@ -2949,6 +2944,25 @@ struct WorkspaceCanvasView: View {
                 }
                 commitNodeDrag(delta: nodeDragDelta(for: value))
             }
+    }
+
+    private func updateNodeDrag(_ value: DragGesture.Value, for node: CanvasNodeModel) {
+        guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else { return }
+        if resizingNodeId == node.id {
+            return
+        }
+        if nodeDragStart.isEmpty {
+            beginNodeDrag(for: node)
+        }
+        guard CanvasNodeDragPersistencePolicy.action(
+            for: .changed,
+            hasActiveDrag: !nodeDragStart.isEmpty
+        ) == .updateTransientOffset else { return }
+        let delta = nodeDragDelta(for: value)
+        transientNodeOffsets = Dictionary(
+            uniqueKeysWithValues: nodeDragStart.keys.map { ($0, delta) }
+        )
+        updateFrameDragControlPointOffsets(delta: delta)
     }
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
@@ -3340,25 +3354,15 @@ struct WorkspaceCanvasView: View {
     private func backgroundDrag(in size: CGSize, edgeSegments: [CanvasEdgeSegment]) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
-                backgroundDragStartedOnNode = startsOnNode
-                guard !startsOnNode else {
-                    selectionRect = nil
-                    transientViewportOffset = .zero
-                    return
-                }
-                if mode == .boxSelect {
-                    selectionRect = CGRect(
-                        x: min(value.startLocation.x, value.location.x),
-                        y: min(value.startLocation.y, value.location.y),
-                        width: abs(value.location.x - value.startLocation.x),
-                        height: abs(value.location.y - value.startLocation.y)
-                    )
-                } else {
-                    transientViewportOffset = value.translation
+                interactionFrameDriver.submitLatest(channel: .viewport) {
+                    updateBackgroundDrag(value)
                 }
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .viewport) {
+                    updateBackgroundDrag(value)
+                }
+                interactionFrameDriver.flush(.viewport)
                 let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
                 backgroundDragStartedOnNode = nil
                 guard !startsOnNode else {
@@ -3392,6 +3396,26 @@ struct WorkspaceCanvasView: View {
                 }
                 transientViewportOffset = .zero
             }
+    }
+
+    private func updateBackgroundDrag(_ value: DragGesture.Value) {
+        let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
+        backgroundDragStartedOnNode = startsOnNode
+        guard !startsOnNode else {
+            selectionRect = nil
+            transientViewportOffset = .zero
+            return
+        }
+        if mode == .boxSelect {
+            selectionRect = CGRect(
+                x: min(value.startLocation.x, value.location.x),
+                y: min(value.startLocation.y, value.location.y),
+                width: abs(value.location.x - value.startLocation.x),
+                height: abs(value.location.y - value.startLocation.y)
+            )
+        } else {
+            transientViewportOffset = value.translation
+        }
     }
 
     private func handleNodeTap(_ node: CanvasNodeModel) {
@@ -3523,6 +3547,40 @@ struct WorkspaceCanvasView: View {
         )
     }
 
+    private func updateMagnification(_ value: MagnifyGesture.Value, screenAnchor: CGPoint) {
+        if zoomStart == nil {
+            flushPendingScrollZoomCommit()
+        }
+        let start = zoomStart ?? effectiveZoom
+        if zoomStart == nil {
+            zoomStart = start
+            magnifyAnchor = CanvasViewportProjection.canvasPoint(
+                screenX: Double(screenAnchor.x),
+                screenY: Double(screenAnchor.y),
+                zoom: start,
+                viewportX: effectiveViewportX,
+                viewportY: effectiveViewportY
+            )
+        }
+        if let magnifyAnchor {
+            let update = CanvasPinchZoomPolicy.update(
+                startZoom: start,
+                magnification: Double(value.magnification),
+                screenX: Double(screenAnchor.x),
+                screenY: Double(screenAnchor.y),
+                anchorCanvasX: magnifyAnchor.x,
+                anchorCanvasY: magnifyAnchor.y,
+                minimumZoom: CanvasNodeMetrics.zoomMinimum,
+                maximumZoom: CanvasNodeMetrics.zoomMaximum
+            )
+            transientZoom = update.zoom
+            transientZoomViewportOffset = CGSize(
+                width: update.viewportX - canvas.viewportX,
+                height: update.viewportY - canvas.viewportY
+            )
+        }
+    }
+
     private func zoomFromScroll(deltaY: Double, location: CGPoint) {
         let oldZoom = effectiveZoom
         let newZoom = CanvasScrollZoomRuntimePolicy.zoom(
@@ -3558,23 +3616,14 @@ struct WorkspaceCanvasView: View {
     }
 
     private func scheduleScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: scrollZoomCommitDelayNanos)
-            guard !Task.isCancelled else { return }
+        interactionFrameDriver.scheduleDebouncedCommit(delayNanos: scrollZoomCommitDelayNanos) {
             commitScrollZoom()
         }
     }
 
     private func flushPendingScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = nil
-        commitScrollZoom()
-    }
-
-    private func cancelPendingScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = nil
+        interactionFrameDriver.flushScroll()
+        interactionFrameDriver.flushDebouncedCommit()
     }
 
     private func commitScrollZoom() {
@@ -3582,7 +3631,6 @@ struct WorkspaceCanvasView: View {
         defer {
             self.transientZoom = nil
             transientZoomViewportOffset = .zero
-            pendingScrollZoomCommit = nil
         }
         let viewportX = canvas.viewportX + Double(transientZoomViewportOffset.width)
         let viewportY = canvas.viewportY + Double(transientZoomViewportOffset.height)
@@ -5878,6 +5926,73 @@ private final class FittingTitleDrawingView: NSView {
     }
 }
 
+struct ScrollWheelEventSequenceDescriptor: Equatable {
+    let usesCachedPassThroughDecision: Bool
+    let startsSequence: Bool
+    let endsSequence: Bool
+}
+
+enum ScrollWheelEventSequencePolicy {
+    static func descriptor(
+        hasPreciseScrollingDeltas: Bool,
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase
+    ) -> ScrollWheelEventSequenceDescriptor {
+        let usesCachedDecision = hasPreciseScrollingDeltas && (
+            !phase.isEmpty || !momentumPhase.isEmpty
+        )
+        guard usesCachedDecision else {
+            return ScrollWheelEventSequenceDescriptor(
+                usesCachedPassThroughDecision: false,
+                startsSequence: false,
+                endsSequence: false
+            )
+        }
+        return ScrollWheelEventSequenceDescriptor(
+            usesCachedPassThroughDecision: true,
+            startsSequence: phase.contains(.began) || phase.contains(.mayBegin) ||
+                momentumPhase.contains(.began) || momentumPhase.contains(.mayBegin),
+            endsSequence: phase.contains(.ended) || phase.contains(.cancelled) ||
+                momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled)
+        )
+    }
+}
+
+struct ScrollWheelSequencePassThroughCache {
+    private(set) var cachedDecision: Bool?
+
+    mutating func prepare(for descriptor: ScrollWheelEventSequenceDescriptor) {
+        if !descriptor.usesCachedPassThroughDecision || descriptor.startsSequence {
+            cachedDecision = nil
+        }
+    }
+
+    mutating func resolve(
+        for descriptor: ScrollWheelEventSequenceDescriptor,
+        compute: () -> Bool
+    ) -> Bool {
+        guard descriptor.usesCachedPassThroughDecision else {
+            return compute()
+        }
+        if let cachedDecision {
+            return cachedDecision
+        }
+        let decision = compute()
+        cachedDecision = decision
+        return decision
+    }
+
+    mutating func finish(for descriptor: ScrollWheelEventSequenceDescriptor) {
+        if !descriptor.usesCachedPassThroughDecision || descriptor.endsSequence {
+            cachedDecision = nil
+        }
+    }
+
+    mutating func reset() {
+        cachedDecision = nil
+    }
+}
+
 private struct CanvasScrollWheelMonitor: NSViewRepresentable {
     let onScroll: (Double, CGPoint) -> Void
 
@@ -5900,6 +6015,7 @@ private struct CanvasScrollWheelMonitor: NSViewRepresentable {
 private final class ScrollWheelMonitorView: NSView {
     var onScroll: ((Double, CGPoint) -> Void)?
     private var monitor: Any?
+    private var scrollSequencePassThroughCache = ScrollWheelSequencePassThroughCache()
 
     override var isFlipped: Bool {
         true
@@ -5918,11 +6034,20 @@ private final class ScrollWheelMonitorView: NSView {
                 return event
             }
 
+            let sequence = ScrollWheelEventSequencePolicy.descriptor(
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                phase: event.phase,
+                momentumPhase: event.momentumPhase
+            )
+            scrollSequencePassThroughCache.prepare(for: sequence)
+            defer {
+                scrollSequencePassThroughCache.finish(for: sequence)
+            }
             let location = convert(event.locationInWindow, from: nil)
             guard bounds.contains(location) else {
                 return event
             }
-            guard !shouldPassThroughScrollEvent(event) else {
+            guard !shouldPassThroughScrollEvent(event, sequence: sequence) else {
                 return event
             }
 
@@ -5937,7 +6062,16 @@ private final class ScrollWheelMonitorView: NSView {
         }
     }
 
-    private func shouldPassThroughScrollEvent(_ event: NSEvent) -> Bool {
+    private func shouldPassThroughScrollEvent(
+        _ event: NSEvent,
+        sequence: ScrollWheelEventSequenceDescriptor
+    ) -> Bool {
+        scrollSequencePassThroughCache.resolve(for: sequence) {
+            computePassThroughScrollEvent(event)
+        }
+    }
+
+    private func computePassThroughScrollEvent(_ event: NSEvent) -> Bool {
         guard let hitView = window?.contentView?.hitTest(event.locationInWindow) else {
             return false
         }
@@ -5960,6 +6094,7 @@ private final class ScrollWheelMonitorView: NSView {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+        scrollSequencePassThroughCache.reset()
     }
 }
 

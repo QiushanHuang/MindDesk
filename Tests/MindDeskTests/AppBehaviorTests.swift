@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 import MindDeskCore
 import SwiftData
@@ -128,6 +129,347 @@ final class AppBehaviorTests: XCTestCase {
 
         XCTAssertEqual(values, [1, 2])
         XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushesPendingScrollExactlyOnce() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var samples: [CanvasScrollFrameSample] = []
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1.5, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 2.5, location: CanvasEdgePoint(x: 30, y: 40))
+        ) { samples.append($0) }
+
+        driver.flushScroll()
+        driver.flushScroll()
+        driver.fireForTesting()
+
+        XCTAssertEqual(
+            samples,
+            [CanvasScrollFrameSample(deltaY: 4, location: CanvasEdgePoint(x: 30, y: 40))]
+        )
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushesOnlyLatestDebouncedCommitSynchronously() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(1) }
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(2) }
+
+        XCTAssertTrue(values.isEmpty)
+        driver.flushDebouncedCommit()
+        driver.flushDebouncedCommit()
+
+        XCTAssertEqual(values, [2])
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverCancelAllDropsScrollAndDebouncedCommit() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var scrollRuns = 0
+        var commitRuns = 0
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { _ in scrollRuns += 1 }
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { commitRuns += 1 }
+
+        driver.cancelAll()
+        driver.fireForTesting()
+        driver.flushScroll()
+        driver.flushDebouncedCommit()
+
+        XCTAssertEqual(scrollRuns, 0)
+        XCTAssertEqual(commitRuns, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverIgnoresStaleDebounceWakeAfterReschedule() throws {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(1) }
+        let staleGeneration = try XCTUnwrap(driver.pendingDebouncedCommitGenerationForTesting)
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(2) }
+
+        driver.fireDebouncedCommitForTesting(generation: staleGeneration)
+
+        XCTAssertTrue(values.isEmpty)
+        driver.flushDebouncedCommit()
+        XCTAssertEqual(values, [2])
+    }
+
+    func testScrollWheelSequencePassThroughCacheResetsForNewBeganAndReusesChangedDecision() {
+        let began = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .began,
+            momentumPhase: []
+        )
+        let changed = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: []
+        )
+        var cache = ScrollWheelSequencePassThroughCache()
+        var computationCount = 0
+
+        cache.prepare(for: began)
+        XCTAssertTrue(cache.resolve(for: began) {
+            computationCount += 1
+            return true
+        })
+        cache.finish(for: began)
+
+        cache.prepare(for: changed)
+        XCTAssertTrue(cache.resolve(for: changed) {
+            computationCount += 1
+            return false
+        })
+        cache.finish(for: changed)
+        XCTAssertEqual(computationCount, 1)
+
+        cache.prepare(for: began)
+        XCTAssertFalse(cache.resolve(for: began) {
+            computationCount += 1
+            return false
+        })
+        cache.finish(for: began)
+        XCTAssertEqual(computationCount, 2)
+    }
+
+    func testScrollWheelSequencePassThroughCacheClearsOutsideTerminalAndRecomputesStandaloneEvents() {
+        let began = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .mayBegin,
+            momentumPhase: []
+        )
+        let ended = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: [],
+            momentumPhase: .cancelled
+        )
+        let standalone = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: [],
+            momentumPhase: []
+        )
+        var cache = ScrollWheelSequencePassThroughCache()
+        var computationCount = 0
+
+        cache.prepare(for: began)
+        _ = cache.resolve(for: began) { true }
+        cache.finish(for: began)
+        XCTAssertNotNil(cache.cachedDecision)
+
+        cache.prepare(for: ended)
+        cache.finish(for: ended)
+        XCTAssertNil(cache.cachedDecision)
+
+        for _ in 0..<2 {
+            cache.prepare(for: standalone)
+            _ = cache.resolve(for: standalone) {
+                computationCount += 1
+                return true
+            }
+            cache.finish(for: standalone)
+        }
+        XCTAssertEqual(computationCount, 2)
+    }
+
+    func testWorkspaceCanvasCoalescesLiveGestureStateAtDisplayCadence() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+        let driverSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasInteractionFrameDriver.swift"),
+            encoding: .utf8
+        )
+
+        func occurrenceCount(_ needle: String, in source: String) -> Int {
+            source.components(separatedBy: needle).count - 1
+        }
+
+        func section(from startMarker: String, to endMarker: String) throws -> String {
+            let start = try XCTUnwrap(
+                canvasSource.range(of: startMarker)?.lowerBound,
+                "Missing declaration: \(startMarker)"
+            )
+            let end = try XCTUnwrap(
+                canvasSource.range(of: endMarker, range: start..<canvasSource.endIndex)?.lowerBound,
+                "Missing declaration terminator: \(endMarker)"
+            )
+            return String(canvasSource[start..<end])
+        }
+
+        func gestureEnd(in source: String) throws -> String {
+            let start = try XCTUnwrap(
+                source.range(of: ".onEnded", options: .backwards)?.lowerBound,
+                "Missing onEnded handler"
+            )
+            return String(source[start...])
+        }
+
+        func appearsInOrder(_ needles: [String], in source: String) -> Bool {
+            var searchStart = source.startIndex
+            for needle in needles {
+                guard let range = source.range(of: needle, range: searchStart..<source.endIndex) else {
+                    return false
+                }
+                searchStart = range.upperBound
+            }
+            return true
+        }
+
+        XCTAssertEqual(
+            occurrenceCount(
+                "@StateObject private var interactionFrameDriver = CanvasInteractionFrameDriver()",
+                in: canvasSource
+            ),
+            1
+        )
+        XCTAssertFalse(driverSource.contains("@Published"))
+
+        let magnifyGesture = try section(
+            from: ".simultaneousGesture(MagnifyGesture()",
+            to: ".onDrop("
+        )
+        XCTAssertTrue(magnifyGesture.contains("submitLatest(channel: .magnify)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .magnify)",
+                    "updateMagnification(value, screenAnchor: screenAnchor)",
+                    "flush(.magnify)",
+                    "persistCanvasViewport("
+                ],
+                in: try gestureEnd(in: magnifyGesture)
+            )
+        )
+
+        let resizeGesture = try section(
+            from: "private func resizeHandle(for node:",
+            to: "private func resizeHandleCenter(for node:"
+        )
+        XCTAssertTrue(resizeGesture.contains("submitLatest(channel: .nodeDrag)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .nodeDrag)",
+                    "resizeNode(node, screenTranslation: value.translation, commit: false)",
+                    "flush(.nodeDrag)",
+                    "resizeNode(node, screenTranslation: value.translation, commit: true)"
+                ],
+                in: try gestureEnd(in: resizeGesture)
+            )
+        )
+
+        let edgeControlGesture = try section(
+            from: "private func edgeControlDragGesture(for segment:",
+            to: "private func addEdgeControlPoint(for segment:"
+        )
+        XCTAssertTrue(edgeControlGesture.contains("submitLatest(channel: .edgeControl)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .edgeControl)",
+                    "updateEdgeControlDrag(value, for: segment)",
+                    "flush(.edgeControl)",
+                    "saveEdgeControlPoint("
+                ],
+                in: try gestureEnd(in: edgeControlGesture)
+            )
+        )
+
+        let nodeDragGesture = try section(
+            from: "private func dragGesture(for node:",
+            to: "private func beginNodeDrag(for node:"
+        )
+        XCTAssertTrue(nodeDragGesture.contains("submitLatest(channel: .nodeDrag)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .nodeDrag)",
+                    "updateNodeDrag(value, for: node)",
+                    "flush(.nodeDrag)",
+                    "commitNodeDrag(delta: nodeDragDelta(for: value))"
+                ],
+                in: try gestureEnd(in: nodeDragGesture)
+            )
+        )
+
+        let backgroundGesture = try section(
+            from: "private func backgroundDrag(in size:",
+            to: "private func handleNodeTap(_ node:"
+        )
+        XCTAssertTrue(backgroundGesture.contains("submitLatest(channel: .viewport)"))
+        XCTAssertTrue(backgroundGesture.contains("mode == .boxSelect"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .viewport)",
+                    "updateBackgroundDrag(value)",
+                    "flush(.viewport)",
+                    "CanvasBackgroundPanCommitPolicy.commit("
+                ],
+                in: try gestureEnd(in: backgroundGesture)
+            )
+        )
+
+        XCTAssertTrue(canvasSource.contains("interactionFrameDriver.submitScroll("))
+        XCTAssertTrue(canvasSource.contains("zoomFromScroll("))
+        XCTAssertTrue(canvasSource.contains("deltaY: sample.deltaY"))
+        XCTAssertFalse(canvasSource.contains("@State private var pendingScrollZoomCommit"))
+        XCTAssertTrue(driverSource.contains("func scheduleDebouncedCommit("))
+        XCTAssertTrue(canvasSource.contains("interactionFrameDriver.scheduleDebouncedCommit("))
+
+        let scrollFlush = try section(
+            from: "private func flushPendingScrollZoomCommit()",
+            to: "private func commitScrollZoom()"
+        )
+        XCTAssertTrue(
+            appearsInOrder(
+                ["interactionFrameDriver.flushScroll()", "interactionFrameDriver.flushDebouncedCommit()"],
+                in: scrollFlush
+            )
+        )
+
+        let disappear = try section(
+            from: ".onDisappear {",
+            to: ".onChange(of: canvasDefaultZoomPercent)"
+        )
+        XCTAssertTrue(
+            appearsInOrder(
+                ["flushPendingScrollZoomCommit()", "interactionFrameDriver.cancelAll()"],
+                in: disappear
+            )
+        )
+
+        let scrollMonitor = try section(
+            from: "private final class ScrollWheelMonitorView:",
+            to: "func removeMonitor()"
+        )
+        XCTAssertTrue(scrollMonitor.contains("scrollSequencePassThroughCache"))
+        XCTAssertTrue(scrollMonitor.contains("event.phase"))
+        XCTAssertTrue(scrollMonitor.contains("event.momentumPhase"))
+        XCTAssertTrue(
+            appearsInOrder(
+                ["scrollSequencePassThroughCache.prepare", "guard bounds.contains(location)"],
+                in: scrollMonitor
+            )
+        )
+        XCTAssertTrue(scrollMonitor.contains("scrollSequencePassThroughCache.finish"))
+        XCTAssertTrue(canvasSource.contains("phase.contains(.began)"))
+        XCTAssertTrue(canvasSource.contains("phase.contains(.mayBegin)"))
     }
 
     @MainActor
