@@ -517,6 +517,64 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertFalse(canvasSource.contains("snapshot.workflowNodes.map(canvasEdgeIndexRect(for:))"))
     }
 
+    func testWorkspaceCanvasTransformsCommittedWorldOnceAndKeepsScreenOverlaysOutside() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("private var worldRenderZoom: Double"))
+        XCTAssertTrue(canvasSource.contains("private var liveWorldTransform: CanvasViewportVisualTransform"))
+        XCTAssertTrue(canvasSource.contains("let worldTransform = liveWorldTransform"))
+        XCTAssertTrue(canvasSource.contains("let nodeVisibleRect = worldVisibleScreenRect(for: proxy.size)"))
+        XCTAssertTrue(canvasSource.contains("let edgeVisibleRect = worldEdgeVisibleScreenRect(for: proxy.size)"))
+        XCTAssertTrue(canvasSource.contains("rectFor: worldScreenRect(for:)"))
+        XCTAssertTrue(canvasSource.contains("controlPointFor: resolvedWorldControlPoint(for:)"))
+        XCTAssertTrue(canvasSource.contains(".scaleEffect(CGFloat(worldTransform.scale), anchor: .topLeading)"))
+        XCTAssertTrue(canvasSource.contains("x: CGFloat(worldTransform.translationX)"))
+        XCTAssertTrue(canvasSource.contains("y: CGFloat(worldTransform.translationY)"))
+        XCTAssertTrue(canvasSource.contains("canvasBackground\n\n                ZStack(alignment: .topLeading)"))
+        XCTAssertTrue(canvasSource.contains("if let selectionRect"))
+        XCTAssertTrue(canvasSource.contains("worldEdgeRenderRect"))
+        XCTAssertTrue(canvasSource.contains("let edgeScreenMetrics = worldEdgeScreenMetrics"))
+        XCTAssertTrue(canvasSource.contains("let edgeControlMetrics = worldEdgeControlScreenMetrics"))
+        XCTAssertTrue(canvasSource.contains("CanvasLiveWorldMetricPolicy.worldValue("))
+        XCTAssertTrue(canvasSource.contains("CanvasLiveWorldMetricPolicy.rasterPlan("))
+        XCTAssertEqual(canvasSource.components(separatedBy: "rasterPlan: edgeRasterPlan").count - 1, 2)
+        XCTAssertTrue(canvasSource.contains("worldPresentationScale"))
+        XCTAssertEqual(canvasSource.components(separatedBy: "routingClearance: worldEdgeRoutingClearance").count - 1, 2)
+        XCTAssertTrue(canvasSource.contains("let hitSize = worldScreenMetric(CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom))"))
+        XCTAssertTrue(canvasSource.contains("let worldInset = worldScreenMetric(targetInset)"))
+        XCTAssertFalse(canvasSource.contains("lineScale: CGFloat(worldRenderZoom)"))
+        XCTAssertFalse(canvasSource.contains(".frame(width: renderRect.width, height: renderRect.height"))
+        XCTAssertFalse(canvasSource.contains("rectFor: screenRect(for:)"))
+        XCTAssertFalse(canvasSource.contains("controlPointFor: resolvedScreenControlPoint(for:)"))
+        XCTAssertFalse(canvasSource.contains(".drawingGroup"))
+    }
+
+    func testWorkspaceCanvasUsesOneCoordinateConversionForLiveEdgeControlsAndHitTesting() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("private func worldPoint(fromLiveScreenPoint point: CGPoint) -> CGPoint?"))
+        XCTAssertTrue(canvasSource.contains("private func liveScreenPoint(fromWorldPoint point: CGPoint) -> CGPoint?"))
+        XCTAssertTrue(canvasSource.contains("worldTransientEdgeControlPoints"))
+        XCTAssertTrue(canvasSource.contains("let worldLocation = worldPoint(fromLiveScreenPoint: location)"))
+        XCTAssertTrue(canvasSource.contains("CanvasEdgeHitTargetPolicy.screenThreshold(zoom: effectiveZoom) / worldTransform.scale"))
+        XCTAssertTrue(canvasSource.contains("} else if let control = worldTransientEdgeControlPoints[segment.id] ?? segment.control {"))
+        XCTAssertFalse(canvasSource.contains("} else if let control = transientEdgeControlPoints[segment.id] ?? segment.control {"))
+    }
+
     func testScrollWheelSequencePassThroughCacheResetsForNewBeganAndReusesChangedDecision() {
         let began = ScrollWheelEventSequencePolicy.descriptor(
             hasPreciseScrollingDeltas: true,

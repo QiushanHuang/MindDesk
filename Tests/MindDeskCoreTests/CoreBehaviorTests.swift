@@ -4399,6 +4399,215 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
+    func testCanvasLiveViewportTransformMapsAndInvertsPointsAndRects() throws {
+        let transform = CanvasViewportVisualTransform(
+            scale: 1.5,
+            translationX: -40,
+            translationY: -33
+        )
+        let worldPoint = CanvasEdgePoint(x: 80, y: 60)
+        let livePoint = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(point: worldPoint, using: transform)
+        )
+
+        XCTAssertEqual(livePoint.x, 80, accuracy: 0.0001)
+        XCTAssertEqual(livePoint.y, 57, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(CanvasLiveViewportTransformPolicy.inverse(point: livePoint, using: transform)),
+            worldPoint
+        )
+
+        let worldRect = CanvasFrameRect(id: "visible", x: 20, y: 30, width: 200, height: 100)
+        let liveRect = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(rect: worldRect, using: transform)
+        )
+        XCTAssertEqual(liveRect.x, -10, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.y, 12, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.width, 300, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.height, 150, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(CanvasLiveViewportTransformPolicy.inverse(rect: liveRect, using: transform)),
+            worldRect
+        )
+    }
+
+    func testCanvasLiveViewportTransformCoordinateHelpersFailClosedForInvalidValues() {
+        let invalidScale = CanvasViewportVisualTransform(
+            scale: 0,
+            translationX: 10,
+            translationY: 20
+        )
+        let invalidTranslation = CanvasViewportVisualTransform(
+            scale: 1,
+            translationX: .nan,
+            translationY: 20
+        )
+        let point = CanvasEdgePoint(x: 10, y: 20)
+        let rect = CanvasFrameRect(id: "visible", x: 0, y: 0, width: 100, height: 50)
+
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(point: point, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(point: point, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(rect: rect, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(rect: rect, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(point: point, using: invalidTranslation))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(rect: rect, using: invalidTranslation))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(
+            point: CanvasEdgePoint(x: .infinity, y: 20),
+            using: .init(scale: 1, translationX: 0, translationY: 0)
+        ))
+    }
+
+    func testCanvasLiveViewportTransformKeepsTransientControlHitTestingInWorldCoordinates() throws {
+        let transform = CanvasViewportVisualTransform(
+            scale: 2,
+            translationX: 30,
+            translationY: -10
+        )
+        let worldControl = CanvasEdgePoint(x: 50, y: 40)
+        let liveTransientControl = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(point: worldControl, using: transform)
+        )
+        let convertedWorldControl = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.inverse(point: liveTransientControl, using: transform)
+        )
+        let liveHitPoint = try XCTUnwrap(CanvasLiveViewportTransformPolicy.forward(
+            point: CanvasEdgePoint(x: 50, y: 45.5),
+            using: transform
+        ))
+        let worldHitPoint = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.inverse(point: liveHitPoint, using: transform)
+        )
+        let record = CanvasEdgeHitRecord(
+            id: "edge",
+            points: [
+                CanvasEdgePoint(x: 0, y: 0),
+                convertedWorldControl,
+                CanvasEdgePoint(x: 100, y: 0)
+            ]
+        )
+
+        XCTAssertEqual(convertedWorldControl, worldControl)
+        XCTAssertEqual(
+            CanvasEdgeHitTesting.nearestEdgeID(
+                at: worldHitPoint,
+                edges: [record],
+                threshold: CanvasEdgeHitTargetPolicy.defaultScreenThreshold / transform.scale
+            ),
+            "edge"
+        )
+    }
+
+    func testCanvasLiveWorldMetricCompensationMatchesEffectivePoliciesAcrossExtremeZoomAndSettle() throws {
+        for (baseZoom, liveZoom) in [(0.12, 2.4), (2.4, 0.12)] {
+            let transform = CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: baseZoom,
+                baseViewportX: 0,
+                baseViewportY: 0,
+                liveZoom: liveZoom,
+                liveViewportX: 0,
+                liveViewportY: 0
+            )
+            let effectiveTargets = [
+                CanvasEdgeVisualMetrics.strokeWidth(
+                    zoom: liveZoom,
+                    baseWidth: 1.7,
+                    minimumWidth: 0.9,
+                    maximumWidth: 2
+                ),
+                CanvasEdgeVisualMetrics.arrowLength(
+                    zoom: liveZoom,
+                    baseLength: 13,
+                    minimumLength: 6,
+                    maximumLength: 16
+                ),
+                CanvasResizeHandleGeometry.hitSize(zoom: liveZoom),
+                CanvasEdgeControlHandleMetrics.diameter(zoom: liveZoom, baseDiameter: 13),
+                CanvasEdgeRouteDefaults.targetClearance,
+                CanvasEdgeRouteDefaults.routingClearance,
+                CanvasInteractionMetrics.nodeHitSlop
+            ]
+
+            for target in effectiveTargets {
+                let worldValue = try XCTUnwrap(CanvasLiveWorldMetricPolicy.worldValue(
+                    targetScreenValue: target,
+                    liveWorldScale: transform.scale
+                ))
+                let settledWorldValue = try XCTUnwrap(CanvasLiveWorldMetricPolicy.worldValue(
+                    targetScreenValue: target,
+                    liveWorldScale: 1
+                ))
+
+                XCTAssertEqual(worldValue * transform.scale, target, accuracy: 0.0001)
+                XCTAssertEqual(settledWorldValue, target, accuracy: 0.0001)
+                XCTAssertEqual(worldValue * transform.scale, settledWorldValue, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testCanvasLiveWorldRasterPlanKeepsBackingNearLiveBoundsAndCapsExtremeInputs() throws {
+        let liveWidth = 2_360.0
+        let liveHeight = 1_560.0
+        for scale in [0.05, 20.0] {
+            let worldRect = CanvasFrameRect(
+                id: "edge-render",
+                x: -12_000,
+                y: 8_000,
+                width: liveWidth / scale,
+                height: liveHeight / scale
+            )
+            let plan = try XCTUnwrap(CanvasLiveWorldMetricPolicy.rasterPlan(
+                renderRect: worldRect,
+                liveWorldScale: scale
+            ))
+
+            XCTAssertEqual(plan.rasterScale, scale, accuracy: 0.0001)
+            XCTAssertEqual(plan.backingWidth, liveWidth, accuracy: 0.0001)
+            XCTAssertEqual(plan.backingHeight, liveHeight, accuracy: 0.0001)
+            XCTAssertLessThanOrEqual(plan.backingWidth, CanvasLiveWorldMetricPolicy.maximumBackingDimension)
+            XCTAssertLessThanOrEqual(plan.backingHeight, CanvasLiveWorldMetricPolicy.maximumBackingDimension)
+            XCTAssertEqual(
+                plan.backingWidth * plan.worldPresentationScale * scale,
+                liveWidth,
+                accuracy: 0.0001
+            )
+            XCTAssertEqual(
+                plan.backingHeight * plan.worldPresentationScale * scale,
+                liveHeight,
+                accuracy: 0.0001
+            )
+            let worldPointX = worldRect.x + worldRect.width * 0.37
+            let rasterPointX = (worldPointX - worldRect.x) * plan.rasterScale
+            let presentedWorldPointX = rasterPointX * plan.worldPresentationScale + worldRect.x
+            XCTAssertEqual(presentedWorldPointX, worldPointX, accuracy: 0.0001)
+        }
+
+        let capped = try XCTUnwrap(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(
+                id: "huge",
+                x: 0,
+                y: 0,
+                width: 1_000_000,
+                height: 900_000
+            ),
+            liveWorldScale: 0.05
+        ))
+        XCTAssertLessThanOrEqual(capped.backingWidth, 4_096)
+        XCTAssertLessThanOrEqual(capped.backingHeight, 4_096)
+        XCTAssertEqual(
+            capped.backingWidth * capped.worldPresentationScale * 0.05,
+            50_000,
+            accuracy: 0.01
+        )
+        XCTAssertNil(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(id: "invalid", x: 0, y: 0, width: .infinity, height: 10),
+            liveWorldScale: 1
+        ))
+        XCTAssertNil(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(id: "invalid-scale", x: 0, y: 0, width: 10, height: 10),
+            liveWorldScale: 0
+        ))
+    }
+
     func testCanvasScrollWheelEventPolicyPassesThroughHorizontalAndTinyEvents() {
         XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 12))
         XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 3, deltaY: 12))
