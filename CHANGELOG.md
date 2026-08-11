@@ -2,6 +2,37 @@
 
 > Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
 
+## 2026-08-11 - v3.1.0 private manual Canvas release
+
+### New and improved
+- MindDesk now presents one clear product: a private, manual visual project map. The retired Canvas Review, Agent Review, Proposal Review, embedded terminal, and Canvas Codex entry points are no longer part of the app.
+- Opening a workspace now resolves its Primary Canvas within that window and workspace. If the Canvas is missing, MindDesk prepares it safely. If the data is ambiguous or unavailable, the Canvas stops and explains what happened instead of guessing.
+- Switching workspaces cancels outdated Canvas work. A slow result from the previous workspace can no longer replace the state of the workspace currently on screen.
+- Quick Open now checks that a requested card still belongs to the expected workspace and Canvas before selecting it.
+- Overview, Tasks, Resources, and Snippets stay usable while Canvas is preparing or unavailable.
+- The Canvas unavailable view now has one controlled Try Again action rather than an automatic retry loop.
+- Canvas connection animation remains visible during pan and zoom, while drag, resize, and connection editing avoid unnecessary animation work.
+- Reset All Settings removes obsolete Agent, Codex, and Proposal Review preferences without deleting workspaces, tasks, resources, Canvas data, backups, or recovery data.
+
+### Fixed
+- Fixed stale Canvas results surviving a workspace or window change.
+- Fixed repeated focus, binding, and retry actions doing duplicate work or rotating state unnecessarily.
+- Fixed missing-Canvas preparation sharing state with unrelated unsaved scene work.
+- Fixed old, replayed, moved, or deleted Quick Open targets being able to select the wrong card.
+- Fixed cards that were still rendering being reported as deleted too early.
+- Fixed ambiguous Primary Canvas data being treated as if one record were safe to use.
+- Fixed retired review-package imports reaching old review behavior; they are now rejected without changing app data.
+- Fixed imported error details exposing local paths, URLs, or command fragments in user-facing status text.
+- Fixed Help reopening pages for features that no longer exist.
+- Fixed release packaging gaps that could leave a ZIP, DMG, app bundle, or proof file without an exact source and checksum relationship.
+
+### Privacy and release
+- MindDesk does not start an AI review helper, create an AI context package, or send Canvas content to a model through the retired review feature.
+- Historical `.mip.json`, Proposal Envelope, and Validation Report files are recognized and rejected safely rather than imported as ordinary Manifest data.
+- Real Finder files remain in place. Removing MindDesk metadata does not delete, move, or rename those files.
+- Debug and Release each passed 666 tests with no failures. Independent Release builds, ZIP extraction, read-only DMG mounting, bundle checks, and artifact checks also passed.
+- The v3.1.0 GitHub package is ad-hoc signed and is not Apple-notarized.
+
 ## 2026-06-27 - v3.0.0 foundation documentation and ad-hoc packaging
 
 ### Added

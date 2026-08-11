@@ -2,7 +2,10 @@
 
 MindDesk is a private, manual visual project map for macOS. It keeps files where they already live and adds local metadata for workspaces, Canvas cards, links, tasks, resources, snippets, notes, and layout.
 
-Current release line: v3.0.0.
+[![Release](https://img.shields.io/badge/release-v3.1.0-0A84FF)](https://github.com/QiushanHuang/MindDesk/releases/tag/v3.1.0)
+
+Current release: `v3.1.0`.
+当前版本：`v3.1.0`。
 
 ## English
 
@@ -50,11 +53,14 @@ See [docs/user-manual.md](docs/user-manual.md) for first launch, navigation, wor
 
 ### Install
 
-Use a notarized public package from the matching GitHub Release. Draft and ad-hoc artifacts are internal validation builds unless their release notes say otherwise.
+Download the current package from the matching GitHub Release. MindDesk v3.1.0 is ad-hoc signed and is not Apple-notarized.
+
+Release downloads: `MindDesk-v3.1.0-macOS-arm64-adhoc.dmg` and `MindDesk-v3.1.0-macOS-arm64-adhoc.zip`.
 
 1. Open the downloaded DMG.
 2. Drag MindDesk.app into Applications.
 3. Launch MindDesk from Applications.
+4. If macOS blocks the first launch, confirm the download came from this repository, then use System Settings > Privacy & Security > Open Anyway.
 
 ### Build From Source
 
@@ -96,7 +102,7 @@ Development runs may override the Application Support root with MINDDESK_APPLICA
 
 ### Release Notes
 
-The current metadata line is v3.0.0. See [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md). A local ad-hoc package is validation evidence, not proof of Developer ID signing, notarization, stapling, Gatekeeper acceptance, or public publication.
+The current release is v3.1.0. See [docs/releases/v3.1.0.md](docs/releases/v3.1.0.md) for the full user-facing update notes. The GitHub package is ad-hoc signed rather than Apple-notarized.
 
 ### Project Structure
 
@@ -152,11 +158,14 @@ MindDesk 是一个面向 macOS 的私有、手动视觉项目地图。Finder 继
 
 ### 安装
 
-请使用对应 GitHub Release 中已 notarize 的公开安装包。Draft 或 ad-hoc 产物默认只用于内部验证。
+请从对应的 GitHub Release 下载当前安装包。MindDesk v3.1.0 使用 ad-hoc 签名，没有经过 Apple 公证。
+
+发行文件：`MindDesk-v3.1.0-macOS-arm64-adhoc.dmg` 和 `MindDesk-v3.1.0-macOS-arm64-adhoc.zip`。
 
 1. 打开 DMG。
 2. 把 MindDesk.app 拖入 Applications。
 3. 从 Applications 启动。
+4. 如果 macOS 首次阻止打开，请先确认下载来源是本仓库，再前往“系统设置 > 隐私与安全性”选择“仍要打开”。
 
 ### 从源码构建
 
@@ -187,7 +196,7 @@ raw filesystem path 是本地文件或目录的实际路径；sanitized record l
 
 ### 版本说明
 
-当前 metadata 版本线为 v3.0.0。完整说明见 [docs/releases/v3.0.0.md](docs/releases/v3.0.0.md)。本地 ad-hoc 包只代表验证证据，不代表已签名、公证或公开发布。
+当前正式版本为 v3.1.0。完整更新说明见 [docs/releases/v3.1.0.md](docs/releases/v3.1.0.md)。GitHub 安装包使用 ad-hoc 签名，没有经过 Apple 公证。
 
 ## Maintainer / 维护者
 
