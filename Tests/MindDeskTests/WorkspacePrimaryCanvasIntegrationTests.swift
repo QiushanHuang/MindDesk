@@ -240,7 +240,7 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
         _ = controller.focus(workspaceID: "workspace-B")
         let observation = ResolutionWorkerObservation()
         var lifetimeToken: ResolutionTaskLifetimeToken? = ResolutionTaskLifetimeToken()
-        weak let weakLifetimeToken = lifetimeToken
+        let weakLifetimeToken = WeakTestReference(lifetimeToken)
 
         let operationID = controller.startPrimaryCanvasResolution(
             for: staleFocus,
@@ -255,7 +255,7 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
         XCTAssertNil(controller.primaryCanvasResolutionSlot)
         await allowResolutionTasksToSettle()
         XCTAssertEqual(observation.commitCount, 0)
-        XCTAssertNil(weakLifetimeToken)
+        XCTAssertNil(weakLifetimeToken.value)
     }
 
     func testInvalidationBeforeStartGateOpensLeavesNoTaskSlotOrRegistration() async throws {
@@ -646,7 +646,7 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
 
     func testSlotTaskAndCancellationCallbackDoNotRetainController() async throws {
         var controller: WorkspaceWindowScopeController? = WorkspaceWindowScopeController()
-        weak let weakController = controller
+        let weakController = WeakTestReference(controller)
         let worker = SuspendedResolutionWorker()
         let focus = try XCTUnwrap(controller).focus(workspaceID: "workspace-A")
 
@@ -661,7 +661,7 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
         await worker.waitUntilStarted()
 
         controller = nil
-        XCTAssertNil(weakController)
+        XCTAssertNil(weakController.value)
         worker.resume()
         await task.value
 

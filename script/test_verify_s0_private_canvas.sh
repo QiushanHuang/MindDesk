@@ -112,7 +112,7 @@ for payload in \
 done
 
 source_repo="$(make_repo 'source-policy')"
-printf 'import SwiftUI\nimport MindDeskCore\nlet value = MindDeskJSONDocumentKind.manifest\n' >"$source_repo/Sources/MindDesk/Allowed.swift"
+printf 'import CoreGraphics\nimport SwiftUI\nimport MindDeskCore\nimport QuartzCore\nlet value = MindDeskJSONDocumentKind.manifest\n' >"$source_repo/Sources/MindDesk/Allowed.swift"
 printf 'import Foundation\npublic let value = 1\n' >"$source_repo/Sources/MindDeskCore/Allowed.swift"
 s0_policy_check_source_tree "$source_repo" >/dev/null || fail "allowed source fixture was rejected"
 

@@ -457,6 +457,267 @@ public enum CanvasInteractionPerformanceBudget {
     }
 }
 
+public struct CanvasInteractionFrameAccumulator<Value> {
+    private var pending: Value?
+
+    public init() {}
+
+    public mutating func submit(_ value: Value) {
+        pending = value
+    }
+
+    public mutating func consume() -> Value? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+public struct CanvasScrollFrameSample: Equatable, Sendable {
+    public var deltaY: Double
+    public var location: CanvasEdgePoint
+
+    public init(deltaY: Double, location: CanvasEdgePoint) {
+        self.deltaY = deltaY
+        self.location = location
+    }
+}
+
+public struct CanvasScrollFrameAccumulator {
+    private var pending: CanvasScrollFrameSample?
+
+    public init() {}
+
+    public mutating func submit(_ sample: CanvasScrollFrameSample) {
+        guard sample.deltaY.isFinite,
+              sample.location.x.isFinite,
+              sample.location.y.isFinite else {
+            return
+        }
+        let summedDeltaY = (pending?.deltaY ?? 0) + sample.deltaY
+        guard summedDeltaY.isFinite else {
+            return
+        }
+        pending = CanvasScrollFrameSample(
+            deltaY: summedDeltaY,
+            location: sample.location
+        )
+    }
+
+    public mutating func consume() -> CanvasScrollFrameSample? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+public struct CanvasViewportVisualTransform: Equatable, Sendable {
+    public var scale: Double
+    public var translationX: Double
+    public var translationY: Double
+
+    public init(scale: Double, translationX: Double, translationY: Double) {
+        self.scale = scale
+        self.translationX = translationX
+        self.translationY = translationY
+    }
+}
+
+public enum CanvasLiveViewportTransformPolicy {
+    public static func transform(
+        baseZoom: Double,
+        baseViewportX: Double,
+        baseViewportY: Double,
+        liveZoom: Double,
+        liveViewportX: Double,
+        liveViewportY: Double
+    ) -> CanvasViewportVisualTransform {
+        let identity = CanvasViewportVisualTransform(
+            scale: 1,
+            translationX: 0,
+            translationY: 0
+        )
+        guard baseZoom.isFinite,
+              baseZoom > 0,
+              baseViewportX.isFinite,
+              baseViewportY.isFinite,
+              liveZoom.isFinite,
+              liveZoom > 0,
+              liveViewportX.isFinite,
+              liveViewportY.isFinite else {
+            return identity
+        }
+
+        let scale = liveZoom / baseZoom
+        let translationX = liveViewportX - baseViewportX * scale
+        let translationY = liveViewportY - baseViewportY * scale
+        guard scale.isFinite,
+              scale > 0,
+              translationX.isFinite,
+              translationY.isFinite else {
+            return identity
+        }
+        return CanvasViewportVisualTransform(
+            scale: scale,
+            translationX: translationX,
+            translationY: translationY
+        )
+    }
+
+    public static func forward(
+        point: CanvasEdgePoint,
+        using transform: CanvasViewportVisualTransform
+    ) -> CanvasEdgePoint? {
+        guard isValid(transform), point.x.isFinite, point.y.isFinite else { return nil }
+        let x = point.x * transform.scale + transform.translationX
+        let y = point.y * transform.scale + transform.translationY
+        guard x.isFinite, y.isFinite else { return nil }
+        return CanvasEdgePoint(x: x, y: y)
+    }
+
+    public static func inverse(
+        point: CanvasEdgePoint,
+        using transform: CanvasViewportVisualTransform
+    ) -> CanvasEdgePoint? {
+        guard isValid(transform), point.x.isFinite, point.y.isFinite else { return nil }
+        let x = (point.x - transform.translationX) / transform.scale
+        let y = (point.y - transform.translationY) / transform.scale
+        guard x.isFinite, y.isFinite else { return nil }
+        return CanvasEdgePoint(x: x, y: y)
+    }
+
+    public static func forward(
+        rect: CanvasFrameRect,
+        using transform: CanvasViewportVisualTransform
+    ) -> CanvasFrameRect? {
+        guard let origin = forward(
+            point: CanvasEdgePoint(x: rect.x, y: rect.y),
+            using: transform
+        ), rect.width.isFinite, rect.width >= 0, rect.height.isFinite, rect.height >= 0 else {
+            return nil
+        }
+        let width = rect.width * transform.scale
+        let height = rect.height * transform.scale
+        guard width.isFinite, height.isFinite else { return nil }
+        return CanvasFrameRect(
+            id: rect.id,
+            x: origin.x,
+            y: origin.y,
+            width: width,
+            height: height
+        )
+    }
+
+    public static func inverse(
+        rect: CanvasFrameRect,
+        using transform: CanvasViewportVisualTransform
+    ) -> CanvasFrameRect? {
+        guard let origin = inverse(
+            point: CanvasEdgePoint(x: rect.x, y: rect.y),
+            using: transform
+        ), rect.width.isFinite, rect.width >= 0, rect.height.isFinite, rect.height >= 0 else {
+            return nil
+        }
+        let width = rect.width / transform.scale
+        let height = rect.height / transform.scale
+        guard width.isFinite, height.isFinite else { return nil }
+        return CanvasFrameRect(
+            id: rect.id,
+            x: origin.x,
+            y: origin.y,
+            width: width,
+            height: height
+        )
+    }
+
+    private static func isValid(_ transform: CanvasViewportVisualTransform) -> Bool {
+        transform.scale.isFinite &&
+            transform.scale > 0 &&
+            transform.translationX.isFinite &&
+            transform.translationY.isFinite
+    }
+}
+
+public struct CanvasWorldRasterPlan: Equatable, Sendable {
+    public var rasterScale: Double
+    public var backingWidth: Double
+    public var backingHeight: Double
+    public var worldPresentationScale: Double
+
+    public init(
+        rasterScale: Double,
+        backingWidth: Double,
+        backingHeight: Double,
+        worldPresentationScale: Double
+    ) {
+        self.rasterScale = rasterScale
+        self.backingWidth = backingWidth
+        self.backingHeight = backingHeight
+        self.worldPresentationScale = worldPresentationScale
+    }
+}
+
+public enum CanvasLiveWorldMetricPolicy {
+    public static let maximumBackingDimension = 4_096.0
+
+    public static func worldValue(
+        targetScreenValue: Double,
+        liveWorldScale: Double
+    ) -> Double? {
+        guard targetScreenValue.isFinite,
+              targetScreenValue >= 0,
+              liveWorldScale.isFinite,
+              liveWorldScale > 0 else {
+            return nil
+        }
+        let value = targetScreenValue / liveWorldScale
+        return value.isFinite ? value : nil
+    }
+
+    public static func rasterPlan(
+        renderRect: CanvasFrameRect,
+        liveWorldScale: Double,
+        maximumBackingDimension: Double = maximumBackingDimension
+    ) -> CanvasWorldRasterPlan? {
+        guard renderRect.x.isFinite,
+              renderRect.y.isFinite,
+              renderRect.width.isFinite,
+              renderRect.width >= 0,
+              renderRect.height.isFinite,
+              renderRect.height >= 0,
+              liveWorldScale.isFinite,
+              liveWorldScale > 0,
+              maximumBackingDimension.isFinite,
+              maximumBackingDimension > 0 else {
+            return nil
+        }
+
+        var rasterScale = liveWorldScale
+        if renderRect.width > 0 {
+            rasterScale = min(rasterScale, maximumBackingDimension / renderRect.width)
+        }
+        if renderRect.height > 0 {
+            rasterScale = min(rasterScale, maximumBackingDimension / renderRect.height)
+        }
+        guard rasterScale.isFinite, rasterScale > 0 else { return nil }
+
+        let backingWidth = renderRect.width * rasterScale
+        let backingHeight = renderRect.height * rasterScale
+        let worldPresentationScale = 1 / rasterScale
+        guard backingWidth.isFinite,
+              backingHeight.isFinite,
+              backingWidth <= maximumBackingDimension,
+              backingHeight <= maximumBackingDimension,
+              worldPresentationScale.isFinite else {
+            return nil
+        }
+        return CanvasWorldRasterPlan(
+            rasterScale: rasterScale,
+            backingWidth: backingWidth,
+            backingHeight: backingHeight,
+            worldPresentationScale: worldPresentationScale
+        )
+    }
+}
+
 public enum CanvasScrollWheelEventPolicy {
     public static let minimumVerticalDelta = 0.01
 

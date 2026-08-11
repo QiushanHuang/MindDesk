@@ -2006,6 +2006,34 @@ final class CoreBehaviorTests: XCTestCase {
         }
     }
 
+    func testCanvasEdgeViewportIndexCacheCanSuppressOnlyReuseLogEvents() {
+        var events: [MindDeskHiddenMaintenanceLogEvent] = []
+        let cache = CanvasEdgeViewportIndexCache(
+            logsReuseEvents: false,
+            logEvent: { events.append($0) }
+        )
+        let nodes = [
+            CanvasFrameRect(id: "a", x: 0, y: 0, width: 80, height: 80),
+            CanvasFrameRect(id: "b", x: 160, y: 0, width: 80, height: 80)
+        ]
+        let movedNodes = [
+            CanvasFrameRect(id: "a", x: 12, y: 0, width: 80, height: 80),
+            CanvasFrameRect(id: "b", x: 160, y: 0, width: 80, height: 80)
+        ]
+        let edges = [CanvasEdgeViewportRecord(id: "edge", sourceNodeID: "a", targetNodeID: "b")]
+
+        _ = cache.index(nodes: nodes, edges: edges, bucketSize: 128)
+        _ = cache.index(nodes: nodes, edges: edges, bucketSize: 128)
+        _ = cache.index(nodes: movedNodes, edges: edges, bucketSize: 128)
+
+        XCTAssertEqual(cache.diagnostics.buildCount, 2)
+        XCTAssertEqual(cache.diagnostics.reuseCount, 1)
+        XCTAssertEqual(
+            events.map { $0.action },
+            [.create, .cleanup, .create]
+        )
+    }
+
     func testCanvasEdgeViewportIndexCacheReusesStableNonFiniteNodeGeometryInputs() {
         let invalidNodes = [
             CanvasFrameRect(id: "a", x: .nan, y: 0, width: 80, height: 80),
@@ -4241,6 +4269,342 @@ final class CoreBehaviorTests: XCTestCase {
             isResizing: false,
             isEdgeControlDragging: true,
             visibleCardCount: 1
+        ))
+    }
+
+    func testCanvasInteractionFrameAccumulatorKeepsOnlyLatestValueAndClearsAfterConsume() {
+        var accumulator = CanvasInteractionFrameAccumulator<Int>()
+
+        XCTAssertNil(accumulator.consume())
+        accumulator.submit(1)
+        accumulator.submit(2)
+        accumulator.submit(3)
+
+        XCTAssertEqual(accumulator.consume(), 3)
+        XCTAssertNil(accumulator.consume())
+    }
+
+    func testCanvasInteractionFrameAccumulatorSumsScrollDeltasAndKeepsLatestLocation() {
+        var accumulator = CanvasScrollFrameAccumulator()
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 1.25,
+            location: CanvasEdgePoint(x: 10, y: 20)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: -0.5,
+            location: CanvasEdgePoint(x: 30, y: 40)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 2,
+            location: CanvasEdgePoint(x: 50, y: 60)
+        ))
+
+        XCTAssertEqual(
+            accumulator.consume(),
+            CanvasScrollFrameSample(
+                deltaY: 2.75,
+                location: CanvasEdgePoint(x: 50, y: 60)
+            )
+        )
+        XCTAssertNil(accumulator.consume())
+    }
+
+    func testCanvasInteractionFrameAccumulatorIgnoresInvalidScrollSamplesAndOverflow() {
+        var accumulator = CanvasScrollFrameAccumulator()
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .nan,
+            location: CanvasEdgePoint(x: 10, y: 20)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 1,
+            location: CanvasEdgePoint(x: .infinity, y: 20)
+        ))
+        XCTAssertNil(accumulator.consume())
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .greatestFiniteMagnitude,
+            location: CanvasEdgePoint(x: 30, y: 40)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .greatestFiniteMagnitude,
+            location: CanvasEdgePoint(x: 50, y: 60)
+        ))
+
+        XCTAssertEqual(
+            accumulator.consume(),
+            CanvasScrollFrameSample(
+                deltaY: .greatestFiniteMagnitude,
+                location: CanvasEdgePoint(x: 30, y: 40)
+            )
+        )
+    }
+
+    func testCanvasLiveViewportTransformMapsCommittedWorldToLiveCamera() {
+        let transform = CanvasLiveViewportTransformPolicy.transform(
+            baseZoom: 1,
+            baseViewportX: 20,
+            baseViewportY: 30,
+            liveZoom: 1.5,
+            liveViewportX: -10,
+            liveViewportY: 12
+        )
+
+        XCTAssertEqual(transform.scale, 1.5)
+        XCTAssertEqual(transform.translationX, -40)
+        XCTAssertEqual(transform.translationY, -33)
+    }
+
+    func testCanvasLiveViewportTransformReturnsIdentityForInvalidInputs() {
+        let invalidTransforms = [
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 0,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: -1,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: .nan,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: .infinity,
+                liveViewportY: 12
+            )
+        ]
+
+        for transform in invalidTransforms {
+            XCTAssertEqual(transform.scale, 1)
+            XCTAssertEqual(transform.translationX, 0)
+            XCTAssertEqual(transform.translationY, 0)
+        }
+    }
+
+    func testCanvasLiveViewportTransformMapsAndInvertsPointsAndRects() throws {
+        let transform = CanvasViewportVisualTransform(
+            scale: 1.5,
+            translationX: -40,
+            translationY: -33
+        )
+        let worldPoint = CanvasEdgePoint(x: 80, y: 60)
+        let livePoint = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(point: worldPoint, using: transform)
+        )
+
+        XCTAssertEqual(livePoint.x, 80, accuracy: 0.0001)
+        XCTAssertEqual(livePoint.y, 57, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(CanvasLiveViewportTransformPolicy.inverse(point: livePoint, using: transform)),
+            worldPoint
+        )
+
+        let worldRect = CanvasFrameRect(id: "visible", x: 20, y: 30, width: 200, height: 100)
+        let liveRect = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(rect: worldRect, using: transform)
+        )
+        XCTAssertEqual(liveRect.x, -10, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.y, 12, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.width, 300, accuracy: 0.0001)
+        XCTAssertEqual(liveRect.height, 150, accuracy: 0.0001)
+        XCTAssertEqual(
+            try XCTUnwrap(CanvasLiveViewportTransformPolicy.inverse(rect: liveRect, using: transform)),
+            worldRect
+        )
+    }
+
+    func testCanvasLiveViewportTransformCoordinateHelpersFailClosedForInvalidValues() {
+        let invalidScale = CanvasViewportVisualTransform(
+            scale: 0,
+            translationX: 10,
+            translationY: 20
+        )
+        let invalidTranslation = CanvasViewportVisualTransform(
+            scale: 1,
+            translationX: .nan,
+            translationY: 20
+        )
+        let point = CanvasEdgePoint(x: 10, y: 20)
+        let rect = CanvasFrameRect(id: "visible", x: 0, y: 0, width: 100, height: 50)
+
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(point: point, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(point: point, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(rect: rect, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(rect: rect, using: invalidScale))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(point: point, using: invalidTranslation))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.inverse(rect: rect, using: invalidTranslation))
+        XCTAssertNil(CanvasLiveViewportTransformPolicy.forward(
+            point: CanvasEdgePoint(x: .infinity, y: 20),
+            using: .init(scale: 1, translationX: 0, translationY: 0)
+        ))
+    }
+
+    func testCanvasLiveViewportTransformKeepsTransientControlHitTestingInWorldCoordinates() throws {
+        let transform = CanvasViewportVisualTransform(
+            scale: 2,
+            translationX: 30,
+            translationY: -10
+        )
+        let worldControl = CanvasEdgePoint(x: 50, y: 40)
+        let liveTransientControl = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.forward(point: worldControl, using: transform)
+        )
+        let convertedWorldControl = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.inverse(point: liveTransientControl, using: transform)
+        )
+        let liveHitPoint = try XCTUnwrap(CanvasLiveViewportTransformPolicy.forward(
+            point: CanvasEdgePoint(x: 50, y: 45.5),
+            using: transform
+        ))
+        let worldHitPoint = try XCTUnwrap(
+            CanvasLiveViewportTransformPolicy.inverse(point: liveHitPoint, using: transform)
+        )
+        let record = CanvasEdgeHitRecord(
+            id: "edge",
+            points: [
+                CanvasEdgePoint(x: 0, y: 0),
+                convertedWorldControl,
+                CanvasEdgePoint(x: 100, y: 0)
+            ]
+        )
+
+        XCTAssertEqual(convertedWorldControl, worldControl)
+        XCTAssertEqual(
+            CanvasEdgeHitTesting.nearestEdgeID(
+                at: worldHitPoint,
+                edges: [record],
+                threshold: CanvasEdgeHitTargetPolicy.defaultScreenThreshold / transform.scale
+            ),
+            "edge"
+        )
+    }
+
+    func testCanvasLiveWorldMetricCompensationMatchesEffectivePoliciesAcrossExtremeZoomAndSettle() throws {
+        for (baseZoom, liveZoom) in [(0.12, 2.4), (2.4, 0.12)] {
+            let transform = CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: baseZoom,
+                baseViewportX: 0,
+                baseViewportY: 0,
+                liveZoom: liveZoom,
+                liveViewportX: 0,
+                liveViewportY: 0
+            )
+            let effectiveTargets = [
+                CanvasEdgeVisualMetrics.strokeWidth(
+                    zoom: liveZoom,
+                    baseWidth: 1.7,
+                    minimumWidth: 0.9,
+                    maximumWidth: 2
+                ),
+                CanvasEdgeVisualMetrics.arrowLength(
+                    zoom: liveZoom,
+                    baseLength: 13,
+                    minimumLength: 6,
+                    maximumLength: 16
+                ),
+                CanvasResizeHandleGeometry.hitSize(zoom: liveZoom),
+                CanvasEdgeControlHandleMetrics.diameter(zoom: liveZoom, baseDiameter: 13),
+                CanvasEdgeRouteDefaults.targetClearance,
+                CanvasEdgeRouteDefaults.routingClearance,
+                CanvasInteractionMetrics.nodeHitSlop
+            ]
+
+            for target in effectiveTargets {
+                let worldValue = try XCTUnwrap(CanvasLiveWorldMetricPolicy.worldValue(
+                    targetScreenValue: target,
+                    liveWorldScale: transform.scale
+                ))
+                let settledWorldValue = try XCTUnwrap(CanvasLiveWorldMetricPolicy.worldValue(
+                    targetScreenValue: target,
+                    liveWorldScale: 1
+                ))
+
+                XCTAssertEqual(worldValue * transform.scale, target, accuracy: 0.0001)
+                XCTAssertEqual(settledWorldValue, target, accuracy: 0.0001)
+                XCTAssertEqual(worldValue * transform.scale, settledWorldValue, accuracy: 0.0001)
+            }
+        }
+    }
+
+    func testCanvasLiveWorldRasterPlanKeepsBackingNearLiveBoundsAndCapsExtremeInputs() throws {
+        let liveWidth = 2_360.0
+        let liveHeight = 1_560.0
+        for scale in [0.05, 20.0] {
+            let worldRect = CanvasFrameRect(
+                id: "edge-render",
+                x: -12_000,
+                y: 8_000,
+                width: liveWidth / scale,
+                height: liveHeight / scale
+            )
+            let plan = try XCTUnwrap(CanvasLiveWorldMetricPolicy.rasterPlan(
+                renderRect: worldRect,
+                liveWorldScale: scale
+            ))
+
+            XCTAssertEqual(plan.rasterScale, scale, accuracy: 0.0001)
+            XCTAssertEqual(plan.backingWidth, liveWidth, accuracy: 0.0001)
+            XCTAssertEqual(plan.backingHeight, liveHeight, accuracy: 0.0001)
+            XCTAssertLessThanOrEqual(plan.backingWidth, CanvasLiveWorldMetricPolicy.maximumBackingDimension)
+            XCTAssertLessThanOrEqual(plan.backingHeight, CanvasLiveWorldMetricPolicy.maximumBackingDimension)
+            XCTAssertEqual(
+                plan.backingWidth * plan.worldPresentationScale * scale,
+                liveWidth,
+                accuracy: 0.0001
+            )
+            XCTAssertEqual(
+                plan.backingHeight * plan.worldPresentationScale * scale,
+                liveHeight,
+                accuracy: 0.0001
+            )
+            let worldPointX = worldRect.x + worldRect.width * 0.37
+            let rasterPointX = (worldPointX - worldRect.x) * plan.rasterScale
+            let presentedWorldPointX = rasterPointX * plan.worldPresentationScale + worldRect.x
+            XCTAssertEqual(presentedWorldPointX, worldPointX, accuracy: 0.0001)
+        }
+
+        let capped = try XCTUnwrap(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(
+                id: "huge",
+                x: 0,
+                y: 0,
+                width: 1_000_000,
+                height: 900_000
+            ),
+            liveWorldScale: 0.05
+        ))
+        XCTAssertLessThanOrEqual(capped.backingWidth, 4_096)
+        XCTAssertLessThanOrEqual(capped.backingHeight, 4_096)
+        XCTAssertEqual(
+            capped.backingWidth * capped.worldPresentationScale * 0.05,
+            50_000,
+            accuracy: 0.01
+        )
+        XCTAssertNil(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(id: "invalid", x: 0, y: 0, width: .infinity, height: 10),
+            liveWorldScale: 1
+        ))
+        XCTAssertNil(CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(id: "invalid-scale", x: 0, y: 0, width: 10, height: 10),
+            liveWorldScale: 0
         ))
     }
 

@@ -1,9 +1,848 @@
+import AppKit
 import XCTest
 import MindDeskCore
 import SwiftData
 @testable import MindDesk
 
 final class AppBehaviorTests: XCTestCase {
+    @MainActor
+    func testCanvasInteractionFrameDriverKeepsOnlyLatestUpdateForAChannelUntilManualTick() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) { values.append(1) }
+        driver.submitLatest(channel: .viewport) { values.append(2) }
+
+        XCTAssertEqual(driver.pendingChannelCount, 1)
+        XCTAssertTrue(values.isEmpty)
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverDrainsDifferentChannelsOnceEach() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var viewportRuns = 0
+        var magnifyRuns = 0
+        var nodeDragRuns = 0
+        var edgeControlRuns = 0
+
+        driver.submitLatest(channel: .viewport) { viewportRuns += 1 }
+        driver.submitLatest(channel: .magnify) { magnifyRuns += 1 }
+        driver.submitLatest(channel: .nodeDrag) { nodeDragRuns += 1 }
+        driver.submitLatest(channel: .edgeControl) { edgeControlRuns += 1 }
+
+        XCTAssertEqual(driver.pendingChannelCount, 4)
+        driver.fireForTesting()
+        driver.fireForTesting()
+
+        XCTAssertEqual(viewportRuns, 1)
+        XCTAssertEqual(magnifyRuns, 1)
+        XCTAssertEqual(nodeDragRuns, 1)
+        XCTAssertEqual(edgeControlRuns, 1)
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushExecutesLatestUpdateAndRemovesIt() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) { values.append(1) }
+        driver.submitLatest(channel: .viewport) { values.append(2) }
+
+        driver.flush(.viewport)
+
+        XCTAssertEqual(values, [2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+
+        driver.fireForTesting()
+        XCTAssertEqual(values, [2])
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverAccumulatesFiniteScrollDeltasAtLatestLocationOnce() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var samples: [CanvasScrollFrameSample] = []
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1.25, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: .nan, location: CanvasEdgePoint(x: 30, y: 40))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 2.75, location: CanvasEdgePoint(x: 50, y: 60))
+        ) { samples.append($0) }
+
+        XCTAssertTrue(samples.isEmpty)
+        driver.fireForTesting()
+        driver.fireForTesting()
+
+        XCTAssertEqual(
+            samples,
+            [CanvasScrollFrameSample(deltaY: 4, location: CanvasEdgePoint(x: 50, y: 60))]
+        )
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverCancelAllDropsWorkAndReleasesCapturedOwner() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var executionCount = 0
+        var owner: NSObject? = NSObject()
+        let weakOwner = WeakTestReference(owner)
+
+        driver.submitLatest(channel: .viewport) { [owner] in
+            XCTAssertNotNil(owner)
+            executionCount += 1
+        }
+        owner = nil
+
+        XCTAssertNotNil(weakOwner.value)
+        driver.cancelAll()
+
+        XCTAssertNil(weakOwner.value)
+        driver.fireForTesting()
+        XCTAssertEqual(executionCount, 0)
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverDefersReentrantSubmissionUntilNextTick() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) {
+            values.append(1)
+            driver.submitLatest(channel: .viewport) { values.append(2) }
+        }
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [1])
+        XCTAssertEqual(driver.pendingChannelCount, 1)
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [1, 2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushesPendingScrollExactlyOnce() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var samples: [CanvasScrollFrameSample] = []
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1.5, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 2.5, location: CanvasEdgePoint(x: 30, y: 40))
+        ) { samples.append($0) }
+
+        driver.flushScroll()
+        driver.flushScroll()
+        driver.fireForTesting()
+
+        XCTAssertEqual(
+            samples,
+            [CanvasScrollFrameSample(deltaY: 4, location: CanvasEdgePoint(x: 30, y: 40))]
+        )
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushesOnlyLatestDebouncedCommitSynchronously() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(1) }
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(2) }
+
+        XCTAssertTrue(values.isEmpty)
+        driver.flushDebouncedCommit()
+        driver.flushDebouncedCommit()
+
+        XCTAssertEqual(values, [2])
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverCancelAllDropsScrollAndDebouncedCommit() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var scrollRuns = 0
+        var commitRuns = 0
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { _ in scrollRuns += 1 }
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { commitRuns += 1 }
+
+        driver.cancelAll()
+        driver.fireForTesting()
+        driver.flushScroll()
+        driver.flushDebouncedCommit()
+
+        XCTAssertEqual(scrollRuns, 0)
+        XCTAssertEqual(commitRuns, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverIgnoresStaleDebounceWakeAfterReschedule() throws {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(1) }
+        let staleGeneration = try XCTUnwrap(driver.pendingDebouncedCommitGenerationForTesting)
+        driver.scheduleDebouncedCommit(delayNanos: 60_000_000_000) { values.append(2) }
+
+        driver.fireDebouncedCommitForTesting(generation: staleGeneration)
+
+        XCTAssertTrue(values.isEmpty)
+        driver.flushDebouncedCommit()
+        XCTAssertEqual(values, [2])
+    }
+
+    @MainActor
+    func testCanvasWorldDerivedCacheReusesCameraOnlyReadsAndKeepsLiveModelReferences() throws {
+        let resource = ResourcePinModel(
+            id: "resource-a",
+            title: "Resource A",
+            targetType: .file,
+            displayPath: "/tmp/a.md",
+            lastResolvedPath: "/tmp/a.md",
+            scope: .global
+        )
+        let snippet = SnippetModel(
+            id: "snippet-a",
+            title: "Snippet A",
+            kind: .prompt,
+            body: "Before",
+            scope: .global
+        )
+        let resourceNode = CanvasNodeModel(
+            id: "node-resource",
+            canvasId: "canvas-a",
+            title: "Resource card",
+            body: "Before",
+            nodeType: .resource,
+            objectType: "resourcePin",
+            objectId: resource.id,
+            x: 10,
+            y: 20,
+            width: 214,
+            height: 132,
+            zIndex: 1
+        )
+        let snippetNode = CanvasNodeModel(
+            id: "node-snippet",
+            canvasId: "canvas-a",
+            title: "Snippet card",
+            nodeType: .snippet,
+            objectType: "snippet",
+            objectId: snippet.id,
+            x: 300,
+            y: 20,
+            width: 214,
+            height: 132,
+            zIndex: 2
+        )
+        let edge = CanvasEdgeModel(
+            id: "edge-a",
+            canvasId: "canvas-a",
+            sourceNodeId: resourceNode.id,
+            targetNodeId: snippetNode.id,
+            label: "Before"
+        )
+        let cache = CanvasWorldDerivedCache()
+
+        let first = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+        let cameraOnlyRead = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+
+        XCTAssertEqual(first.generation, 1)
+        XCTAssertEqual(cameraOnlyRead.generation, first.generation)
+        XCTAssertEqual(cameraOnlyRead.edgeIndexDiagnostics.buildCount, 1)
+        XCTAssertEqual(cameraOnlyRead.edgeIndexDiagnostics.reuseCount, 0)
+        XCTAssertTrue(cameraOnlyRead.snapshot.nodeById[resourceNode.id] === resourceNode)
+        XCTAssertTrue(cameraOnlyRead.snapshot.resource(for: resourceNode) === resource)
+        XCTAssertTrue(cameraOnlyRead.snapshot.snippet(for: snippetNode) === snippet)
+
+        resourceNode.title = "Resource card after"
+        resourceNode.body = "After"
+        resourceNode.updatedAt = resourceNode.updatedAt.addingTimeInterval(10)
+        resource.title = "Resource A after"
+        resource.updatedAt = resource.updatedAt.addingTimeInterval(10)
+        snippet.body = "After"
+        snippet.updatedAt = snippet.updatedAt.addingTimeInterval(10)
+        edge.label = "After"
+        edge.updatedAt = edge.updatedAt.addingTimeInterval(10)
+
+        let textOnlyRead = cache.state(
+            nodes: [resourceNode, snippetNode],
+            resources: [resource],
+            snippets: [snippet],
+            edges: [edge]
+        )
+
+        XCTAssertEqual(textOnlyRead.generation, first.generation)
+        XCTAssertEqual(textOnlyRead.snapshot.nodeById[resourceNode.id]?.title, "Resource card after")
+        XCTAssertEqual(textOnlyRead.snapshot.resource(for: resourceNode)?.title, "Resource A after")
+        XCTAssertEqual(textOnlyRead.snapshot.snippet(for: snippetNode)?.body, "After")
+        XCTAssertEqual(textOnlyRead.snapshot.edgeById[edge.id]?.label, "After")
+    }
+
+    @MainActor
+    func testCanvasWorldDerivedCacheInvalidatesExactStructureGeometryAndOrderingChangesOnce() {
+        let resource = ResourcePinModel(
+            id: "resource-a",
+            title: "Resource A",
+            targetType: .file,
+            displayPath: "/tmp/a.md",
+            lastResolvedPath: "/tmp/a.md",
+            scope: .global
+        )
+        let snippet = SnippetModel(
+            id: "snippet-a",
+            title: "Snippet A",
+            kind: .prompt,
+            body: "Prompt",
+            scope: .global
+        )
+        let source = CanvasNodeModel(
+            id: "source",
+            canvasId: "canvas-a",
+            title: "Source",
+            nodeType: .resource,
+            objectType: "resourcePin",
+            objectId: resource.id,
+            x: 0,
+            y: 0,
+            width: 214,
+            height: 132,
+            zIndex: 1
+        )
+        let target = CanvasNodeModel(
+            id: "target",
+            canvasId: "canvas-a",
+            title: "Target",
+            nodeType: .snippet,
+            objectType: "snippet",
+            objectId: snippet.id,
+            x: 300,
+            y: 0,
+            width: 214,
+            height: 132,
+            zIndex: 2
+        )
+        let frame = CanvasNodeModel(
+            id: "frame",
+            canvasId: "canvas-a",
+            title: "Frame",
+            nodeType: .groupFrame,
+            x: -40,
+            y: -40,
+            width: 640,
+            height: 360,
+            updatedAt: Date(timeIntervalSince1970: 1)
+        )
+        let edge = CanvasEdgeModel(
+            id: "edge-a",
+            canvasId: "canvas-a",
+            sourceNodeId: source.id,
+            targetNodeId: target.id
+        )
+        let cache = CanvasWorldDerivedCache()
+        var nodes = [frame, source, target]
+        var resources = [resource]
+        var snippets = [snippet]
+        var edges = [edge]
+
+        var expectedGeneration = cache.state(
+            nodes: nodes,
+            resources: resources,
+            snippets: snippets,
+            edges: edges
+        ).generation
+
+        func expectOneRebuild(file: StaticString = #filePath, line: UInt = #line) {
+            expectedGeneration += 1
+            let rebuilt = cache.state(
+                nodes: nodes,
+                resources: resources,
+                snippets: snippets,
+                edges: edges
+            )
+            XCTAssertEqual(rebuilt.generation, expectedGeneration, file: file, line: line)
+            XCTAssertEqual(
+                cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges).generation,
+                expectedGeneration,
+                file: file,
+                line: line
+            )
+        }
+
+        source.x = 12
+        expectOneRebuild()
+
+        source.width = 220
+        expectOneRebuild()
+
+        source.zIndex = 4
+        expectOneRebuild()
+
+        nodes.swapAt(1, 2)
+        expectOneRebuild()
+
+        frame.updatedAt = frame.updatedAt.addingTimeInterval(1)
+        expectOneRebuild()
+
+        edge.sourceNodeId = frame.id
+        expectOneRebuild()
+
+        edge.controlPointX = 80
+        edge.controlPointY = 40
+        expectOneRebuild()
+
+        edges.append(CanvasEdgeModel(
+            id: "edge-b",
+            canvasId: "canvas-a",
+            sourceNodeId: source.id,
+            targetNodeId: target.id
+        ))
+        expectOneRebuild()
+
+        nodes.append(CanvasNodeModel(
+            id: "node-c",
+            canvasId: "canvas-a",
+            title: "C",
+            nodeType: .note,
+            x: 600,
+            y: 0
+        ))
+        expectOneRebuild()
+
+        resources.append(ResourcePinModel(
+            id: "resource-b",
+            title: "Resource B",
+            targetType: .file,
+            displayPath: "/tmp/b.md",
+            lastResolvedPath: "/tmp/b.md",
+            scope: .global
+        ))
+        expectOneRebuild()
+
+        let replacementResource = ResourcePinModel(
+            id: resource.id,
+            title: "Replacement resource",
+            targetType: .file,
+            displayPath: "/tmp/replacement.md",
+            lastResolvedPath: "/tmp/replacement.md",
+            scope: .global
+        )
+        resources[0] = replacementResource
+        expectOneRebuild()
+
+        let replacementSnippet = SnippetModel(
+            id: snippet.id,
+            title: "Replacement snippet",
+            kind: .prompt,
+            body: "Replacement",
+            scope: .global
+        )
+        snippets[0] = replacementSnippet
+        expectOneRebuild()
+
+        XCTAssertTrue(
+            cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges)
+                .snapshot.resourcesById[resource.id] === replacementResource
+        )
+        XCTAssertTrue(
+            cache.state(nodes: nodes, resources: resources, snippets: snippets, edges: edges)
+                .snapshot.snippetsById[snippet.id] === replacementSnippet
+        )
+    }
+
+    @MainActor
+    func testCanvasWorldDerivedCacheUsesStableExactFloatingPointTokens() {
+        let node = CanvasNodeModel(
+            id: "node-a",
+            canvasId: "canvas-a",
+            title: "A",
+            nodeType: .note,
+            x: Double(bitPattern: 0x7ff8_0000_0000_0001),
+            y: 0
+        )
+        let cache = CanvasWorldDerivedCache()
+
+        let first = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+        let sameNaNPayload = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+
+        XCTAssertEqual(sameNaNPayload.generation, first.generation)
+
+        node.x = Double(bitPattern: 0x7ff8_0000_0000_0002)
+        let differentNaNPayload = cache.state(nodes: [node], resources: [], snippets: [], edges: [])
+
+        XCTAssertEqual(differentNaNPayload.generation, first.generation + 1)
+    }
+
+    func testCanvasWorldDerivedCacheIsWiredOutsideThePerFrameCameraPath() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("@State private var worldDerivedCache = CanvasWorldDerivedCache()"))
+        XCTAssertFalse(canvasSource.contains("edgeViewportIndexCache"))
+        XCTAssertFalse(canvasSource.contains("private var renderSnapshot:"))
+        XCTAssertTrue(canvasSource.contains("let worldState = worldDerivedCache.state("))
+        XCTAssertTrue(canvasSource.contains("let snapshot = worldState.snapshot"))
+        XCTAssertTrue(canvasSource.contains("let edgeIndex = worldState.edgeIndex"))
+        XCTAssertTrue(canvasSource.contains("cacheDiagnostics: worldState.edgeIndexDiagnostics"))
+        XCTAssertFalse(canvasSource.contains("snapshot.visibleEdges.map(canvasEdgeIndexRecord(for:))"))
+        XCTAssertFalse(canvasSource.contains("snapshot.workflowNodes.map(canvasEdgeIndexRect(for:))"))
+    }
+
+    func testWorkspaceCanvasTransformsCommittedWorldOnceAndKeepsScreenOverlaysOutside() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("private var worldRenderZoom: Double"))
+        XCTAssertTrue(canvasSource.contains("private var liveWorldTransform: CanvasViewportVisualTransform"))
+        XCTAssertTrue(canvasSource.contains("let worldTransform = liveWorldTransform"))
+        XCTAssertTrue(canvasSource.contains("let nodeVisibleRect = worldVisibleScreenRect(for: proxy.size)"))
+        XCTAssertTrue(canvasSource.contains("let edgeVisibleRect = worldEdgeVisibleScreenRect(for: proxy.size)"))
+        XCTAssertTrue(canvasSource.contains("rectFor: worldScreenRect(for:)"))
+        XCTAssertTrue(canvasSource.contains("controlPointFor: resolvedWorldControlPoint(for:)"))
+        XCTAssertTrue(canvasSource.contains(".scaleEffect(CGFloat(worldTransform.scale), anchor: .topLeading)"))
+        XCTAssertTrue(canvasSource.contains("x: CGFloat(worldTransform.translationX)"))
+        XCTAssertTrue(canvasSource.contains("y: CGFloat(worldTransform.translationY)"))
+        XCTAssertTrue(canvasSource.contains("canvasBackground\n\n                ZStack(alignment: .topLeading)"))
+        XCTAssertTrue(canvasSource.contains("if let selectionRect"))
+        XCTAssertTrue(canvasSource.contains("worldEdgeRenderRect"))
+        XCTAssertTrue(canvasSource.contains("let edgeScreenMetrics = worldEdgeScreenMetrics"))
+        XCTAssertTrue(canvasSource.contains("let edgeControlMetrics = worldEdgeControlScreenMetrics"))
+        XCTAssertTrue(canvasSource.contains("CanvasLiveWorldMetricPolicy.worldValue("))
+        XCTAssertTrue(canvasSource.contains("CanvasLiveWorldMetricPolicy.rasterPlan("))
+        XCTAssertEqual(canvasSource.components(separatedBy: "rasterPlan: edgeRasterPlan").count - 1, 2)
+        XCTAssertTrue(canvasSource.contains("worldPresentationScale"))
+        XCTAssertEqual(canvasSource.components(separatedBy: "routingClearance: worldEdgeRoutingClearance").count - 1, 2)
+        XCTAssertTrue(canvasSource.contains("let hitSize = worldScreenMetric(CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom))"))
+        XCTAssertTrue(canvasSource.contains("let worldInset = worldScreenMetric(targetInset)"))
+        XCTAssertFalse(canvasSource.contains("lineScale: CGFloat(worldRenderZoom)"))
+        XCTAssertFalse(canvasSource.contains(".frame(width: renderRect.width, height: renderRect.height"))
+        XCTAssertFalse(canvasSource.contains("rectFor: screenRect(for:)"))
+        XCTAssertFalse(canvasSource.contains("controlPointFor: resolvedScreenControlPoint(for:)"))
+        XCTAssertFalse(canvasSource.contains(".drawingGroup"))
+    }
+
+    func testWorkspaceCanvasUsesOneCoordinateConversionForLiveEdgeControlsAndHitTesting() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(canvasSource.contains("private func worldPoint(fromLiveScreenPoint point: CGPoint) -> CGPoint?"))
+        XCTAssertTrue(canvasSource.contains("private func liveScreenPoint(fromWorldPoint point: CGPoint) -> CGPoint?"))
+        XCTAssertTrue(canvasSource.contains("worldTransientEdgeControlPoints"))
+        XCTAssertTrue(canvasSource.contains("let worldLocation = worldPoint(fromLiveScreenPoint: location)"))
+        XCTAssertTrue(canvasSource.contains("CanvasEdgeHitTargetPolicy.screenThreshold(zoom: effectiveZoom) / worldTransform.scale"))
+        XCTAssertTrue(canvasSource.contains("} else if let control = worldTransientEdgeControlPoints[segment.id] ?? segment.control {"))
+        XCTAssertFalse(canvasSource.contains("} else if let control = transientEdgeControlPoints[segment.id] ?? segment.control {"))
+    }
+
+    func testScrollWheelSequencePassThroughCacheResetsForNewBeganAndReusesChangedDecision() {
+        let began = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .began,
+            momentumPhase: []
+        )
+        let changed = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .changed,
+            momentumPhase: []
+        )
+        var cache = ScrollWheelSequencePassThroughCache()
+        var computationCount = 0
+
+        cache.prepare(for: began)
+        XCTAssertTrue(cache.resolve(for: began) {
+            computationCount += 1
+            return true
+        })
+        cache.finish(for: began)
+
+        cache.prepare(for: changed)
+        XCTAssertTrue(cache.resolve(for: changed) {
+            computationCount += 1
+            return false
+        })
+        cache.finish(for: changed)
+        XCTAssertEqual(computationCount, 1)
+
+        cache.prepare(for: began)
+        XCTAssertFalse(cache.resolve(for: began) {
+            computationCount += 1
+            return false
+        })
+        cache.finish(for: began)
+        XCTAssertEqual(computationCount, 2)
+    }
+
+    func testScrollWheelSequencePassThroughCacheClearsOutsideTerminalAndRecomputesStandaloneEvents() {
+        let began = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: .mayBegin,
+            momentumPhase: []
+        )
+        let ended = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: [],
+            momentumPhase: .cancelled
+        )
+        let standalone = ScrollWheelEventSequencePolicy.descriptor(
+            hasPreciseScrollingDeltas: true,
+            phase: [],
+            momentumPhase: []
+        )
+        var cache = ScrollWheelSequencePassThroughCache()
+        var computationCount = 0
+
+        cache.prepare(for: began)
+        _ = cache.resolve(for: began) { true }
+        cache.finish(for: began)
+        XCTAssertNotNil(cache.cachedDecision)
+
+        cache.prepare(for: ended)
+        cache.finish(for: ended)
+        XCTAssertNil(cache.cachedDecision)
+
+        for _ in 0..<2 {
+            cache.prepare(for: standalone)
+            _ = cache.resolve(for: standalone) {
+                computationCount += 1
+                return true
+            }
+            cache.finish(for: standalone)
+        }
+        XCTAssertEqual(computationCount, 2)
+    }
+
+    func testWorkspaceCanvasCoalescesLiveGestureStateAtDisplayCadence() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let canvasSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/WorkspaceCanvasView.swift"),
+            encoding: .utf8
+        )
+        let driverSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Canvas/CanvasInteractionFrameDriver.swift"),
+            encoding: .utf8
+        )
+
+        func occurrenceCount(_ needle: String, in source: String) -> Int {
+            source.components(separatedBy: needle).count - 1
+        }
+
+        func section(from startMarker: String, to endMarker: String) throws -> String {
+            let start = try XCTUnwrap(
+                canvasSource.range(of: startMarker)?.lowerBound,
+                "Missing declaration: \(startMarker)"
+            )
+            let end = try XCTUnwrap(
+                canvasSource.range(of: endMarker, range: start..<canvasSource.endIndex)?.lowerBound,
+                "Missing declaration terminator: \(endMarker)"
+            )
+            return String(canvasSource[start..<end])
+        }
+
+        func gestureEnd(in source: String) throws -> String {
+            let start = try XCTUnwrap(
+                source.range(of: ".onEnded", options: .backwards)?.lowerBound,
+                "Missing onEnded handler"
+            )
+            return String(source[start...])
+        }
+
+        func appearsInOrder(_ needles: [String], in source: String) -> Bool {
+            var searchStart = source.startIndex
+            for needle in needles {
+                guard let range = source.range(of: needle, range: searchStart..<source.endIndex) else {
+                    return false
+                }
+                searchStart = range.upperBound
+            }
+            return true
+        }
+
+        XCTAssertEqual(
+            occurrenceCount(
+                "@StateObject private var interactionFrameDriver = CanvasInteractionFrameDriver()",
+                in: canvasSource
+            ),
+            1
+        )
+        XCTAssertFalse(driverSource.contains("@Published"))
+
+        let magnifyGesture = try section(
+            from: ".simultaneousGesture(MagnifyGesture()",
+            to: ".onDrop("
+        )
+        XCTAssertTrue(magnifyGesture.contains("submitLatest(channel: .magnify)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .magnify)",
+                    "updateMagnification(value, screenAnchor: screenAnchor)",
+                    "flush(.magnify)",
+                    "persistCanvasViewport("
+                ],
+                in: try gestureEnd(in: magnifyGesture)
+            )
+        )
+
+        let resizeGesture = try section(
+            from: "private func resizeHandle(for node:",
+            to: "private func resizeHandleCenter(for node:"
+        )
+        XCTAssertTrue(resizeGesture.contains("submitLatest(channel: .nodeDrag)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .nodeDrag)",
+                    "resizeNode(node, screenTranslation: value.translation, commit: false)",
+                    "flush(.nodeDrag)",
+                    "resizeNode(node, screenTranslation: value.translation, commit: true)"
+                ],
+                in: try gestureEnd(in: resizeGesture)
+            )
+        )
+
+        let edgeControlGesture = try section(
+            from: "private func edgeControlDragGesture(for segment:",
+            to: "private func addEdgeControlPoint(for segment:"
+        )
+        XCTAssertTrue(edgeControlGesture.contains("submitLatest(channel: .edgeControl)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .edgeControl)",
+                    "updateEdgeControlDrag(value, for: segment)",
+                    "flush(.edgeControl)",
+                    "saveEdgeControlPoint("
+                ],
+                in: try gestureEnd(in: edgeControlGesture)
+            )
+        )
+
+        let nodeDragGesture = try section(
+            from: "private func dragGesture(for node:",
+            to: "private func beginNodeDrag(for node:"
+        )
+        XCTAssertTrue(nodeDragGesture.contains("submitLatest(channel: .nodeDrag)"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .nodeDrag)",
+                    "updateNodeDrag(value, for: node)",
+                    "flush(.nodeDrag)",
+                    "commitNodeDrag(delta: nodeDragDelta(for: value))"
+                ],
+                in: try gestureEnd(in: nodeDragGesture)
+            )
+        )
+
+        let backgroundGesture = try section(
+            from: "private func backgroundDrag(in size:",
+            to: "private func handleNodeTap(_ node:"
+        )
+        XCTAssertTrue(backgroundGesture.contains("submitLatest(channel: .viewport)"))
+        XCTAssertTrue(backgroundGesture.contains("mode == .boxSelect"))
+        XCTAssertTrue(
+            appearsInOrder(
+                [
+                    "submitLatest(channel: .viewport)",
+                    "updateBackgroundDrag(value)",
+                    "flush(.viewport)",
+                    "CanvasBackgroundPanCommitPolicy.commit("
+                ],
+                in: try gestureEnd(in: backgroundGesture)
+            )
+        )
+
+        XCTAssertTrue(canvasSource.contains("interactionFrameDriver.submitScroll("))
+        XCTAssertTrue(canvasSource.contains("zoomFromScroll("))
+        XCTAssertTrue(canvasSource.contains("deltaY: sample.deltaY"))
+        XCTAssertFalse(canvasSource.contains("@State private var pendingScrollZoomCommit"))
+        XCTAssertTrue(driverSource.contains("func scheduleDebouncedCommit("))
+        XCTAssertTrue(canvasSource.contains("interactionFrameDriver.scheduleDebouncedCommit("))
+
+        let scrollFlush = try section(
+            from: "private func flushPendingScrollZoomCommit()",
+            to: "private func commitScrollZoom()"
+        )
+        XCTAssertTrue(
+            appearsInOrder(
+                ["interactionFrameDriver.flushScroll()", "interactionFrameDriver.flushDebouncedCommit()"],
+                in: scrollFlush
+            )
+        )
+
+        let disappear = try section(
+            from: ".onDisappear {",
+            to: ".onChange(of: canvasDefaultZoomPercent)"
+        )
+        XCTAssertTrue(
+            appearsInOrder(
+                ["flushPendingScrollZoomCommit()", "interactionFrameDriver.cancelAll()"],
+                in: disappear
+            )
+        )
+
+        let scrollMonitor = try section(
+            from: "private final class ScrollWheelMonitorView:",
+            to: "func removeMonitor()"
+        )
+        XCTAssertTrue(scrollMonitor.contains("scrollSequencePassThroughCache"))
+        XCTAssertTrue(scrollMonitor.contains("event.phase"))
+        XCTAssertTrue(scrollMonitor.contains("event.momentumPhase"))
+        XCTAssertTrue(
+            appearsInOrder(
+                ["scrollSequencePassThroughCache.prepare", "guard bounds.contains(location)"],
+                in: scrollMonitor
+            )
+        )
+        XCTAssertTrue(scrollMonitor.contains("scrollSequencePassThroughCache.finish"))
+        XCTAssertTrue(canvasSource.contains("phase.contains(.began)"))
+        XCTAssertTrue(canvasSource.contains("phase.contains(.mayBegin)"))
+    }
+
     @MainActor
     func testFirstLaunchSeedDataCreatesDefaultWorkspaceAndSnippetsWithoutCanvasAndIsIdempotent() throws {
         let schema = Schema([
@@ -4805,4 +5644,12 @@ private final class PostOpenMaintenanceRunnerRecorder: @unchecked Sendable {
     var immediateRuns: [[PersistentStorePostOpenMaintenanceWork]] = []
     var deferredRuns: [[PersistentStorePostOpenMaintenanceWork]] = []
     var scheduledDeferredWork: [@Sendable () -> Void] = []
+}
+
+final class WeakTestReference<Value: AnyObject> {
+    weak var value: Value?
+
+    init(_ value: Value?) {
+        self.value = value
+    }
 }

@@ -2,6 +2,26 @@
 
 > Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
 
+## Unreleased
+
+## 2026-08-11 - v3.1.1 smoother Canvas update
+
+### Improved
+- Zooming, background panning, moving cards, resizing cards, box selection, and editing connections now stay responsive during continuous gestures.
+- Connection glow and full card detail remain visible while moving around the Canvas. The update improves responsiveness without replacing the Canvas with a lower-quality preview.
+- Small Canvases benefit as well as large ones. Repeated work that used to happen on every pointer or trackpad event is now reused or scheduled with the display.
+
+### Fixed
+- Fixed short pauses caused by rebuilding stable cards and connections during every pan, zoom, or drag update.
+- Fixed connection hit areas and control points becoming inconsistent while the Canvas was temporarily zoomed or moved.
+- Fixed extreme zoom changes creating oversized drawing surfaces or making connection lines, arrows, and resize handles jump in size when the gesture ended.
+- Fixed delayed scroll-zoom work from an older gesture interfering with a newer gesture.
+
+### Quality and release
+- The final gesture position and zoom are still saved exactly when interaction ends.
+- Canvas behavior passed 335 focused tests. The full app passed 696 Debug tests and 696 Release tests with no failures, followed by a successful Release build.
+- The v3.1.1 GitHub package is ad-hoc signed and is not Apple-notarized.
+
 ## 2026-08-11 - v3.1.0 private manual Canvas release
 
 ### New and improved

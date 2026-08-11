@@ -242,7 +242,7 @@ final class S0SurfaceAbsenceTests: XCTestCase {
             "toggleRightRailPanel(.inspector)",
             "canvasInspectorRail",
             "let allResources: [ResourcePinModel]",
-            "Dictionary(allResources.map",
+            "snapshot.resource(for: node)",
             "resources: allResources"
         ] {
             assertSourceContains(rule: rule, token: token, in: canvas)
@@ -792,7 +792,7 @@ final class S0SurfaceAbsenceTests: XCTestCase {
         }
         for token in [
             "case inspector", "toggleRightRailPanel(.inspector)", "canvasInspectorRail",
-            "let allResources: [ResourcePinModel]", "Dictionary(allResources.map", "resources: allResources",
+            "let allResources: [ResourcePinModel]", "snapshot.resource(for: node)", "resources: allResources",
             "private func beginNodeDrag(for node: CanvasNodeModel)", "private func resizeNode(_ node: CanvasNodeModel",
             "private func connectByTap(_ node: CanvasNodeModel)", "private func addNoteNode()",
             "private func createEdge(from sourceId: String, to targetId: String)",

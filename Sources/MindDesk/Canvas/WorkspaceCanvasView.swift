@@ -103,19 +103,6 @@ enum WorkspaceCanvasForceRetention {
     }
 }
 
-private struct CanvasEdgeSegment: Identifiable {
-    let id: String
-    let start: CGPoint
-    let end: CGPoint
-    let startDirection: CGPoint
-    let endDirection: CGPoint
-    let control: CGPoint?
-    let routePoints: [CGPoint]
-    let isControlPointLocked: Bool
-    let sourceArrowRaw: String
-    let targetArrowRaw: String
-}
-
 private struct CanvasNodeDeletionSnapshot {
     let id: String
     let canvasId: String
@@ -798,7 +785,7 @@ enum CanvasGlowTheme: String, CaseIterable, Identifiable {
     }
 }
 
-private enum CanvasNodeMetrics {
+enum CanvasNodeMetrics {
     static let cardWidth = 214.0
     static let cardHeight = 132.0
     static let cardMinWidth = 180.0
@@ -824,143 +811,6 @@ private enum CanvasNodeMetrics {
     static let scrollZoomCommitZoomEpsilon = 0.001
     static let scrollZoomCommitViewportEpsilon = 0.5
     static let textEditCommitDelayNanos: UInt64 = 350_000_000
-}
-
-private struct CanvasRenderSnapshot {
-    let workflowNodes: [CanvasNodeModel]
-    let nodeById: [String: CanvasNodeModel]
-    let resourcesById: [String: ResourcePinModel]
-    let snippetsById: [String: SnippetModel]
-    let visibleEdges: [CanvasEdgeModel]
-    let edgeById: [String: CanvasEdgeModel]
-    let frameNodes: [CanvasNodeModel]
-    let cardNodes: [CanvasNodeModel]
-
-    init(nodes: [CanvasNodeModel], resources: [ResourcePinModel], snippets: [SnippetModel], edges: [CanvasEdgeModel]) {
-        let uniqueNodes = Self.uniqueByID(nodes, id: \.id)
-        let nodeLookup = Dictionary(uniqueNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        workflowNodes = uniqueNodes
-        nodeById = nodeLookup
-        resourcesById = Dictionary(resources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        snippetsById = Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let validEdges = Self.uniqueByID(
-            edges.filter { nodeLookup[$0.sourceNodeId] != nil && nodeLookup[$0.targetNodeId] != nil },
-            id: \.id
-        )
-        visibleEdges = validEdges
-        edgeById = Dictionary(validEdges.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        frameNodes = uniqueNodes.filter { $0.nodeType == .groupFrame }.sorted { $0.updatedAt < $1.updatedAt }
-        cardNodes = uniqueNodes.filter { $0.nodeType != .groupFrame }.sorted { $0.zIndex < $1.zIndex }
-    }
-
-    private static func uniqueByID<T>(_ values: [T], id: (T) -> String) -> [T] {
-        var seen: Set<String> = []
-        return values.filter { seen.insert(id($0)).inserted }
-    }
-
-    func resource(for node: CanvasNodeModel) -> ResourcePinModel? {
-        guard node.objectType == "resourcePin", let objectId = node.objectId else { return nil }
-        return resourcesById[objectId]
-    }
-
-    func snippet(for node: CanvasNodeModel) -> SnippetModel? {
-        guard node.objectType == "snippet", let objectId = node.objectId else { return nil }
-        return snippetsById[objectId]
-    }
-
-    func edgeSegments(
-        targetClearance: Double,
-        routingClearance: Double,
-        usesObstacleRouting: Bool = true,
-        routingObstacleNodes: [CanvasNodeModel]? = nil,
-        rectFor: (CanvasNodeModel) -> CanvasFrameRect,
-        controlPointFor: (CanvasEdgeModel) -> CGPoint?,
-        candidateEdgeIDs: [String]? = nil,
-        shouldVisitEdge: ((CanvasEdgeModel) -> Bool)? = nil,
-        shouldIncludeEdge: ((CanvasEdgeModel, CanvasFrameRect, CanvasFrameRect, CGPoint?) -> Bool)? = nil
-    ) -> [CanvasEdgeSegment] {
-        var nodeRects: [String: CanvasFrameRect] = [:]
-        func cachedRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-            if let rect = nodeRects[node.id] {
-                return rect
-            }
-            let rect = rectFor(node)
-            nodeRects[node.id] = rect
-            return rect
-        }
-
-        let obstacleRects: [(id: String, rect: CanvasFrameRect)] = usesObstacleRouting
-            ? (routingObstacleNodes ?? cardNodes).compactMap { node -> (id: String, rect: CanvasFrameRect)? in
-                guard node.nodeType != .groupFrame else { return nil }
-                return (id: node.id, rect: cachedRect(for: node))
-            }
-            : []
-        let segmentEdges = candidateEdgeIDs.map { ids in
-            ids.compactMap { edgeById[$0] }
-        } ?? visibleEdges
-        return segmentEdges.compactMap { edge -> CanvasEdgeSegment? in
-            if let shouldVisitEdge, !shouldVisitEdge(edge) {
-                return nil
-            }
-            guard let source = nodeById[edge.sourceNodeId],
-                  let target = nodeById[edge.targetNodeId] else {
-                return nil
-            }
-            let sourceRect = cachedRect(for: source)
-            let targetRect = cachedRect(for: target)
-            let control = controlPointFor(edge)
-            if let shouldIncludeEdge, !shouldIncludeEdge(edge, sourceRect, targetRect, control) {
-                return nil
-            }
-            let controlPoint = control.map { CanvasEdgePoint(x: $0.x, y: $0.y) }
-            let anchors = CanvasEdgeAnchoring.anchors(
-                source: sourceRect,
-                target: targetRect,
-                control: controlPoint,
-                targetClearance: targetClearance
-            )
-            let routePoints: [CanvasEdgePoint]
-            if usesObstacleRouting {
-                let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
-                    obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
-                }
-                if let controlPoint {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        waypoints: [controlPoint],
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                } else {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                }
-            } else {
-                routePoints = []
-            }
-            return CanvasEdgeSegment(
-                id: edge.id,
-                start: CGPoint(x: anchors.start.x, y: anchors.start.y),
-                end: CGPoint(x: anchors.end.x, y: anchors.end.y),
-                startDirection: CGPoint(x: anchors.startDirection.x, y: anchors.startDirection.y),
-                endDirection: CGPoint(x: anchors.endDirection.x, y: anchors.endDirection.y),
-                control: control,
-                routePoints: routePoints.map { CGPoint(x: $0.x, y: $0.y) },
-                isControlPointLocked: CanvasEdgeStyleOptions.isControlPointLocked(edge.style),
-                sourceArrowRaw: edge.sourceArrowRaw,
-                targetArrowRaw: edge.targetArrowRaw
-            )
-        }
-    }
 }
 
 private struct CanvasNodeDragSnapshot {
@@ -992,6 +842,7 @@ struct WorkspaceCanvasView: View {
     @AppStorage(AppPreferenceKeys.canvasAnimationFrameRate) private var canvasAnimationFrameRateRaw = AppPreferenceDefaults.canvasAnimationFrameRate
     @AppStorage(AppPreferenceKeys.canvasZoomCommitCadence) private var canvasZoomCommitCadenceRaw = AppPreferenceDefaults.canvasZoomCommitCadence
     @ObservedObject var workspaceWindowScopeController: WorkspaceWindowScopeController
+    @StateObject private var interactionFrameDriver = CanvasInteractionFrameDriver()
     let canvasScope: WorkspaceCanvasScopeIdentity
     let nodeOwnershipReader: WorkspaceCanvasNodeOwnershipReader
     let canvas: CanvasModel
@@ -1042,9 +893,8 @@ struct WorkspaceCanvasView: View {
     @State private var frameDragControlPointEdgeIDs: Set<String> = []
     @State private var frameDragControlPointSnapshotsByID: [String: CanvasEdgeControlPointSnapshot] = [:]
     @State private var canvasSurfaceSize: CGSize = .zero
-    @State private var edgeViewportIndexCache = CanvasEdgeViewportIndexCache()
+    @State private var worldDerivedCache = CanvasWorldDerivedCache()
     @State private var webCardDraft = ""
-    @State private var pendingScrollZoomCommit: Task<Void, Never>?
     @State private var pendingNodeTextCommitTasks: [String: Task<Void, Never>] = [:]
     @Environment(\.undoManager) private var undoManager
 
@@ -1073,6 +923,33 @@ struct WorkspaceCanvasView: View {
         canvas.viewportY + Double(transientViewportOffset.height) + Double(transientZoomViewportOffset.height)
     }
 
+    private var worldRenderZoom: Double {
+        CanvasZoomScale.clamped(
+            canvas.zoom,
+            minimum: CanvasNodeMetrics.zoomMinimum,
+            maximum: CanvasNodeMetrics.zoomMaximum
+        )
+    }
+
+    private var worldRenderViewportX: Double {
+        canvas.viewportX
+    }
+
+    private var worldRenderViewportY: Double {
+        canvas.viewportY
+    }
+
+    private var liveWorldTransform: CanvasViewportVisualTransform {
+        CanvasLiveViewportTransformPolicy.transform(
+            baseZoom: worldRenderZoom,
+            baseViewportX: worldRenderViewportX,
+            baseViewportY: worldRenderViewportY,
+            liveZoom: effectiveZoom,
+            liveViewportX: effectiveViewportX,
+            liveViewportY: effectiveViewportY
+        )
+    }
+
     private var workflowNodes: [CanvasNodeModel] {
         nodes
     }
@@ -1097,15 +974,15 @@ struct WorkspaceCanvasView: View {
     }
 
     private var workflowNodeById: [String: CanvasNodeModel] {
-        Dictionary(workflowNodes.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.nodeById
     }
 
     private var resourcesById: [String: ResourcePinModel] {
-        Dictionary(allResources.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.resourcesById
     }
 
     private var snippetsById: [String: SnippetModel] {
-        Dictionary(snippets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        cachedRenderSnapshot.snippetsById
     }
 
     private var workspacesById: [String: WorkspaceModel] {
@@ -1113,8 +990,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private var visibleEdges: [CanvasEdgeModel] {
-        let nodeIDs = Set(workflowNodes.map(\.id))
-        return edges.filter { nodeIDs.contains($0.sourceNodeId) && nodeIDs.contains($0.targetNodeId) }
+        cachedRenderSnapshot.visibleEdges
     }
 
     private var glowTheme: CanvasGlowTheme {
@@ -1165,12 +1041,19 @@ struct WorkspaceCanvasView: View {
         )
     }
 
-    private var renderSnapshot: CanvasRenderSnapshot {
-        CanvasRenderSnapshot(nodes: workflowNodes, resources: allResources, snippets: snippets, edges: edges)
+    private var cachedRenderSnapshot: CanvasRenderSnapshot {
+        worldDerivedCache.state(
+            nodes: workflowNodes,
+            resources: allResources,
+            snippets: snippets,
+            edges: edges
+        ).snapshot
     }
 
     private var nodeInteractionHitPadding: CGFloat {
-        CanvasNodeInteractionHitPolicy.contentShapePadding(hitSlop: CanvasNodeMetrics.interactionHitSlop)
+        CGFloat(worldScreenMetric(
+            Double(CanvasNodeInteractionHitPolicy.contentShapePadding(hitSlop: CanvasNodeMetrics.interactionHitSlop))
+        ))
     }
 
     private var globalResources: [ResourcePinModel] {
@@ -1283,6 +1166,7 @@ struct WorkspaceCanvasView: View {
             .onDisappear {
                 flushPendingScrollZoomCommit()
                 flushPendingNodeTextCommits()
+                interactionFrameDriver.cancelAll()
             }
             .onChange(of: canvasDefaultZoomPercent) { _, _ in
                 onStatus("Canvas display baseline updated")
@@ -1381,7 +1265,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func resetTransientCanvasInteractionState() {
-        cancelPendingScrollZoomCommit()
+        interactionFrameDriver.cancelAll()
         flushPendingNodeTextCommits()
         selectedNodeIDs.removeAll()
         selectedEdgeIDs.removeAll()
@@ -1799,9 +1683,21 @@ struct WorkspaceCanvasView: View {
 
     private var canvasSurface: some View {
         GeometryReader { proxy in
-            let snapshot = renderSnapshot
-            let nodeVisibleRect = visibleScreenRect(for: proxy.size)
-            let edgeVisibleRect = edgeVisibleScreenRect(for: proxy.size)
+            let worldState = worldDerivedCache.state(
+                nodes: workflowNodes,
+                resources: allResources,
+                snippets: snippets,
+                edges: edges
+            )
+            let snapshot = worldState.snapshot
+            let worldTransform = liveWorldTransform
+            let nodeVisibleRect = worldVisibleScreenRect(for: proxy.size)
+            let edgeVisibleRect = worldEdgeVisibleScreenRect(for: proxy.size)
+            let edgeRenderRect = worldEdgeRenderRect(for: edgeVisibleRect)
+            let edgeScreenMetrics = worldEdgeScreenMetrics
+            let edgeRasterPlan = worldEdgeRasterPlan(for: edgeRenderRect)
+            let edgeControlMetrics = worldEdgeControlScreenMetrics
+            let worldControlPoints = worldTransientEdgeControlPoints
             let visibleFrameNodes = snapshot.frameNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
             let visibleCardNodes = snapshot.cardNodes.filter { shouldRenderNode($0, in: nodeVisibleRect) }
             let visibleNodeCount = visibleFrameNodes.count + visibleCardNodes.count
@@ -1810,15 +1706,11 @@ struct WorkspaceCanvasView: View {
                 .union(resizingNodeId.map { [$0] } ?? [])
             let transientControlEdgeIDs = Set(transientEdgeControlPoints.keys).union(edgeControlDragStart.keys)
             let isGeometryEdgeCulled = !movingNodeIDs.isEmpty || !edgeControlDragStart.isEmpty
-            let edgeIndexRecords = snapshot.visibleEdges.map(canvasEdgeIndexRecord(for:))
-            let edgeIndex = edgeViewportIndexCache.index(
-                nodes: snapshot.workflowNodes.map(canvasEdgeIndexRect(for:)),
-                edges: edgeIndexRecords
-            )
+            let edgeIndex = worldState.edgeIndex
             let edgeVisibilityPlan = CanvasEdgeVisibilityPlanner.plan(
                 edgeIndex: edgeIndex,
-                cacheDiagnostics: edgeViewportIndexCache.diagnostics,
-                viewport: canvasViewportRectRecord(for: edgeVisibleRect),
+                cacheDiagnostics: worldState.edgeIndexDiagnostics,
+                viewport: worldCanvasViewportRectRecord(for: edgeVisibleRect),
                 overscan: canvasEdgeVisibilityOverscan,
                 selectedEdgeIDs: selectedEdgeIDs,
                 transientControlEdgeIDs: transientControlEdgeIDs,
@@ -1881,11 +1773,11 @@ struct WorkspaceCanvasView: View {
                 )
             }
             let unroutedEdgeSegments = snapshot.edgeSegments(
-                targetClearance: currentEdgeTargetClearance,
-                routingClearance: CanvasNodeMetrics.edgeRoutingClearance,
+                targetClearance: worldEdgeTargetClearance,
+                routingClearance: worldEdgeRoutingClearance,
                 usesObstacleRouting: false,
-                rectFor: screenRect(for:),
-                controlPointFor: resolvedScreenControlPoint(for:),
+                rectFor: worldScreenRect(for:),
+                controlPointFor: resolvedWorldControlPoint(for:),
                 candidateEdgeIDs: candidateEdgeIDs,
                 shouldVisitEdge: shouldVisitCanvasEdge,
                 shouldIncludeEdge: shouldIncludeCanvasEdge
@@ -1899,12 +1791,12 @@ struct WorkspaceCanvasView: View {
                     isInteracting: isCanvasInteracting
                 )
             let edgeSegments = usesObstacleRouting ? snapshot.edgeSegments(
-                targetClearance: currentEdgeTargetClearance,
-                routingClearance: CanvasNodeMetrics.edgeRoutingClearance,
+                targetClearance: worldEdgeTargetClearance,
+                routingClearance: worldEdgeRoutingClearance,
                 usesObstacleRouting: true,
                 routingObstacleNodes: visibleCardNodes,
-                rectFor: screenRect(for:),
-                controlPointFor: resolvedScreenControlPoint(for:),
+                rectFor: worldScreenRect(for:),
+                controlPointFor: resolvedWorldControlPoint(for:),
                 candidateEdgeIDs: candidateEdgeIDs,
                 shouldVisitEdge: shouldVisitCanvasEdge,
                 shouldIncludeEdge: shouldIncludeCanvasEdge
@@ -1926,7 +1818,9 @@ struct WorkspaceCanvasView: View {
             let edgeAnimationMinimumInterval = edgeAnimationTimelinePlan.minimumInterval
             let animateVisibleEdges = edgeAnimationTimelinePlan.shouldAnimate
             ZStack(alignment: .topLeading) {
-                    canvasBackground
+                canvasBackground
+
+                ZStack(alignment: .topLeading) {
 
                     ForEach(visibleFrameNodes) { node in
                         frameNodeView(
@@ -1938,7 +1832,10 @@ struct WorkspaceCanvasView: View {
                 edgeStrokeLayer(
                     edgeSegments,
                     animationMinimumInterval: edgeAnimationMinimumInterval,
-                    canvasSize: proxy.size
+                    renderRect: edgeRenderRect,
+                    transientControlPoints: worldControlPoints,
+                    screenMetrics: edgeScreenMetrics,
+                    rasterPlan: edgeRasterPlan
                 )
                     .zIndex(CanvasEdgeLayerZIndexPolicy.strokeLayer)
 
@@ -1954,12 +1851,14 @@ struct WorkspaceCanvasView: View {
 
                 CanvasEdgeArrowHeadLayer(
                     segments: edgeSegments,
-                    transientControlPoints: transientEdgeControlPoints,
+                    transientControlPoints: worldControlPoints,
                     selectedEdgeIDs: selectedEdgeIDs,
                     theme: glowTheme,
                     isAnimated: animateVisibleEdges,
-                    arrowScale: zoom,
-                    canvasSize: proxy.size
+                    arrowLength: edgeScreenMetrics.arrowLength,
+                    arrowHalfWidth: edgeScreenMetrics.arrowHalfWidth,
+                    renderRect: edgeRenderRect,
+                    rasterPlan: edgeRasterPlan
                 )
                     .zIndex(CanvasEdgeLayerZIndexPolicy.arrowHeadLayer)
 
@@ -1973,9 +1872,13 @@ struct WorkspaceCanvasView: View {
                         EdgeControlHandle(
                             isCustom: (transientEdgeControlPoints[segment.id] ?? segment.control) != nil,
                             isLocked: segment.control != nil && segment.isControlPointLocked,
-                            zoom: zoom
+                            diameter: edgeControlMetrics.diameter,
+                            strokeWidth: edgeControlMetrics.strokeWidth,
+                            iconSize: edgeControlMetrics.iconSize,
+                            shadowRadius: edgeControlMetrics.shadowRadius,
+                            shadowY: edgeControlMetrics.shadowY
                         )
-                            .position(edgeControlPoint(for: segment))
+                            .position(worldEdgeControlPoint(for: segment))
                             .highPriorityGesture(edgeControlDragGesture(for: segment))
                             .contextMenu {
                                 if segment.control == nil {
@@ -2011,6 +1914,13 @@ struct WorkspaceCanvasView: View {
                             .zIndex(3.1)
                     }
                 }
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+                .scaleEffect(CGFloat(worldTransform.scale), anchor: .topLeading)
+                .offset(
+                    x: CGFloat(worldTransform.translationX),
+                    y: CGFloat(worldTransform.translationY)
+                )
 
                 if let selectionRect {
                     Rectangle()
@@ -2030,9 +1940,20 @@ struct WorkspaceCanvasView: View {
                         .zIndex(3.6)
                 }
             }
+            .coordinateSpace(name: "workspace-canvas-surface")
             .overlay {
                 CanvasScrollWheelMonitor { deltaY, location in
-                    zoomFromScroll(deltaY: deltaY, location: location)
+                    interactionFrameDriver.submitScroll(
+                        CanvasScrollFrameSample(
+                            deltaY: deltaY,
+                            location: CanvasEdgePoint(x: Double(location.x), y: Double(location.y))
+                        )
+                    ) { sample in
+                        zoomFromScroll(
+                            deltaY: sample.deltaY,
+                            location: CGPoint(x: sample.location.x, y: sample.location.y)
+                        )
+                    }
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -2052,38 +1973,15 @@ struct WorkspaceCanvasView: View {
             .onDeleteCommand(perform: handleDeleteCommand)
             .simultaneousGesture(MagnifyGesture().onChanged { value in
                 let screenAnchor = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                if zoomStart == nil {
-                    flushPendingScrollZoomCommit()
+                interactionFrameDriver.submitLatest(channel: .magnify) {
+                    updateMagnification(value, screenAnchor: screenAnchor)
                 }
-                let start = zoomStart ?? effectiveZoom
-                if zoomStart == nil {
-                    zoomStart = start
-                    magnifyAnchor = CanvasViewportProjection.canvasPoint(
-                        screenX: Double(screenAnchor.x),
-                        screenY: Double(screenAnchor.y),
-                        zoom: start,
-                        viewportX: effectiveViewportX,
-                        viewportY: effectiveViewportY
-                    )
+            }.onEnded { value in
+                let screenAnchor = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                interactionFrameDriver.submitLatest(channel: .magnify) {
+                    updateMagnification(value, screenAnchor: screenAnchor)
                 }
-                if let magnifyAnchor {
-                    let update = CanvasPinchZoomPolicy.update(
-                        startZoom: start,
-                        magnification: Double(value.magnification),
-                        screenX: Double(screenAnchor.x),
-                        screenY: Double(screenAnchor.y),
-                        anchorCanvasX: magnifyAnchor.x,
-                        anchorCanvasY: magnifyAnchor.y,
-                        minimumZoom: CanvasNodeMetrics.zoomMinimum,
-                        maximumZoom: CanvasNodeMetrics.zoomMaximum
-                    )
-                    transientZoom = update.zoom
-                    transientZoomViewportOffset = CGSize(
-                        width: update.viewportX - canvas.viewportX,
-                        height: update.viewportY - canvas.viewportY
-                    )
-                }
-            }.onEnded { _ in
+                interactionFrameDriver.flush(.magnify)
                 if let transientZoom {
                     persistCanvasViewport(
                         zoom: transientZoom,
@@ -2162,7 +2060,7 @@ struct WorkspaceCanvasView: View {
         let scaledLayout = CanvasNodeScaledContentLayoutPolicy.layout(
             width: size.width,
             height: size.height,
-            zoom: effectiveZoom
+            zoom: worldRenderZoom
         )
 
         return CanvasFrameCard(
@@ -2184,7 +2082,7 @@ struct WorkspaceCanvasView: View {
         .frame(width: scaledLayout.layoutWidth, height: scaledLayout.layoutHeight)
         .padding(nodeInteractionHitPadding)
         .contentShape(.interaction, Rectangle())
-        .position(screenPoint(for: node))
+        .position(worldScreenPoint(for: node))
         .highPriorityGesture(
             dragGesture(for: node),
             including: CanvasCardChromeButtonInteractionPolicy.parentDragGestureMask
@@ -2221,7 +2119,7 @@ struct WorkspaceCanvasView: View {
         let scaledLayout = CanvasNodeScaledContentLayoutPolicy.layout(
             width: size.width,
             height: size.height,
-            zoom: effectiveZoom
+            zoom: worldRenderZoom
         )
 
         return CanvasNodeCard(
@@ -2249,7 +2147,7 @@ struct WorkspaceCanvasView: View {
             .frame(width: scaledLayout.layoutWidth, height: scaledLayout.layoutHeight)
             .padding(nodeInteractionHitPadding)
             .contentShape(.interaction, Rectangle())
-            .position(screenPoint(for: node))
+            .position(worldScreenPoint(for: node))
             .highPriorityGesture(
                 dragGesture(for: node),
                 including: CanvasCardChromeButtonInteractionPolicy.parentDragGestureMask
@@ -2267,13 +2165,16 @@ struct WorkspaceCanvasView: View {
     private func edgeStrokeLayer(
         _ segments: [CanvasEdgeSegment],
         animationMinimumInterval: Double?,
-        canvasSize: CGSize
+        renderRect: CGRect,
+        transientControlPoints: [String: CGPoint],
+        screenMetrics: CanvasEdgeWorldScreenMetrics,
+        rasterPlan: CanvasWorldRasterPlan
     ) -> some View {
         if let animationMinimumInterval {
             TimelineView(.animation(minimumInterval: animationMinimumInterval)) { timeline in
                 CanvasEdgeStrokeLayer(
                     segments: segments,
-                    transientControlPoints: transientEdgeControlPoints,
+                    transientControlPoints: transientControlPoints,
                     selectedEdgeIDs: selectedEdgeIDs,
                     theme: glowTheme,
                     dashPhase: CanvasEdgeFlowPhase.dashPhase(
@@ -2281,19 +2182,21 @@ struct WorkspaceCanvasView: View {
                         duration: 1.6,
                         cycleLength: 172
                     ),
-                    lineScale: zoom,
-                    canvasSize: canvasSize
+                    screenMetrics: screenMetrics,
+                    renderRect: renderRect,
+                    rasterPlan: rasterPlan
                 )
             }
         } else {
             CanvasEdgeStrokeLayer(
                 segments: segments,
-                transientControlPoints: transientEdgeControlPoints,
+                transientControlPoints: transientControlPoints,
                 selectedEdgeIDs: selectedEdgeIDs,
                 theme: glowTheme,
                 dashPhase: nil,
-                lineScale: zoom,
-                canvasSize: canvasSize
+                screenMetrics: screenMetrics,
+                renderRect: renderRect,
+                rasterPlan: rasterPlan
             )
         }
     }
@@ -2320,6 +2223,148 @@ struct WorkspaceCanvasView: View {
         )
     }
 
+    private func worldVisibleScreenRect(for size: CGSize) -> CGRect {
+        worldRect(fromLiveScreenRect: visibleScreenRect(for: size), id: "node-visible") ?? .zero
+    }
+
+    private func worldEdgeVisibleScreenRect(for size: CGSize) -> CGRect {
+        worldRect(fromLiveScreenRect: edgeVisibleScreenRect(for: size), id: "edge-visible") ?? .zero
+    }
+
+    private func worldScreenMetric(_ targetScreenValue: Double, liveWorldScale: Double? = nil) -> Double {
+        CanvasLiveWorldMetricPolicy.worldValue(
+            targetScreenValue: targetScreenValue,
+            liveWorldScale: liveWorldScale ?? liveWorldTransform.scale
+        ) ?? 0
+    }
+
+    private var worldEdgeScreenMetrics: CanvasEdgeWorldScreenMetrics {
+        let scale = liveWorldTransform.scale
+        let baseStrokeWidth = CanvasEdgeVisualMetrics.strokeWidth(
+            zoom: effectiveZoom,
+            baseWidth: 1.7,
+            minimumWidth: 0.9,
+            maximumWidth: 2
+        )
+        let selectedStrokeWidth = CanvasEdgeVisualMetrics.strokeWidth(
+            zoom: effectiveZoom,
+            baseWidth: 3.2,
+            minimumWidth: 1.8,
+            maximumWidth: 3.2
+        )
+        return CanvasEdgeWorldScreenMetrics(
+            baseStrokeWidth: worldScreenMetric(baseStrokeWidth, liveWorldScale: scale),
+            selectedStrokeWidth: worldScreenMetric(selectedStrokeWidth, liveWorldScale: scale),
+            flowStrokeWidth: worldScreenMetric(
+                CanvasEdgeFlowStrokePolicy.strokeWidth(baseStrokeWidth: baseStrokeWidth),
+                liveWorldScale: scale
+            ),
+            dashOnLength: worldScreenMetric(max(8, 24 * effectiveZoom), liveWorldScale: scale),
+            dashOffLength: worldScreenMetric(max(36, 148 * effectiveZoom), liveWorldScale: scale),
+            dashPhaseScale: worldScreenMetric(effectiveZoom, liveWorldScale: scale),
+            arrowLength: worldScreenMetric(
+                CanvasEdgeVisualMetrics.arrowLength(
+                    zoom: effectiveZoom,
+                    baseLength: 13,
+                    minimumLength: 6,
+                    maximumLength: 16
+                ),
+                liveWorldScale: scale
+            ),
+            arrowHalfWidth: worldScreenMetric(
+                CanvasEdgeVisualMetrics.arrowLength(
+                    zoom: effectiveZoom,
+                    baseLength: 5.5,
+                    minimumLength: 2.5,
+                    maximumLength: 7
+                ),
+                liveWorldScale: scale
+            )
+        )
+    }
+
+    private var worldEdgeControlScreenMetrics: CanvasEdgeControlWorldScreenMetrics {
+        let scale = liveWorldTransform.scale
+        return CanvasEdgeControlWorldScreenMetrics(
+            diameter: worldScreenMetric(
+                CanvasEdgeControlHandleMetrics.diameter(zoom: effectiveZoom, baseDiameter: 13),
+                liveWorldScale: scale
+            ),
+            strokeWidth: worldScreenMetric(
+                CanvasEdgeVisualMetrics.strokeWidth(zoom: effectiveZoom, baseWidth: 2, minimumWidth: 0.9),
+                liveWorldScale: scale
+            ),
+            iconSize: worldScreenMetric(max(6, 5.5 * effectiveZoom), liveWorldScale: scale),
+            shadowRadius: worldScreenMetric(2 * effectiveZoom, liveWorldScale: scale),
+            shadowY: worldScreenMetric(effectiveZoom, liveWorldScale: scale)
+        )
+    }
+
+    private func worldEdgeRasterPlan(for renderRect: CGRect) -> CanvasWorldRasterPlan {
+        CanvasLiveWorldMetricPolicy.rasterPlan(
+            renderRect: CanvasFrameRect(
+                id: "edge-raster",
+                x: Double(renderRect.minX),
+                y: Double(renderRect.minY),
+                width: Double(renderRect.width),
+                height: Double(renderRect.height)
+            ),
+            liveWorldScale: liveWorldTransform.scale
+        ) ?? CanvasWorldRasterPlan(
+            rasterScale: 1,
+            backingWidth: 0,
+            backingHeight: 0,
+            worldPresentationScale: 1
+        )
+    }
+
+    private func worldEdgeRenderRect(for visibleRect: CGRect) -> CGRect {
+        guard visibleRect.width.isFinite,
+              visibleRect.height.isFinite,
+              !visibleRect.isNull,
+              !visibleRect.isInfinite else {
+            return .zero
+        }
+        let strokeGuard = CGFloat(worldScreenMetric(max(32, CanvasNodeMetrics.interactionHitSlop * 2)))
+        return visibleRect.insetBy(dx: -strokeGuard, dy: -strokeGuard)
+    }
+
+    private func worldPoint(fromLiveScreenPoint point: CGPoint) -> CGPoint? {
+        guard let mapped = CanvasLiveViewportTransformPolicy.inverse(
+            point: CanvasEdgePoint(x: Double(point.x), y: Double(point.y)),
+            using: liveWorldTransform
+        ) else {
+            return nil
+        }
+        return CGPoint(x: mapped.x, y: mapped.y)
+    }
+
+    private func liveScreenPoint(fromWorldPoint point: CGPoint) -> CGPoint? {
+        guard let mapped = CanvasLiveViewportTransformPolicy.forward(
+            point: CanvasEdgePoint(x: Double(point.x), y: Double(point.y)),
+            using: liveWorldTransform
+        ) else {
+            return nil
+        }
+        return CGPoint(x: mapped.x, y: mapped.y)
+    }
+
+    private func worldRect(fromLiveScreenRect rect: CGRect, id: String) -> CGRect? {
+        guard let mapped = CanvasLiveViewportTransformPolicy.inverse(
+            rect: CanvasFrameRect(
+                id: id,
+                x: Double(rect.minX),
+                y: Double(rect.minY),
+                width: Double(rect.width),
+                height: Double(rect.height)
+            ),
+            using: liveWorldTransform
+        ) else {
+            return nil
+        }
+        return CGRect(x: mapped.x, y: mapped.y, width: mapped.width, height: mapped.height)
+    }
+
     private var nodeOverscanPixels: Double {
         CanvasViewportVisibilityPolicy.nodeOverscanPixels(
             zoom: effectiveZoom,
@@ -2328,9 +2373,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func isNodeVisible(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
-        let rect = screenRect(for: node)
+        let rect = worldScreenRect(for: node)
+        let hitSlop = CGFloat(worldScreenMetric(CanvasNodeMetrics.interactionHitSlop))
         let nodeRect = CGRect(x: rect.x, y: rect.y, width: rect.width, height: rect.height)
-            .insetBy(dx: -CanvasNodeMetrics.interactionHitSlop, dy: -CanvasNodeMetrics.interactionHitSlop)
+            .insetBy(dx: -hitSlop, dy: -hitSlop)
         return visibleRect.intersects(nodeRect)
     }
 
@@ -2340,9 +2386,8 @@ struct WorkspaceCanvasView: View {
         let bounds = points.reduce(CGRect(origin: first, size: .zero)) { partial, point in
             partial.union(CGRect(origin: point, size: .zero))
         }
-        return visibleRect.intersects(
-            bounds.insetBy(dx: -CanvasNodeMetrics.interactionHitSlop, dy: -CanvasNodeMetrics.interactionHitSlop)
-        )
+        let hitSlop = CGFloat(worldScreenMetric(CanvasNodeMetrics.interactionHitSlop))
+        return visibleRect.intersects(bounds.insetBy(dx: -hitSlop, dy: -hitSlop))
     }
 
     private func isPotentialEdgeVisible(sourceRect: CanvasFrameRect, targetRect: CanvasFrameRect, control: CGPoint?, in visibleRect: CGRect) -> Bool {
@@ -2352,7 +2397,7 @@ struct WorkspaceCanvasView: View {
         if let control {
             bounds = bounds.union(CGRect(origin: control, size: .zero))
         }
-        let routingOverscan = CGFloat(max(CanvasNodeMetrics.viewportOverscan * 2, 600))
+        let routingOverscan = CGFloat(worldScreenMetric(max(CanvasNodeMetrics.viewportOverscan * 2, 600)))
         return visibleRect.intersects(bounds.insetBy(dx: -routingOverscan, dy: -routingOverscan))
     }
 
@@ -2364,20 +2409,20 @@ struct WorkspaceCanvasView: View {
         edgeVisibilityOverscan / CanvasZoomScale.safeZoom(effectiveZoom, minimum: 0.01)
     }
 
-    private func canvasViewportRectRecord(for rect: CGRect) -> CanvasFrameRect {
+    private func worldCanvasViewportRectRecord(for rect: CGRect) -> CanvasFrameRect {
         let topLeft = CanvasViewportProjection.canvasPoint(
             screenX: Double(rect.minX),
             screenY: Double(rect.minY),
-            zoom: effectiveZoom,
-            viewportX: effectiveViewportX,
-            viewportY: effectiveViewportY
+            zoom: worldRenderZoom,
+            viewportX: worldRenderViewportX,
+            viewportY: worldRenderViewportY
         )
         let bottomRight = CanvasViewportProjection.canvasPoint(
             screenX: Double(rect.maxX),
             screenY: Double(rect.maxY),
-            zoom: effectiveZoom,
-            viewportX: effectiveViewportX,
-            viewportY: effectiveViewportY
+            zoom: worldRenderZoom,
+            viewportX: worldRenderViewportX,
+            viewportY: worldRenderViewportY
         )
         return CanvasFrameRect(
             id: "edge-viewport",
@@ -2385,31 +2430,6 @@ struct WorkspaceCanvasView: View {
             y: min(topLeft.y, bottomRight.y),
             width: abs(bottomRight.x - topLeft.x),
             height: abs(bottomRight.y - topLeft.y)
-        )
-    }
-
-    private func canvasEdgeIndexRect(for node: CanvasNodeModel) -> CanvasFrameRect {
-        let size = committedNodeSize(for: node)
-        return CanvasFrameRect(
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            width: size.width,
-            height: size.height
-        )
-    }
-
-    private func canvasEdgeIndexRecord(for edge: CanvasEdgeModel) -> CanvasEdgeViewportRecord {
-        let controlPoint: CanvasEdgePoint? = if let x = edge.controlPointX, let y = edge.controlPointY {
-            CanvasEdgePoint(x: x, y: y)
-        } else {
-            nil
-        }
-        return CanvasEdgeViewportRecord(
-            id: edge.id,
-            sourceNodeID: edge.sourceNodeId,
-            targetNodeID: edge.targetNodeId,
-            controlPoint: controlPoint
         )
     }
 
@@ -2426,13 +2446,21 @@ struct WorkspaceCanvasView: View {
         )
     }
 
-    private var currentEdgeTargetClearance: Double {
-        max(CanvasEdgeRouteDefaults.targetClearance, CanvasEdgeVisualMetrics.arrowLength(
-            zoom: Double(zoom),
-            baseLength: 13,
-            minimumLength: 6,
-            maximumLength: 16
-        ) * 0.6)
+    private var worldEdgeTargetClearance: Double {
+        let targetScreenClearance = max(
+            CanvasEdgeRouteDefaults.targetClearance,
+            CanvasEdgeVisualMetrics.arrowLength(
+                zoom: effectiveZoom,
+                baseLength: 13,
+                minimumLength: 6,
+                maximumLength: 16
+            ) * 0.6
+        )
+        return worldScreenMetric(targetScreenClearance)
+    }
+
+    private var worldEdgeRoutingClearance: Double {
+        worldScreenMetric(CanvasEdgeRouteDefaults.routingClearance)
     }
 
     private func shouldRenderNode(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
@@ -2468,7 +2496,7 @@ struct WorkspaceCanvasView: View {
         )
     }
 
-    private func screenPoint(for node: CanvasNodeModel) -> CGPoint {
+    private func worldScreenPoint(for node: CanvasNodeModel) -> CGPoint {
         let offset = transientNodeOffsets[node.id] ?? .zero
         let size = nodeSize(for: node)
         let point = CanvasViewportProjection.screenPoint(
@@ -2479,13 +2507,30 @@ struct WorkspaceCanvasView: View {
             height: size.height,
             offsetX: Double(offset.width),
             offsetY: Double(offset.height),
-            zoom: effectiveZoom,
-            viewportX: effectiveViewportX,
-            viewportY: effectiveViewportY
+            zoom: worldRenderZoom,
+            viewportX: worldRenderViewportX,
+            viewportY: worldRenderViewportY
         )
         return CGPoint(
             x: point.x,
             y: point.y
+        )
+    }
+
+    private func worldScreenRect(for node: CanvasNodeModel) -> CanvasFrameRect {
+        let offset = transientNodeOffsets[node.id] ?? .zero
+        let size = nodeSize(for: node)
+        return CanvasViewportProjection.screenRect(
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            width: size.width,
+            height: size.height,
+            offsetX: Double(offset.width),
+            offsetY: Double(offset.height),
+            zoom: worldRenderZoom,
+            viewportX: worldRenderViewportX,
+            viewportY: worldRenderViewportY
         )
     }
 
@@ -2572,24 +2617,28 @@ struct WorkspaceCanvasView: View {
         return CanvasFrameRect(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
     }
 
-    private func screenControlPoint(for edge: CanvasEdgeModel) -> CGPoint? {
+    private var worldTransientEdgeControlPoints: [String: CGPoint] {
+        transientEdgeControlPoints.compactMapValues(worldPoint(fromLiveScreenPoint:))
+    }
+
+    private func worldScreenControlPoint(for edge: CanvasEdgeModel) -> CGPoint? {
         guard let x = edge.controlPointX, let y = edge.controlPointY else { return nil }
         let point = CanvasViewportProjection.screenPoint(
             x: x,
             y: y,
-            zoom: effectiveZoom,
-            viewportX: effectiveViewportX,
-            viewportY: effectiveViewportY
+            zoom: worldRenderZoom,
+            viewportX: worldRenderViewportX,
+            viewportY: worldRenderViewportY
         )
         return CGPoint(x: point.x, y: point.y)
     }
 
-    private func resolvedScreenControlPoint(for edge: CanvasEdgeModel) -> CGPoint? {
-        transientEdgeControlPoints[edge.id] ?? screenControlPoint(for: edge)
+    private func resolvedWorldControlPoint(for edge: CanvasEdgeModel) -> CGPoint? {
+        worldTransientEdgeControlPoints[edge.id] ?? worldScreenControlPoint(for: edge)
     }
 
-    private func edgeControlPoint(for segment: CanvasEdgeSegment) -> CGPoint {
-        transientEdgeControlPoints[segment.id] ?? EdgePathFactory.handlePoint(
+    private func worldEdgeControlPoint(for segment: CanvasEdgeSegment) -> CGPoint {
+        worldTransientEdgeControlPoints[segment.id] ?? EdgePathFactory.handlePoint(
             start: segment.start,
             end: segment.end,
             control: segment.control,
@@ -2597,53 +2646,70 @@ struct WorkspaceCanvasView: View {
         )
     }
 
+    private func liveEdgeControlPoint(for segment: CanvasEdgeSegment) -> CGPoint {
+        transientEdgeControlPoints[segment.id] ??
+            liveScreenPoint(fromWorldPoint: worldEdgeControlPoint(for: segment)) ??
+            worldEdgeControlPoint(for: segment)
+    }
+
     private func resizeHandle(for node: CanvasNodeModel) -> some View {
         let center = resizeHandleCenter(for: node)
-        let hitSize = CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom)
+        let hitSize = worldScreenMetric(CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom))
         return FrameResizeHandle(helpText: node.nodeType == .groupFrame ? "Resize frame" : "Resize card")
-            .scaleEffect(zoom)
+            .scaleEffect(CGFloat(worldRenderZoom))
             .frame(width: hitSize, height: hitSize)
             .contentShape(.interaction, Rectangle())
             .position(center)
             .highPriorityGesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named("workspace-canvas-surface"))
                     .onChanged { value in
-                        resizeNode(node, screenTranslation: value.translation, commit: false)
+                        interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                            resizeNode(node, screenTranslation: value.translation, commit: false)
+                        }
                     }
                     .onEnded { value in
+                        interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                            resizeNode(node, screenTranslation: value.translation, commit: false)
+                        }
+                        interactionFrameDriver.flush(.nodeDrag)
                         resizeNode(node, screenTranslation: value.translation, commit: true)
                     }
             )
     }
 
     private func resizeHandleCenter(for node: CanvasNodeModel) -> CGPoint {
-        let screenRect = screenRect(for: node)
-        let center = CanvasResizeHandleGeometry.center(in: screenRect, zoom: effectiveZoom)
-        return CGPoint(x: center.x, y: center.y)
+        let screenRect = worldScreenRect(for: node)
+        let targetHitSize = CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom)
+        let targetInset = min(
+            CanvasResizeHandleGeometry.baseInset * CanvasZoomScale.safeZoom(effectiveZoom, minimum: 0.01),
+            targetHitSize / 2
+        )
+        let worldInset = worldScreenMetric(targetInset)
+        return CGPoint(
+            x: screenRect.x + screenRect.width - worldInset,
+            y: screenRect.y + screenRect.height - worldInset
+        )
     }
 
     private func edgeControlDragGesture(for segment: CanvasEdgeSegment) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 0, coordinateSpace: .named("workspace-canvas-surface"))
             .onChanged { value in
-                guard !(segment.control != nil && segment.isControlPointLocked) else { return }
-                if edgeControlDragStart[segment.id] == nil {
-                    edgeControlDragStart[segment.id] = edgeControlPoint(for: segment)
+                interactionFrameDriver.submitLatest(channel: .edgeControl) {
+                    updateEdgeControlDrag(value, for: segment)
                 }
-                guard let start = edgeControlDragStart[segment.id] else { return }
-                guard let screenPoint = CanvasEdgeControlPointDragPolicy.movedScreenPoint(
-                    startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
-                    translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height))
-                ) else { return }
-                transientEdgeControlPoints[segment.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .edgeControl) {
+                    updateEdgeControlDrag(value, for: segment)
+                }
+                interactionFrameDriver.flush(.edgeControl)
                 guard !(segment.control != nil && segment.isControlPointLocked) else {
                     transientEdgeControlPoints[segment.id] = nil
                     edgeControlDragStart[segment.id] = nil
                     onStatus("Anchor is locked")
                     return
                 }
-                let start = edgeControlDragStart[segment.id] ?? edgeControlPoint(for: segment)
+                let start = edgeControlDragStart[segment.id] ?? liveEdgeControlPoint(for: segment)
                 guard let canvasPoint = CanvasEdgeControlPointDragPolicy.persistentControlPoint(
                     startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
                     translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height)),
@@ -2662,8 +2728,21 @@ struct WorkspaceCanvasView: View {
             }
     }
 
+    private func updateEdgeControlDrag(_ value: DragGesture.Value, for segment: CanvasEdgeSegment) {
+        guard !(segment.control != nil && segment.isControlPointLocked) else { return }
+        if edgeControlDragStart[segment.id] == nil {
+            edgeControlDragStart[segment.id] = liveEdgeControlPoint(for: segment)
+        }
+        guard let start = edgeControlDragStart[segment.id] else { return }
+        guard let screenPoint = CanvasEdgeControlPointDragPolicy.movedScreenPoint(
+            startScreenPoint: CanvasEdgePoint(x: Double(start.x), y: Double(start.y)),
+            translation: CanvasEdgePoint(x: Double(value.translation.width), y: Double(value.translation.height))
+        ) else { return }
+        transientEdgeControlPoints[segment.id] = CGPoint(x: screenPoint.x, y: screenPoint.y)
+    }
+
     private func addEdgeControlPoint(for segment: CanvasEdgeSegment) {
-        saveEdgeControlPoint(edgeControlPoint(for: segment), for: segment, status: "Added link anchor")
+        saveEdgeControlPoint(liveEdgeControlPoint(for: segment), for: segment, status: "Added link anchor")
     }
 
     private func deleteEdgeControlPoint(for segment: CanvasEdgeSegment) {
@@ -2706,7 +2785,7 @@ struct WorkspaceCanvasView: View {
     private func setEdgeControlPointLocked(_ locked: Bool, for segment: CanvasEdgeSegment) {
         guard let edge = visibleEdges.first(where: { $0.id == segment.id }) else { return }
         if edge.controlPointX == nil || edge.controlPointY == nil {
-            let point = edgeControlPoint(for: segment)
+            let point = liveEdgeControlPoint(for: segment)
             let canvasPoint = CanvasViewportProjection.canvasPoint(
                 screenX: Double(point.x),
                 screenY: Double(point.y),
@@ -2912,26 +2991,17 @@ struct WorkspaceCanvasView: View {
     }
 
     private func dragGesture(for node: CanvasNodeModel) -> some Gesture {
-        DragGesture()
+        DragGesture(coordinateSpace: .named("workspace-canvas-surface"))
             .onChanged { value in
-                guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else { return }
-                if resizingNodeId == node.id {
-                    return
+                interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                    updateNodeDrag(value, for: node)
                 }
-                if nodeDragStart.isEmpty {
-                    beginNodeDrag(for: node)
-                }
-                guard CanvasNodeDragPersistencePolicy.action(
-                    for: .changed,
-                    hasActiveDrag: !nodeDragStart.isEmpty
-                ) == .updateTransientOffset else { return }
-                let delta = nodeDragDelta(for: value)
-                transientNodeOffsets = Dictionary(
-                    uniqueKeysWithValues: nodeDragStart.keys.map { ($0, delta) }
-                )
-                updateFrameDragControlPointOffsets(delta: delta)
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .nodeDrag) {
+                    updateNodeDrag(value, for: node)
+                }
+                interactionFrameDriver.flush(.nodeDrag)
                 guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else {
                     resetNodeDragState()
                     return
@@ -2949,6 +3019,25 @@ struct WorkspaceCanvasView: View {
                 }
                 commitNodeDrag(delta: nodeDragDelta(for: value))
             }
+    }
+
+    private func updateNodeDrag(_ value: DragGesture.Value, for node: CanvasNodeModel) {
+        guard CanvasLockedNodeMutationPolicy.canMutateNode(isLocked: node.locked), !editingNodeIDs.contains(node.id) else { return }
+        if resizingNodeId == node.id {
+            return
+        }
+        if nodeDragStart.isEmpty {
+            beginNodeDrag(for: node)
+        }
+        guard CanvasNodeDragPersistencePolicy.action(
+            for: .changed,
+            hasActiveDrag: !nodeDragStart.isEmpty
+        ) == .updateTransientOffset else { return }
+        let delta = nodeDragDelta(for: value)
+        transientNodeOffsets = Dictionary(
+            uniqueKeysWithValues: nodeDragStart.keys.map { ($0, delta) }
+        )
+        updateFrameDragControlPointOffsets(delta: delta)
     }
 
     private func beginNodeDrag(for node: CanvasNodeModel) {
@@ -3208,7 +3297,7 @@ struct WorkspaceCanvasView: View {
         } else {
             baseNodes = [node]
         }
-        let cards = renderSnapshot.cardNodes
+        let cards = cachedRenderSnapshot.cardNodes
         let frameRectsByID = Dictionary(
             workflowNodes
                 .filter { $0.nodeType == .groupFrame }
@@ -3340,25 +3429,15 @@ struct WorkspaceCanvasView: View {
     private func backgroundDrag(in size: CGSize, edgeSegments: [CanvasEdgeSegment]) -> some Gesture {
         DragGesture(minimumDistance: 2)
             .onChanged { value in
-                let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
-                backgroundDragStartedOnNode = startsOnNode
-                guard !startsOnNode else {
-                    selectionRect = nil
-                    transientViewportOffset = .zero
-                    return
-                }
-                if mode == .boxSelect {
-                    selectionRect = CGRect(
-                        x: min(value.startLocation.x, value.location.x),
-                        y: min(value.startLocation.y, value.location.y),
-                        width: abs(value.location.x - value.startLocation.x),
-                        height: abs(value.location.y - value.startLocation.y)
-                    )
-                } else {
-                    transientViewportOffset = value.translation
+                interactionFrameDriver.submitLatest(channel: .viewport) {
+                    updateBackgroundDrag(value)
                 }
             }
             .onEnded { value in
+                interactionFrameDriver.submitLatest(channel: .viewport) {
+                    updateBackgroundDrag(value)
+                }
+                interactionFrameDriver.flush(.viewport)
                 let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
                 backgroundDragStartedOnNode = nil
                 guard !startsOnNode else {
@@ -3392,6 +3471,26 @@ struct WorkspaceCanvasView: View {
                 }
                 transientViewportOffset = .zero
             }
+    }
+
+    private func updateBackgroundDrag(_ value: DragGesture.Value) {
+        let startsOnNode = backgroundDragStartedOnNode ?? backgroundDragStartsOnNode(value.startLocation)
+        backgroundDragStartedOnNode = startsOnNode
+        guard !startsOnNode else {
+            selectionRect = nil
+            transientViewportOffset = .zero
+            return
+        }
+        if mode == .boxSelect {
+            selectionRect = CGRect(
+                x: min(value.startLocation.x, value.location.x),
+                y: min(value.startLocation.y, value.location.y),
+                width: abs(value.location.x - value.startLocation.x),
+                height: abs(value.location.y - value.startLocation.y)
+            )
+        } else {
+            transientViewportOffset = value.translation
+        }
     }
 
     private func handleNodeTap(_ node: CanvasNodeModel) {
@@ -3523,6 +3622,40 @@ struct WorkspaceCanvasView: View {
         )
     }
 
+    private func updateMagnification(_ value: MagnifyGesture.Value, screenAnchor: CGPoint) {
+        if zoomStart == nil {
+            flushPendingScrollZoomCommit()
+        }
+        let start = zoomStart ?? effectiveZoom
+        if zoomStart == nil {
+            zoomStart = start
+            magnifyAnchor = CanvasViewportProjection.canvasPoint(
+                screenX: Double(screenAnchor.x),
+                screenY: Double(screenAnchor.y),
+                zoom: start,
+                viewportX: effectiveViewportX,
+                viewportY: effectiveViewportY
+            )
+        }
+        if let magnifyAnchor {
+            let update = CanvasPinchZoomPolicy.update(
+                startZoom: start,
+                magnification: Double(value.magnification),
+                screenX: Double(screenAnchor.x),
+                screenY: Double(screenAnchor.y),
+                anchorCanvasX: magnifyAnchor.x,
+                anchorCanvasY: magnifyAnchor.y,
+                minimumZoom: CanvasNodeMetrics.zoomMinimum,
+                maximumZoom: CanvasNodeMetrics.zoomMaximum
+            )
+            transientZoom = update.zoom
+            transientZoomViewportOffset = CGSize(
+                width: update.viewportX - canvas.viewportX,
+                height: update.viewportY - canvas.viewportY
+            )
+        }
+    }
+
     private func zoomFromScroll(deltaY: Double, location: CGPoint) {
         let oldZoom = effectiveZoom
         let newZoom = CanvasScrollZoomRuntimePolicy.zoom(
@@ -3558,23 +3691,14 @@ struct WorkspaceCanvasView: View {
     }
 
     private func scheduleScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: scrollZoomCommitDelayNanos)
-            guard !Task.isCancelled else { return }
+        interactionFrameDriver.scheduleDebouncedCommit(delayNanos: scrollZoomCommitDelayNanos) {
             commitScrollZoom()
         }
     }
 
     private func flushPendingScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = nil
-        commitScrollZoom()
-    }
-
-    private func cancelPendingScrollZoomCommit() {
-        pendingScrollZoomCommit?.cancel()
-        pendingScrollZoomCommit = nil
+        interactionFrameDriver.flushScroll()
+        interactionFrameDriver.flushDebouncedCommit()
     }
 
     private func commitScrollZoom() {
@@ -3582,7 +3706,6 @@ struct WorkspaceCanvasView: View {
         defer {
             self.transientZoom = nil
             transientZoomViewportOffset = .zero
-            pendingScrollZoomCommit = nil
         }
         let viewportX = canvas.viewportX + Double(transientZoomViewportOffset.width)
         let viewportY = canvas.viewportY + Double(transientZoomViewportOffset.height)
@@ -4433,12 +4556,15 @@ struct WorkspaceCanvasView: View {
 
     @discardableResult
     private func selectEdge(at location: CGPoint, in edgeSegments: [CanvasEdgeSegment]) -> Bool {
+        guard let worldLocation = worldPoint(fromLiveScreenPoint: location) else { return false }
+        let worldTransform = liveWorldTransform
+        guard worldTransform.scale.isFinite, worldTransform.scale > 0 else { return false }
         let records = edgeSegments.map(edgeHitRecord(for:))
-        let point = CanvasEdgePoint(x: Double(location.x), y: Double(location.y))
+        let point = CanvasEdgePoint(x: Double(worldLocation.x), y: Double(worldLocation.y))
         guard let id = CanvasEdgeHitTesting.nearestEdgeID(
             at: point,
             edges: records,
-            threshold: CanvasEdgeHitTargetPolicy.screenThreshold(zoom: effectiveZoom)
+            threshold: CanvasEdgeHitTargetPolicy.screenThreshold(zoom: effectiveZoom) / worldTransform.scale
         ) else {
             return false
         }
@@ -4450,7 +4576,7 @@ struct WorkspaceCanvasView: View {
         var points = [edgePoint(segment.start)]
         if !segment.routePoints.isEmpty {
             points.append(contentsOf: segment.routePoints.map { edgePoint($0) })
-        } else if let control = transientEdgeControlPoints[segment.id] ?? segment.control {
+        } else if let control = worldTransientEdgeControlPoints[segment.id] ?? segment.control {
             points.append(contentsOf: sampledEdgeCurvePoints(
                 start: segment.start,
                 control: control,
@@ -5878,6 +6004,73 @@ private final class FittingTitleDrawingView: NSView {
     }
 }
 
+struct ScrollWheelEventSequenceDescriptor: Equatable {
+    let usesCachedPassThroughDecision: Bool
+    let startsSequence: Bool
+    let endsSequence: Bool
+}
+
+enum ScrollWheelEventSequencePolicy {
+    static func descriptor(
+        hasPreciseScrollingDeltas: Bool,
+        phase: NSEvent.Phase,
+        momentumPhase: NSEvent.Phase
+    ) -> ScrollWheelEventSequenceDescriptor {
+        let usesCachedDecision = hasPreciseScrollingDeltas && (
+            !phase.isEmpty || !momentumPhase.isEmpty
+        )
+        guard usesCachedDecision else {
+            return ScrollWheelEventSequenceDescriptor(
+                usesCachedPassThroughDecision: false,
+                startsSequence: false,
+                endsSequence: false
+            )
+        }
+        return ScrollWheelEventSequenceDescriptor(
+            usesCachedPassThroughDecision: true,
+            startsSequence: phase.contains(.began) || phase.contains(.mayBegin) ||
+                momentumPhase.contains(.began) || momentumPhase.contains(.mayBegin),
+            endsSequence: phase.contains(.ended) || phase.contains(.cancelled) ||
+                momentumPhase.contains(.ended) || momentumPhase.contains(.cancelled)
+        )
+    }
+}
+
+struct ScrollWheelSequencePassThroughCache {
+    private(set) var cachedDecision: Bool?
+
+    mutating func prepare(for descriptor: ScrollWheelEventSequenceDescriptor) {
+        if !descriptor.usesCachedPassThroughDecision || descriptor.startsSequence {
+            cachedDecision = nil
+        }
+    }
+
+    mutating func resolve(
+        for descriptor: ScrollWheelEventSequenceDescriptor,
+        compute: () -> Bool
+    ) -> Bool {
+        guard descriptor.usesCachedPassThroughDecision else {
+            return compute()
+        }
+        if let cachedDecision {
+            return cachedDecision
+        }
+        let decision = compute()
+        cachedDecision = decision
+        return decision
+    }
+
+    mutating func finish(for descriptor: ScrollWheelEventSequenceDescriptor) {
+        if !descriptor.usesCachedPassThroughDecision || descriptor.endsSequence {
+            cachedDecision = nil
+        }
+    }
+
+    mutating func reset() {
+        cachedDecision = nil
+    }
+}
+
 private struct CanvasScrollWheelMonitor: NSViewRepresentable {
     let onScroll: (Double, CGPoint) -> Void
 
@@ -5900,6 +6093,7 @@ private struct CanvasScrollWheelMonitor: NSViewRepresentable {
 private final class ScrollWheelMonitorView: NSView {
     var onScroll: ((Double, CGPoint) -> Void)?
     private var monitor: Any?
+    private var scrollSequencePassThroughCache = ScrollWheelSequencePassThroughCache()
 
     override var isFlipped: Bool {
         true
@@ -5918,11 +6112,20 @@ private final class ScrollWheelMonitorView: NSView {
                 return event
             }
 
+            let sequence = ScrollWheelEventSequencePolicy.descriptor(
+                hasPreciseScrollingDeltas: event.hasPreciseScrollingDeltas,
+                phase: event.phase,
+                momentumPhase: event.momentumPhase
+            )
+            scrollSequencePassThroughCache.prepare(for: sequence)
+            defer {
+                scrollSequencePassThroughCache.finish(for: sequence)
+            }
             let location = convert(event.locationInWindow, from: nil)
             guard bounds.contains(location) else {
                 return event
             }
-            guard !shouldPassThroughScrollEvent(event) else {
+            guard !shouldPassThroughScrollEvent(event, sequence: sequence) else {
                 return event
             }
 
@@ -5937,7 +6140,16 @@ private final class ScrollWheelMonitorView: NSView {
         }
     }
 
-    private func shouldPassThroughScrollEvent(_ event: NSEvent) -> Bool {
+    private func shouldPassThroughScrollEvent(
+        _ event: NSEvent,
+        sequence: ScrollWheelEventSequenceDescriptor
+    ) -> Bool {
+        scrollSequencePassThroughCache.resolve(for: sequence) {
+            computePassThroughScrollEvent(event)
+        }
+    }
+
+    private func computePassThroughScrollEvent(_ event: NSEvent) -> Bool {
         guard let hitView = window?.contentView?.hitTest(event.locationInWindow) else {
             return false
         }
@@ -5960,6 +6172,7 @@ private final class ScrollWheelMonitorView: NSView {
             NSEvent.removeMonitor(monitor)
             self.monitor = nil
         }
+        scrollSequencePassThroughCache.reset()
     }
 }
 
@@ -6183,21 +6396,48 @@ struct CanvasFrameCard: View {
 
 }
 
+private struct CanvasEdgeWorldScreenMetrics {
+    let baseStrokeWidth: Double
+    let selectedStrokeWidth: Double
+    let flowStrokeWidth: Double
+    let dashOnLength: Double
+    let dashOffLength: Double
+    let dashPhaseScale: Double
+    let arrowLength: Double
+    let arrowHalfWidth: Double
+}
+
+private struct CanvasEdgeControlWorldScreenMetrics {
+    let diameter: Double
+    let strokeWidth: Double
+    let iconSize: Double
+    let shadowRadius: Double
+    let shadowY: Double
+}
+
 private struct CanvasEdgeStrokeLayer: View {
     let segments: [CanvasEdgeSegment]
     let transientControlPoints: [String: CGPoint]
     let selectedEdgeIDs: Set<String>
     let theme: CanvasGlowTheme
     let dashPhase: Double?
-    let lineScale: CGFloat
-    let canvasSize: CGSize
+    let screenMetrics: CanvasEdgeWorldScreenMetrics
+    let renderRect: CGRect
+    let rasterPlan: CanvasWorldRasterPlan
 
     var body: some View {
         Canvas { context, _ in
+            context.concatenate(
+                CGAffineTransform(
+                    scaleX: rasterPlan.rasterScale,
+                    y: rasterPlan.rasterScale
+                )
+                .translatedBy(x: -renderRect.minX, y: -renderRect.minY)
+            )
             for segment in segments {
-                let baseStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 1.7, minimumWidth: 0.9, maximumWidth: 2.0))
-                let selectedStrokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(lineScale), baseWidth: 3.2, minimumWidth: 1.8, maximumWidth: 3.2))
-                let flowStrokeWidth = CGFloat(CanvasEdgeFlowStrokePolicy.strokeWidth(baseStrokeWidth: Double(baseStrokeWidth)))
+                let baseStrokeWidth = CGFloat(screenMetrics.baseStrokeWidth)
+                let selectedStrokeWidth = CGFloat(screenMetrics.selectedStrokeWidth)
+                let flowStrokeWidth = CGFloat(screenMetrics.flowStrokeWidth)
                 let curve = EdgePathFactory.curve(
                     start: segment.start,
                     end: segment.end,
@@ -6229,14 +6469,23 @@ private struct CanvasEdgeStrokeLayer: View {
                             lineWidth: flowStrokeWidth,
                             lineCap: edgeFlowLineCap,
                             lineJoin: .round,
-                            dash: [max(8, 24 * lineScale), max(36, 148 * lineScale)],
-                            dashPhase: dashPhase * lineScale
+                            dash: [
+                                CGFloat(screenMetrics.dashOnLength),
+                                CGFloat(screenMetrics.dashOffLength)
+                            ],
+                            dashPhase: CGFloat(dashPhase * screenMetrics.dashPhaseScale)
                         )
                     )
                 }
             }
         }
-        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .frame(
+            width: rasterPlan.backingWidth,
+            height: rasterPlan.backingHeight,
+            alignment: .topLeading
+        )
+        .scaleEffect(CGFloat(rasterPlan.worldPresentationScale), anchor: .topLeading)
+        .offset(x: renderRect.minX, y: renderRect.minY)
         .allowsHitTesting(false)
     }
 
@@ -6260,28 +6509,49 @@ private struct CanvasEdgeArrowHeadLayer: View {
     let selectedEdgeIDs: Set<String>
     let theme: CanvasGlowTheme
     let isAnimated: Bool
-    let arrowScale: CGFloat
-    let canvasSize: CGSize
+    let arrowLength: Double
+    let arrowHalfWidth: Double
+    let renderRect: CGRect
+    let rasterPlan: CanvasWorldRasterPlan
 
     var body: some View {
         Canvas { context, _ in
+            context.concatenate(
+                CGAffineTransform(
+                    scaleX: rasterPlan.rasterScale,
+                    y: rasterPlan.rasterScale
+                )
+                .translatedBy(x: -renderRect.minX, y: -renderRect.minY)
+            )
             for segment in segments {
                 let color = arrowColor(isSelected: selectedEdgeIDs.contains(segment.id))
                 if drawsArrow(segment.sourceArrowRaw) {
                     let arrow = EdgePathFactory.arrowHead(
                         end: segment.start,
                         direction: sourceArrowDirection(for: segment),
-                        scale: arrowScale
+                        length: arrowLength,
+                        halfWidth: arrowHalfWidth
                     )
                     context.fill(arrow, with: .color(color))
                 }
                 if drawsArrow(segment.targetArrowRaw) {
-                    let arrow = EdgePathFactory.arrowHead(end: segment.end, direction: targetArrowDirection(for: segment), scale: arrowScale)
+                    let arrow = EdgePathFactory.arrowHead(
+                        end: segment.end,
+                        direction: targetArrowDirection(for: segment),
+                        length: arrowLength,
+                        halfWidth: arrowHalfWidth
+                    )
                     context.fill(arrow, with: .color(color))
                 }
             }
         }
-        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
+        .frame(
+            width: rasterPlan.backingWidth,
+            height: rasterPlan.backingHeight,
+            alignment: .topLeading
+        )
+        .scaleEffect(CGFloat(rasterPlan.worldPresentationScale), anchor: .topLeading)
+        .offset(x: renderRect.minX, y: renderRect.minY)
         .allowsHitTesting(false)
     }
 
@@ -6434,26 +6704,32 @@ struct FlowingArrowHead: View {
 struct EdgeControlHandle: View {
     let isCustom: Bool
     let isLocked: Bool
-    let zoom: CGFloat
+    let diameter: Double
+    let strokeWidth: Double
+    let iconSize: Double
+    let shadowRadius: Double
+    let shadowY: Double
 
     var body: some View {
-        let diameter = CGFloat(CanvasEdgeControlHandleMetrics.diameter(zoom: Double(zoom), baseDiameter: 13))
-        let strokeWidth = CGFloat(CanvasEdgeVisualMetrics.strokeWidth(zoom: Double(zoom), baseWidth: 2, minimumWidth: 0.9))
         ZStack {
             Circle()
                 .fill(handleFill)
             if isLocked {
                 Image(systemName: "lock.fill")
-                    .font(.system(size: max(6, 5.5 * zoom), weight: .bold))
+                    .font(.system(size: CGFloat(iconSize), weight: .bold))
                     .foregroundStyle(.white)
             }
         }
-        .frame(width: diameter, height: diameter)
+        .frame(width: CGFloat(diameter), height: CGFloat(diameter))
         .overlay {
                 Circle()
-                    .stroke(Color.blue.opacity(0.95), lineWidth: strokeWidth)
+                    .stroke(Color.blue.opacity(0.95), lineWidth: CGFloat(strokeWidth))
         }
-        .shadow(color: .black.opacity(0.16), radius: 2 * zoom, y: zoom)
+        .shadow(
+            color: .black.opacity(0.16),
+            radius: CGFloat(shadowRadius),
+            y: CGFloat(shadowY)
+        )
         .contentShape(Circle())
         .help(isLocked ? "Anchor locked. Right-click to unlock or delete." : "Drag to bend this link. Right-click for anchor actions.")
     }
@@ -6552,25 +6828,49 @@ private enum EdgePathFactory {
     }
 
     static func arrowHead(end: CGPoint, direction: CGPoint, scale: CGFloat = 1) -> Path {
+        arrowHead(
+            end: end,
+            direction: direction,
+            length: CanvasEdgeVisualMetrics.arrowLength(
+                zoom: Double(scale),
+                baseLength: 13,
+                minimumLength: 6,
+                maximumLength: 16
+            ),
+            halfWidth: CanvasEdgeVisualMetrics.arrowLength(
+                zoom: Double(scale),
+                baseLength: 5.5,
+                minimumLength: 2.5,
+                maximumLength: 7
+            )
+        )
+    }
+
+    static func arrowHead(
+        end: CGPoint,
+        direction: CGPoint,
+        length: Double,
+        halfWidth: Double
+    ) -> Path {
         let angle = CGFloat(
             CanvasEdgeCurveGeometry.terminalAngleRadians(
                 endDirection: edgePoint(direction)
             )
         )
-        let arrowLength = CGFloat(CanvasEdgeVisualMetrics.arrowLength(zoom: Double(scale), baseLength: 13, minimumLength: 6, maximumLength: 16))
-        let halfWidth = CGFloat(CanvasEdgeVisualMetrics.arrowLength(zoom: Double(scale), baseLength: 5.5, minimumLength: 2.5, maximumLength: 7))
+        let arrowLength = CGFloat(length.isFinite ? max(0, length) : 0)
+        let resolvedHalfWidth = CGFloat(halfWidth.isFinite ? max(0, halfWidth) : 0)
         let baseCenter = CGPoint(
             x: end.x - arrowLength * cos(angle),
             y: end.y - arrowLength * sin(angle)
         )
         let normal = angle + .pi / 2
         let left = CGPoint(
-            x: baseCenter.x + halfWidth * cos(normal),
-            y: baseCenter.y + halfWidth * sin(normal)
+            x: baseCenter.x + resolvedHalfWidth * cos(normal),
+            y: baseCenter.y + resolvedHalfWidth * sin(normal)
         )
         let right = CGPoint(
-            x: baseCenter.x - halfWidth * cos(normal),
-            y: baseCenter.y - halfWidth * sin(normal)
+            x: baseCenter.x - resolvedHalfWidth * cos(normal),
+            y: baseCenter.y - resolvedHalfWidth * sin(normal)
         )
 
         var path = Path()
