@@ -13,7 +13,7 @@ This manual describes the current private, manual Canvas product.
 
 ## 2. Installation and First Launch
 
-Download MindDesk from the current GitHub Release, drag MindDesk.app into Applications, then launch it. The v3.1.0 package is ad-hoc signed and is not Apple-notarized. If macOS blocks the first launch, confirm the package came from the official repository, then use System Settings > Privacy & Security > Open Anyway.
+Download MindDesk from the current GitHub Release, drag MindDesk.app into Applications, then launch it. The v3.1.1 package is ad-hoc signed and is not Apple-notarized. If macOS blocks the first launch, confirm the package came from the official repository, then use System Settings > Privacy & Security > Open Anyway.
 
 The first launch creates a starter workspace and sample snippets but does not create a Canvas until one is needed.
 
