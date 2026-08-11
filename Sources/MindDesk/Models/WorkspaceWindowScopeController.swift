@@ -36,6 +36,11 @@ struct WorkspaceCanvasScopeIdentity: Hashable, Sendable {
     }
 }
 
+enum WorkspaceScopeOperationIdentity: Hashable, Sendable {
+    case focus(WorkspaceFocusScopeIdentity)
+    case canvas(WorkspaceCanvasScopeIdentity)
+}
+
 enum WorkspaceCanvasBindingResult: Equatable, Sendable {
     case stale
     case unbound(
@@ -52,6 +57,15 @@ final class WorkspaceWindowScopeController: ObservableObject {
     @Published private(set) var boundCanvas: WorkspaceCanvasScopeIdentity?
     @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
 
+    private struct CancellationRegistration {
+        let scope: WorkspaceScopeOperationIdentity
+        let cancel: @MainActor () -> Void
+    }
+
+    private var cancellationRegistrations: [
+        Foundation.UUID: CancellationRegistration
+    ] = [:]
+
     init(windowSessionID: Foundation.UUID = Foundation.UUID()) {
         self.windowSessionID = windowSessionID
     }
@@ -62,6 +76,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
             return pendingFocus
         }
 
+        let detachedRegistrations = detachCancellationRegistrations()
         let focus = WorkspaceFocusScopeIdentity(
             windowSessionID: windowSessionID,
             workspaceID: workspaceID,
@@ -70,6 +85,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         primaryResolution = nil
         boundCanvas = nil
         pendingFocus = focus
+        cancel(detachedRegistrations)
         return focus
     }
 
@@ -81,6 +97,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
             return nil
         }
 
+        let detachedRegistrations = detachCancellationRegistrations()
         let rotatedFocus = WorkspaceFocusScopeIdentity(
             windowSessionID: windowSessionID,
             workspaceID: focus.workspaceID,
@@ -89,6 +106,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
         boundCanvas = nil
         primaryResolution = nil
         pendingFocus = rotatedFocus
+        cancel(detachedRegistrations)
         return rotatedFocus
     }
 
@@ -121,9 +139,12 @@ final class WorkspaceWindowScopeController: ObservableObject {
         }
 
         let bindingFocus: WorkspaceFocusScopeIdentity
+        let detachedRegistrations: [CancellationRegistration]
         if primaryResolution == nil {
             bindingFocus = focus
+            detachedRegistrations = []
         } else {
+            detachedRegistrations = detachCancellationRegistrations()
             let rotatedFocus = WorkspaceFocusScopeIdentity(
                 windowSessionID: focus.windowSessionID,
                 workspaceID: focus.workspaceID,
@@ -137,6 +158,7 @@ final class WorkspaceWindowScopeController: ObservableObject {
 
         primaryResolution = resolution
 
+        let bindingResult: WorkspaceCanvasBindingResult
         switch resolution {
         case let .unique(canvasID):
             let identity = WorkspaceCanvasScopeIdentity(
@@ -144,10 +166,84 @@ final class WorkspaceWindowScopeController: ObservableObject {
                 canvasID: canvasID
             )
             boundCanvas = identity
-            return .bound(identity)
+            bindingResult = .bound(identity)
         case .missing, .duplicate:
             boundCanvas = nil
-            return .unbound(focus: bindingFocus, resolution: resolution)
+            bindingResult = .unbound(
+                focus: bindingFocus,
+                resolution: resolution
+            )
+        }
+        cancel(detachedRegistrations)
+        return bindingResult
+    }
+
+    func accepts(_ focus: WorkspaceFocusScopeIdentity) -> Bool {
+        pendingFocus == focus
+    }
+
+    func accepts(_ canvas: WorkspaceCanvasScopeIdentity) -> Bool {
+        pendingFocus == canvas.focus && boundCanvas == canvas
+    }
+
+    @discardableResult
+    func registerCancellation(
+        for scope: WorkspaceScopeOperationIdentity,
+        cancel: @escaping @MainActor () -> Void
+    ) -> Foundation.UUID? {
+        guard accepts(scope) else {
+            cancel()
+            return nil
+        }
+
+        var operationID = Foundation.UUID()
+        while cancellationRegistrations[operationID] != nil {
+            operationID = Foundation.UUID()
+        }
+        cancellationRegistrations[operationID] = CancellationRegistration(
+            scope: scope,
+            cancel: cancel
+        )
+        return operationID
+    }
+
+    func complete(
+        operationID: Foundation.UUID,
+        for scope: WorkspaceScopeOperationIdentity
+    ) -> Bool {
+        guard cancellationRegistrations[operationID]?.scope == scope else {
+            return false
+        }
+        cancellationRegistrations.removeValue(forKey: operationID)
+        return true
+    }
+
+    func clear() {
+        let detachedRegistrations = detachCancellationRegistrations()
+        boundCanvas = nil
+        primaryResolution = nil
+        pendingFocus = nil
+        cancel(detachedRegistrations)
+    }
+
+    private func accepts(_ scope: WorkspaceScopeOperationIdentity) -> Bool {
+        switch scope {
+        case let .focus(focus):
+            return accepts(focus)
+        case let .canvas(canvas):
+            return accepts(canvas)
+        }
+    }
+
+    private func detachCancellationRegistrations() -> [CancellationRegistration] {
+        let detachedRegistrations = Array(cancellationRegistrations.values)
+        cancellationRegistrations = [:]
+        return detachedRegistrations
+    }
+
+    private func cancel(_ registrations: [CancellationRegistration]) {
+        for registration in registrations {
+            registration.cancel()
         }
     }
 }

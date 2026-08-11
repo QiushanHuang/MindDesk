@@ -618,6 +618,7 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
             "struct WorkspaceFocusRevision: Hashable, Sendable {",
             "struct WorkspaceFocusScopeIdentity: Hashable, Sendable {",
             "struct WorkspaceCanvasScopeIdentity: Hashable, Sendable {",
+            "enum WorkspaceScopeOperationIdentity: Hashable, Sendable {",
             "@MainActor\nfinal class WorkspaceWindowScopeController: ObservableObject {",
         ]
         for declaration in exactInternalDeclarations {
@@ -635,6 +636,8 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
             "open struct WorkspaceFocusScopeIdentity",
             "public struct WorkspaceCanvasScopeIdentity",
             "open struct WorkspaceCanvasScopeIdentity",
+            "public enum WorkspaceScopeOperationIdentity",
+            "open enum WorkspaceScopeOperationIdentity",
             "public final class WorkspaceWindowScopeController",
             "public class WorkspaceWindowScopeController",
             "open class WorkspaceWindowScopeController",
@@ -724,6 +727,404 @@ final class WorkspaceWindowScopeControllerTests: XCTestCase {
         XCTAssertEqual(controller.primaryResolution, Optional(resolution))
         XCTAssertEqual(controller.boundCanvas, Optional(boundCanvas))
     }
+
+    func testPendingFocusOperationCanRegisterBeforeCanvasBinding() throws {
+        let windowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000068")
+        )
+        let controller = WorkspaceWindowScopeController(
+            windowSessionID: windowSessionID
+        )
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let focusScope: WorkspaceScopeOperationIdentity = .focus(focus)
+        var cancellationCount = 0
+
+        XCTAssertTrue(controller.accepts(focus))
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+
+        let operationID = try XCTUnwrap(
+            controller.registerCancellation(for: focusScope) {
+                cancellationCount += 1
+            }
+        )
+
+        XCTAssertEqual(cancellationCount, 0)
+        let repeatedFocus = controller.focus(workspaceID: "workspace-A")
+        XCTAssertEqual(repeatedFocus, focus)
+        XCTAssertEqual(cancellationCount, 0)
+
+        let resolution: WorkspacePrimaryCanvasResolution = .unique(
+            canvasID: "canvas-A"
+        )
+        let initialBinding = controller.bind(resolution, for: focus)
+        let boundCanvas = try XCTUnwrap(controller.boundCanvas)
+
+        XCTAssertEqual(
+            initialBinding,
+            WorkspaceCanvasBindingResult.bound(boundCanvas)
+        )
+        XCTAssertTrue(controller.accepts(focus))
+        XCTAssertTrue(controller.accepts(boundCanvas))
+        XCTAssertEqual(cancellationCount, 0)
+
+        let equalBinding = controller.bind(resolution, for: focus)
+
+        XCTAssertEqual(equalBinding, initialBinding)
+        XCTAssertEqual(controller.pendingFocus, Optional(focus))
+        XCTAssertEqual(controller.primaryResolution, Optional(resolution))
+        XCTAssertEqual(controller.boundCanvas, Optional(boundCanvas))
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertTrue(controller.complete(operationID: operationID, for: focusScope))
+        XCTAssertFalse(controller.complete(operationID: operationID, for: focusScope))
+
+        controller.clear()
+
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertNil(controller.pendingFocus)
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+    }
+
+    func testStaleRegistrationCancelsSynchronouslyOnceAndReturnsNil() throws {
+        let windowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000069")
+        )
+        let controller = WorkspaceWindowScopeController(
+            windowSessionID: windowSessionID
+        )
+        let staleFocus = controller.focus(workspaceID: "workspace-A")
+        let currentFocus = controller.focus(workspaceID: "workspace-B")
+        let staleScope: WorkspaceScopeOperationIdentity = .focus(staleFocus)
+        var cancellationCount = 0
+        var registrationReturned = false
+
+        let operationID = controller.registerCancellation(for: staleScope) {
+            cancellationCount += 1
+            XCTAssertFalse(registrationReturned)
+            XCTAssertFalse(controller.accepts(staleFocus))
+            XCTAssertTrue(controller.accepts(currentFocus))
+            XCTAssertEqual(controller.pendingFocus, Optional(currentFocus))
+            XCTAssertNil(controller.primaryResolution)
+            XCTAssertNil(controller.boundCanvas)
+        }
+        registrationReturned = true
+
+        XCTAssertNil(operationID)
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertEqual(controller.pendingFocus, Optional(currentFocus))
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+
+        controller.clear()
+
+        XCTAssertEqual(cancellationCount, 1)
+        XCTAssertNil(controller.pendingFocus)
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+    }
+
+    func testCompletionRequiresExactOperationIDAndScopeAndMismatchRemovesNothing() throws {
+        let windowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000070")
+        )
+        let foreignOperationID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000170")
+        )
+        let controller = WorkspaceWindowScopeController(
+            windowSessionID: windowSessionID
+        )
+        let focus = controller.focus(workspaceID: "workspace-A")
+        let resolution: WorkspacePrimaryCanvasResolution = .unique(
+            canvasID: "canvas-A"
+        )
+        _ = controller.bind(resolution, for: focus)
+        let canvas = try XCTUnwrap(controller.boundCanvas)
+        let focusScope: WorkspaceScopeOperationIdentity = .focus(focus)
+        let canvasScope: WorkspaceScopeOperationIdentity = .canvas(canvas)
+        var cancellationCount = 0
+
+        XCTAssertTrue(controller.accepts(focus))
+        XCTAssertTrue(controller.accepts(canvas))
+
+        let operationID = try XCTUnwrap(
+            controller.registerCancellation(for: focusScope) {
+                cancellationCount += 1
+            }
+        )
+
+        XCTAssertFalse(
+            controller.complete(
+                operationID: foreignOperationID,
+                for: focusScope
+            )
+        )
+        XCTAssertFalse(
+            controller.complete(
+                operationID: operationID,
+                for: canvasScope
+            )
+        )
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertTrue(controller.complete(operationID: operationID, for: focusScope))
+        XCTAssertFalse(controller.complete(operationID: operationID, for: focusScope))
+
+        controller.clear()
+
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertFalse(controller.accepts(focus))
+        XCTAssertFalse(controller.accepts(canvas))
+    }
+
+    func testCompletedOperationReceivesZeroCancellationAfterLaterTransition() throws {
+        let windowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000071")
+        )
+        let controller = WorkspaceWindowScopeController(
+            windowSessionID: windowSessionID
+        )
+        let focusA = controller.focus(workspaceID: "workspace-A")
+        let scopeA: WorkspaceScopeOperationIdentity = .focus(focusA)
+        var cancellationCount = 0
+
+        let operationID = try XCTUnwrap(
+            controller.registerCancellation(for: scopeA) {
+                cancellationCount += 1
+            }
+        )
+        XCTAssertTrue(controller.complete(operationID: operationID, for: scopeA))
+
+        let focusB = controller.focus(workspaceID: "workspace-B")
+
+        XCTAssertEqual(cancellationCount, 0)
+        XCTAssertEqual(controller.pendingFocus, Optional(focusB))
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+
+        controller.clear()
+
+        XCTAssertEqual(cancellationCount, 0)
+    }
+
+    func testFocusResolutionInvalidationAndClearDetachInstallThenCancelExactlyOnce() throws {
+        let focusWindowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000072")
+        )
+        let resolutionWindowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000073")
+        )
+        let invalidationWindowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000074")
+        )
+        let clearWindowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000075")
+        )
+
+        let focusController = WorkspaceWindowScopeController(
+            windowSessionID: focusWindowSessionID
+        )
+        let oldFocus = focusController.focus(workspaceID: "workspace-A")
+        var focusCancellationCount = 0
+        _ = try XCTUnwrap(
+            focusController.registerCancellation(for: .focus(oldFocus)) {
+                focusCancellationCount += 1
+                XCTAssertFalse(focusController.accepts(oldFocus))
+                XCTAssertEqual(
+                    focusController.pendingFocus?.workspaceID,
+                    "workspace-B"
+                )
+                XCTAssertNil(focusController.primaryResolution)
+                XCTAssertNil(focusController.boundCanvas)
+            }
+        )
+
+        let newFocus = focusController.focus(workspaceID: "workspace-B")
+
+        XCTAssertEqual(focusCancellationCount, 1)
+        XCTAssertEqual(focusController.pendingFocus, Optional(newFocus))
+        focusController.clear()
+        XCTAssertEqual(focusCancellationCount, 1)
+
+        let resolutionController = WorkspaceWindowScopeController(
+            windowSessionID: resolutionWindowSessionID
+        )
+        let resolutionFocus = resolutionController.focus(workspaceID: "workspace-A")
+        let initialResolution: WorkspacePrimaryCanvasResolution = .unique(
+            canvasID: "canvas-A"
+        )
+        _ = resolutionController.bind(initialResolution, for: resolutionFocus)
+        let initialCanvas = try XCTUnwrap(resolutionController.boundCanvas)
+        var resolutionCancellationCount = 0
+        _ = try XCTUnwrap(
+            resolutionController.registerCancellation(for: .canvas(initialCanvas)) {
+                resolutionCancellationCount += 1
+                XCTAssertFalse(resolutionController.accepts(initialCanvas))
+                XCTAssertNotEqual(
+                    resolutionController.pendingFocus,
+                    Optional(resolutionFocus)
+                )
+                XCTAssertEqual(
+                    resolutionController.primaryResolution,
+                    Optional(WorkspacePrimaryCanvasResolution.missing)
+                )
+                XCTAssertNil(resolutionController.boundCanvas)
+            }
+        )
+
+        let transitionResult = resolutionController.bind(
+            .missing,
+            for: resolutionFocus
+        )
+        let rotatedResolutionFocus = try XCTUnwrap(
+            resolutionController.pendingFocus
+        )
+
+        XCTAssertEqual(resolutionCancellationCount, 1)
+        XCTAssertEqual(
+            transitionResult,
+            WorkspaceCanvasBindingResult.unbound(
+                focus: rotatedResolutionFocus,
+                resolution: .missing
+            )
+        )
+        resolutionController.clear()
+        XCTAssertEqual(resolutionCancellationCount, 1)
+
+        let invalidationController = WorkspaceWindowScopeController(
+            windowSessionID: invalidationWindowSessionID
+        )
+        let invalidatedOldFocus = invalidationController.focus(
+            workspaceID: "workspace-A"
+        )
+        _ = invalidationController.bind(.missing, for: invalidatedOldFocus)
+        var invalidationCancellationCount = 0
+        _ = try XCTUnwrap(
+            invalidationController.registerCancellation(
+                for: .focus(invalidatedOldFocus)
+            ) {
+                invalidationCancellationCount += 1
+                XCTAssertFalse(
+                    invalidationController.accepts(invalidatedOldFocus)
+                )
+                XCTAssertNotEqual(
+                    invalidationController.pendingFocus,
+                    Optional(invalidatedOldFocus)
+                )
+                XCTAssertNil(invalidationController.primaryResolution)
+                XCTAssertNil(invalidationController.boundCanvas)
+            }
+        )
+
+        let invalidatedNewFocus = try XCTUnwrap(
+            invalidationController.invalidatePrimaryResolution(
+                for: invalidatedOldFocus
+            )
+        )
+
+        XCTAssertEqual(invalidationCancellationCount, 1)
+        XCTAssertEqual(
+            invalidationController.pendingFocus,
+            Optional(invalidatedNewFocus)
+        )
+        invalidationController.clear()
+        XCTAssertEqual(invalidationCancellationCount, 1)
+
+        let clearController = WorkspaceWindowScopeController(
+            windowSessionID: clearWindowSessionID
+        )
+        let clearFocus = clearController.focus(workspaceID: "workspace-A")
+        _ = clearController.bind(
+            .unique(canvasID: "canvas-A"),
+            for: clearFocus
+        )
+        let clearCanvas = try XCTUnwrap(clearController.boundCanvas)
+        var clearFocusCancellationCount = 0
+        var clearCanvasCancellationCount = 0
+        _ = try XCTUnwrap(
+            clearController.registerCancellation(for: .focus(clearFocus)) {
+                clearFocusCancellationCount += 1
+                XCTAssertNil(clearController.pendingFocus)
+                XCTAssertNil(clearController.primaryResolution)
+                XCTAssertNil(clearController.boundCanvas)
+            }
+        )
+        _ = try XCTUnwrap(
+            clearController.registerCancellation(for: .canvas(clearCanvas)) {
+                clearCanvasCancellationCount += 1
+                XCTAssertNil(clearController.pendingFocus)
+                XCTAssertNil(clearController.primaryResolution)
+                XCTAssertNil(clearController.boundCanvas)
+            }
+        )
+
+        clearController.clear()
+
+        XCTAssertEqual(clearFocusCancellationCount, 1)
+        XCTAssertEqual(clearCanvasCancellationCount, 1)
+
+        clearController.clear()
+
+        XCTAssertEqual(clearFocusCancellationCount, 1)
+        XCTAssertEqual(clearCanvasCancellationCount, 1)
+    }
+
+    func testReentrantCancellationObservesOnlyInstalledStateAndCannotRerunDetachedRegistry() throws {
+        let windowSessionID = try XCTUnwrap(
+            UUID(uuidString: "00000000-0000-0000-0000-000000000076")
+        )
+        let controller = WorkspaceWindowScopeController(
+            windowSessionID: windowSessionID
+        )
+        let focusA = controller.focus(workspaceID: "workspace-A")
+        var detachedCancellationCount = 0
+        var reentrantCancellationCount = 0
+        var callbackObservedFocus: WorkspaceFocusScopeIdentity?
+
+        _ = try XCTUnwrap(
+            controller.registerCancellation(for: .focus(focusA)) {
+                detachedCancellationCount += 1
+                guard let installedFocus = controller.pendingFocus else {
+                    XCTFail("Expected workspace-B focus before detached callback")
+                    return
+                }
+                callbackObservedFocus = installedFocus
+                XCTAssertEqual(installedFocus.workspaceID, "workspace-B")
+                XCTAssertNil(controller.primaryResolution)
+                XCTAssertNil(controller.boundCanvas)
+                XCTAssertFalse(controller.accepts(focusA))
+                XCTAssertTrue(controller.accepts(installedFocus))
+
+                let reentrantOperationID = controller.registerCancellation(
+                    for: .focus(installedFocus)
+                ) {
+                    reentrantCancellationCount += 1
+                    XCTAssertNil(controller.pendingFocus)
+                    XCTAssertNil(controller.primaryResolution)
+                    XCTAssertNil(controller.boundCanvas)
+                }
+                XCTAssertNotNil(reentrantOperationID)
+
+                controller.clear()
+
+                XCTAssertEqual(detachedCancellationCount, 1)
+                XCTAssertEqual(reentrantCancellationCount, 1)
+            }
+        )
+
+        let focusB = controller.focus(workspaceID: "workspace-B")
+
+        XCTAssertEqual(callbackObservedFocus, Optional(focusB))
+        XCTAssertEqual(detachedCancellationCount, 1)
+        XCTAssertEqual(reentrantCancellationCount, 1)
+        XCTAssertNil(controller.pendingFocus)
+        XCTAssertNil(controller.primaryResolution)
+        XCTAssertNil(controller.boundCanvas)
+
+        controller.clear()
+
+        XCTAssertEqual(detachedCancellationCount, 1)
+        XCTAssertEqual(reentrantCancellationCount, 1)
+    }
 }
 
 private let preTask8ContentViewSHA256 =
@@ -769,6 +1170,11 @@ private let task8MinimalControllerData = Data(
         }
     }
 
+    enum WorkspaceScopeOperationIdentity: Hashable, Sendable {
+        case focus(WorkspaceFocusScopeIdentity)
+        case canvas(WorkspaceCanvasScopeIdentity)
+    }
+
     enum WorkspaceCanvasBindingResult: Equatable, Sendable {
         case stale
         case unbound(
@@ -785,6 +1191,15 @@ private let task8MinimalControllerData = Data(
         @Published private(set) var boundCanvas: WorkspaceCanvasScopeIdentity?
         @Published private(set) var primaryResolution: WorkspacePrimaryCanvasResolution?
 
+        private struct CancellationRegistration {
+            let scope: WorkspaceScopeOperationIdentity
+            let cancel: @MainActor () -> Void
+        }
+
+        private var cancellationRegistrations: [
+            Foundation.UUID: CancellationRegistration
+        ] = [:]
+
         init(windowSessionID: Foundation.UUID = Foundation.UUID()) {
             self.windowSessionID = windowSessionID
         }
@@ -795,6 +1210,7 @@ private let task8MinimalControllerData = Data(
                 return pendingFocus
             }
 
+            let detachedRegistrations = detachCancellationRegistrations()
             let focus = WorkspaceFocusScopeIdentity(
                 windowSessionID: windowSessionID,
                 workspaceID: workspaceID,
@@ -803,6 +1219,7 @@ private let task8MinimalControllerData = Data(
             primaryResolution = nil
             boundCanvas = nil
             pendingFocus = focus
+            cancel(detachedRegistrations)
             return focus
         }
 
@@ -814,6 +1231,7 @@ private let task8MinimalControllerData = Data(
                 return nil
             }
 
+            let detachedRegistrations = detachCancellationRegistrations()
             let rotatedFocus = WorkspaceFocusScopeIdentity(
                 windowSessionID: windowSessionID,
                 workspaceID: focus.workspaceID,
@@ -822,6 +1240,7 @@ private let task8MinimalControllerData = Data(
             boundCanvas = nil
             primaryResolution = nil
             pendingFocus = rotatedFocus
+            cancel(detachedRegistrations)
             return rotatedFocus
         }
 
@@ -854,9 +1273,12 @@ private let task8MinimalControllerData = Data(
             }
 
             let bindingFocus: WorkspaceFocusScopeIdentity
+            let detachedRegistrations: [CancellationRegistration]
             if primaryResolution == nil {
                 bindingFocus = focus
+                detachedRegistrations = []
             } else {
+                detachedRegistrations = detachCancellationRegistrations()
                 let rotatedFocus = WorkspaceFocusScopeIdentity(
                     windowSessionID: focus.windowSessionID,
                     workspaceID: focus.workspaceID,
@@ -870,6 +1292,7 @@ private let task8MinimalControllerData = Data(
 
             primaryResolution = resolution
 
+            let bindingResult: WorkspaceCanvasBindingResult
             switch resolution {
             case let .unique(canvasID):
                 let identity = WorkspaceCanvasScopeIdentity(
@@ -877,10 +1300,84 @@ private let task8MinimalControllerData = Data(
                     canvasID: canvasID
                 )
                 boundCanvas = identity
-                return .bound(identity)
+                bindingResult = .bound(identity)
             case .missing, .duplicate:
                 boundCanvas = nil
-                return .unbound(focus: bindingFocus, resolution: resolution)
+                bindingResult = .unbound(
+                    focus: bindingFocus,
+                    resolution: resolution
+                )
+            }
+            cancel(detachedRegistrations)
+            return bindingResult
+        }
+
+        func accepts(_ focus: WorkspaceFocusScopeIdentity) -> Bool {
+            pendingFocus == focus
+        }
+
+        func accepts(_ canvas: WorkspaceCanvasScopeIdentity) -> Bool {
+            pendingFocus == canvas.focus && boundCanvas == canvas
+        }
+
+        @discardableResult
+        func registerCancellation(
+            for scope: WorkspaceScopeOperationIdentity,
+            cancel: @escaping @MainActor () -> Void
+        ) -> Foundation.UUID? {
+            guard accepts(scope) else {
+                cancel()
+                return nil
+            }
+
+            var operationID = Foundation.UUID()
+            while cancellationRegistrations[operationID] != nil {
+                operationID = Foundation.UUID()
+            }
+            cancellationRegistrations[operationID] = CancellationRegistration(
+                scope: scope,
+                cancel: cancel
+            )
+            return operationID
+        }
+
+        func complete(
+            operationID: Foundation.UUID,
+            for scope: WorkspaceScopeOperationIdentity
+        ) -> Bool {
+            guard cancellationRegistrations[operationID]?.scope == scope else {
+                return false
+            }
+            cancellationRegistrations.removeValue(forKey: operationID)
+            return true
+        }
+
+        func clear() {
+            let detachedRegistrations = detachCancellationRegistrations()
+            boundCanvas = nil
+            primaryResolution = nil
+            pendingFocus = nil
+            cancel(detachedRegistrations)
+        }
+
+        private func accepts(_ scope: WorkspaceScopeOperationIdentity) -> Bool {
+            switch scope {
+            case let .focus(focus):
+                return accepts(focus)
+            case let .canvas(canvas):
+                return accepts(canvas)
+            }
+        }
+
+        private func detachCancellationRegistrations() -> [CancellationRegistration] {
+            let detachedRegistrations = Array(cancellationRegistrations.values)
+            cancellationRegistrations = [:]
+            return detachedRegistrations
+        }
+
+        private func cancel(_ registrations: [CancellationRegistration]) {
+            for registration in registrations {
+                registration.cancel()
             }
         }
     }
