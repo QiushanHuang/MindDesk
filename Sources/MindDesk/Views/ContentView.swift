@@ -141,6 +141,7 @@ struct ContentView: View {
     @AppStorage(AppPreferenceKeys.manifestExportIncludesUsageDates) private var manifestExportIncludesUsageDates = AppPreferenceDefaults.manifestExportIncludesUsageDates
     private(set) var clipboardService: ClipboardService = ClipboardService()
 
+    @StateObject private var workspaceWindowScopeController = WorkspaceWindowScopeController()
     @State private var selection: SidebarSelection? = .home
     @State private var inspectorSelection: InspectorSelection?
     @State private var statusMessage = "Ready"
@@ -713,6 +714,7 @@ struct ContentView: View {
         case .workspace(let id):
             if let workspace = workspaces.first(where: { $0.id == id }) {
                 WorkspaceDetailView(
+                    workspaceWindowScopeController: self.workspaceWindowScopeController,
                     workspace: workspace,
                     reentryBrief: WorkspaceReentryBriefMapper.brief(
                         for: workspace,
@@ -3321,6 +3323,7 @@ struct GlobalLibraryView: View {
 
 struct WorkspaceDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    let workspaceWindowScopeController: WorkspaceWindowScopeController
     let workspace: WorkspaceModel
     let reentryBrief: WorkspaceReentryBrief
     let workspaces: [WorkspaceModel]
