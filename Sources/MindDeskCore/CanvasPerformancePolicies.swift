@@ -457,6 +457,112 @@ public enum CanvasInteractionPerformanceBudget {
     }
 }
 
+public struct CanvasInteractionFrameAccumulator<Value> {
+    private var pending: Value?
+
+    public init() {}
+
+    public mutating func submit(_ value: Value) {
+        pending = value
+    }
+
+    public mutating func consume() -> Value? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+public struct CanvasScrollFrameSample: Equatable, Sendable {
+    public var deltaY: Double
+    public var location: CanvasEdgePoint
+
+    public init(deltaY: Double, location: CanvasEdgePoint) {
+        self.deltaY = deltaY
+        self.location = location
+    }
+}
+
+public struct CanvasScrollFrameAccumulator {
+    private var pending: CanvasScrollFrameSample?
+
+    public init() {}
+
+    public mutating func submit(_ sample: CanvasScrollFrameSample) {
+        guard sample.deltaY.isFinite,
+              sample.location.x.isFinite,
+              sample.location.y.isFinite else {
+            return
+        }
+        let summedDeltaY = (pending?.deltaY ?? 0) + sample.deltaY
+        guard summedDeltaY.isFinite else {
+            return
+        }
+        pending = CanvasScrollFrameSample(
+            deltaY: summedDeltaY,
+            location: sample.location
+        )
+    }
+
+    public mutating func consume() -> CanvasScrollFrameSample? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+public struct CanvasViewportVisualTransform: Equatable, Sendable {
+    public var scale: Double
+    public var translationX: Double
+    public var translationY: Double
+
+    public init(scale: Double, translationX: Double, translationY: Double) {
+        self.scale = scale
+        self.translationX = translationX
+        self.translationY = translationY
+    }
+}
+
+public enum CanvasLiveViewportTransformPolicy {
+    public static func transform(
+        baseZoom: Double,
+        baseViewportX: Double,
+        baseViewportY: Double,
+        liveZoom: Double,
+        liveViewportX: Double,
+        liveViewportY: Double
+    ) -> CanvasViewportVisualTransform {
+        let identity = CanvasViewportVisualTransform(
+            scale: 1,
+            translationX: 0,
+            translationY: 0
+        )
+        guard baseZoom.isFinite,
+              baseZoom > 0,
+              baseViewportX.isFinite,
+              baseViewportY.isFinite,
+              liveZoom.isFinite,
+              liveZoom > 0,
+              liveViewportX.isFinite,
+              liveViewportY.isFinite else {
+            return identity
+        }
+
+        let scale = liveZoom / baseZoom
+        let translationX = liveViewportX - baseViewportX * scale
+        let translationY = liveViewportY - baseViewportY * scale
+        guard scale.isFinite,
+              scale > 0,
+              translationX.isFinite,
+              translationY.isFinite else {
+            return identity
+        }
+        return CanvasViewportVisualTransform(
+            scale: scale,
+            translationX: translationX,
+            translationY: translationY
+        )
+    }
+}
+
 public enum CanvasScrollWheelEventPolicy {
     public static let minimumVerticalDelta = 0.01
 

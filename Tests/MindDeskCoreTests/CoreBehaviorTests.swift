@@ -4244,6 +4244,133 @@ final class CoreBehaviorTests: XCTestCase {
         ))
     }
 
+    func testCanvasInteractionFrameAccumulatorKeepsOnlyLatestValueAndClearsAfterConsume() {
+        var accumulator = CanvasInteractionFrameAccumulator<Int>()
+
+        XCTAssertNil(accumulator.consume())
+        accumulator.submit(1)
+        accumulator.submit(2)
+        accumulator.submit(3)
+
+        XCTAssertEqual(accumulator.consume(), 3)
+        XCTAssertNil(accumulator.consume())
+    }
+
+    func testCanvasInteractionFrameAccumulatorSumsScrollDeltasAndKeepsLatestLocation() {
+        var accumulator = CanvasScrollFrameAccumulator()
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 1.25,
+            location: CanvasEdgePoint(x: 10, y: 20)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: -0.5,
+            location: CanvasEdgePoint(x: 30, y: 40)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 2,
+            location: CanvasEdgePoint(x: 50, y: 60)
+        ))
+
+        XCTAssertEqual(
+            accumulator.consume(),
+            CanvasScrollFrameSample(
+                deltaY: 2.75,
+                location: CanvasEdgePoint(x: 50, y: 60)
+            )
+        )
+        XCTAssertNil(accumulator.consume())
+    }
+
+    func testCanvasInteractionFrameAccumulatorIgnoresInvalidScrollSamplesAndOverflow() {
+        var accumulator = CanvasScrollFrameAccumulator()
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .nan,
+            location: CanvasEdgePoint(x: 10, y: 20)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: 1,
+            location: CanvasEdgePoint(x: .infinity, y: 20)
+        ))
+        XCTAssertNil(accumulator.consume())
+
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .greatestFiniteMagnitude,
+            location: CanvasEdgePoint(x: 30, y: 40)
+        ))
+        accumulator.submit(CanvasScrollFrameSample(
+            deltaY: .greatestFiniteMagnitude,
+            location: CanvasEdgePoint(x: 50, y: 60)
+        ))
+
+        XCTAssertEqual(
+            accumulator.consume(),
+            CanvasScrollFrameSample(
+                deltaY: .greatestFiniteMagnitude,
+                location: CanvasEdgePoint(x: 30, y: 40)
+            )
+        )
+    }
+
+    func testCanvasLiveViewportTransformMapsCommittedWorldToLiveCamera() {
+        let transform = CanvasLiveViewportTransformPolicy.transform(
+            baseZoom: 1,
+            baseViewportX: 20,
+            baseViewportY: 30,
+            liveZoom: 1.5,
+            liveViewportX: -10,
+            liveViewportY: 12
+        )
+
+        XCTAssertEqual(transform.scale, 1.5)
+        XCTAssertEqual(transform.translationX, -40)
+        XCTAssertEqual(transform.translationY, -33)
+    }
+
+    func testCanvasLiveViewportTransformReturnsIdentityForInvalidInputs() {
+        let invalidTransforms = [
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 0,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: -1,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: .nan,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: -10,
+                liveViewportY: 12
+            ),
+            CanvasLiveViewportTransformPolicy.transform(
+                baseZoom: 1,
+                baseViewportX: 20,
+                baseViewportY: 30,
+                liveZoom: 1.5,
+                liveViewportX: .infinity,
+                liveViewportY: 12
+            )
+        ]
+
+        for transform in invalidTransforms {
+            XCTAssertEqual(transform.scale, 1)
+            XCTAssertEqual(transform.translationX, 0)
+            XCTAssertEqual(transform.translationY, 0)
+        }
+    }
+
     func testCanvasScrollWheelEventPolicyPassesThroughHorizontalAndTinyEvents() {
         XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 0, deltaY: 12))
         XCTAssertTrue(CanvasScrollWheelEventPolicy.shouldZoom(deltaX: 3, deltaY: 12))
