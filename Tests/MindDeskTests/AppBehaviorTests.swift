@@ -5,6 +5,132 @@ import SwiftData
 
 final class AppBehaviorTests: XCTestCase {
     @MainActor
+    func testCanvasInteractionFrameDriverKeepsOnlyLatestUpdateForAChannelUntilManualTick() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) { values.append(1) }
+        driver.submitLatest(channel: .viewport) { values.append(2) }
+
+        XCTAssertEqual(driver.pendingChannelCount, 1)
+        XCTAssertTrue(values.isEmpty)
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverDrainsDifferentChannelsOnceEach() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var viewportRuns = 0
+        var magnifyRuns = 0
+        var nodeDragRuns = 0
+        var edgeControlRuns = 0
+
+        driver.submitLatest(channel: .viewport) { viewportRuns += 1 }
+        driver.submitLatest(channel: .magnify) { magnifyRuns += 1 }
+        driver.submitLatest(channel: .nodeDrag) { nodeDragRuns += 1 }
+        driver.submitLatest(channel: .edgeControl) { edgeControlRuns += 1 }
+
+        XCTAssertEqual(driver.pendingChannelCount, 4)
+        driver.fireForTesting()
+        driver.fireForTesting()
+
+        XCTAssertEqual(viewportRuns, 1)
+        XCTAssertEqual(magnifyRuns, 1)
+        XCTAssertEqual(nodeDragRuns, 1)
+        XCTAssertEqual(edgeControlRuns, 1)
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverFlushExecutesLatestUpdateAndRemovesIt() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) { values.append(1) }
+        driver.submitLatest(channel: .viewport) { values.append(2) }
+
+        driver.flush(.viewport)
+
+        XCTAssertEqual(values, [2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+
+        driver.fireForTesting()
+        XCTAssertEqual(values, [2])
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverAccumulatesFiniteScrollDeltasAtLatestLocationOnce() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var samples: [CanvasScrollFrameSample] = []
+
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 1.25, location: CanvasEdgePoint(x: 10, y: 20))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: .nan, location: CanvasEdgePoint(x: 30, y: 40))
+        ) { samples.append($0) }
+        driver.submitScroll(
+            CanvasScrollFrameSample(deltaY: 2.75, location: CanvasEdgePoint(x: 50, y: 60))
+        ) { samples.append($0) }
+
+        XCTAssertTrue(samples.isEmpty)
+        driver.fireForTesting()
+        driver.fireForTesting()
+
+        XCTAssertEqual(
+            samples,
+            [CanvasScrollFrameSample(deltaY: 4, location: CanvasEdgePoint(x: 50, y: 60))]
+        )
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverCancelAllDropsWorkAndReleasesCapturedOwner() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var executionCount = 0
+        var owner: NSObject? = NSObject()
+        weak let weakOwner: NSObject? = owner
+
+        driver.submitLatest(channel: .viewport) { [owner] in
+            XCTAssertNotNil(owner)
+            executionCount += 1
+        }
+        owner = nil
+
+        XCTAssertNotNil(weakOwner)
+        driver.cancelAll()
+
+        XCTAssertNil(weakOwner)
+        driver.fireForTesting()
+        XCTAssertEqual(executionCount, 0)
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
+    func testCanvasInteractionFrameDriverDefersReentrantSubmissionUntilNextTick() {
+        let driver = CanvasInteractionFrameDriver(automaticallySchedulesDisplayLink: false)
+        var values: [Int] = []
+
+        driver.submitLatest(channel: .viewport) {
+            values.append(1)
+            driver.submitLatest(channel: .viewport) { values.append(2) }
+        }
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [1])
+        XCTAssertEqual(driver.pendingChannelCount, 1)
+
+        driver.fireForTesting()
+
+        XCTAssertEqual(values, [1, 2])
+        XCTAssertEqual(driver.pendingChannelCount, 0)
+    }
+
+    @MainActor
     func testFirstLaunchSeedDataCreatesDefaultWorkspaceAndSnippetsWithoutCanvasAndIsIdempotent() throws {
         let schema = Schema([
             WorkspaceModel.self,
