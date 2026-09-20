@@ -54,6 +54,17 @@ enum OrganizationApplyError: LocalizedError {
 }
 
 @MainActor
+private final class OrganizationUndoState {
+    let context: ModelContext
+    let onError: (String) -> Void
+
+    init(context: ModelContext, onError: @escaping (String) -> Void) {
+        self.context = context
+        self.onError = onError
+    }
+}
+
+@MainActor
 enum OrganizationApplyService {
     static func apply(
         _ proposal: OrganizationProposal,
@@ -130,10 +141,12 @@ enum OrganizationApplyService {
         catch { context.rollback(); throw error }
 
         let nodeIDs = createdNodeIDs, taskIDs = createdTaskIDs, originals = moved
-        undoManager?.registerUndo(withTarget: context) { target in
+        let undoState = OrganizationUndoState(context: context, onError: onUndoError)
+        undoManager?.registerUndo(withTarget: context) { _ in
             MainActor.assumeIsolated {
+                let target = undoState.context
                 guard !target.hasChanges else {
-                    onUndoError(OrganizationApplyError.unsavedChanges.localizedDescription)
+                    undoState.onError(OrganizationApplyError.unsavedChanges.localizedDescription)
                     return
                 }
                 do {
@@ -153,7 +166,7 @@ enum OrganizationApplyService {
                     try target.save()
                 } catch {
                     target.rollback()
-                    onUndoError("Could not undo organization: \(error.localizedDescription)")
+                    undoState.onError("Could not undo organization: \(error.localizedDescription)")
                 }
             }
         }
