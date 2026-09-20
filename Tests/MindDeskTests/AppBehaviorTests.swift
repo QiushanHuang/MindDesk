@@ -943,7 +943,6 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(contentViewSource.contains("quickOpenRecordsSnapshot = quickOpenRecords"))
         XCTAssertTrue(contentViewSource.contains("QuickOpenPanel(\n                records: quickOpenRecordsSnapshot,"))
         XCTAssertTrue(contentViewSource.contains("@State private var query = \"\""))
-        XCTAssertTrue(contentViewSource.contains("QuickOpenIndex.results(for: query, in: records, limit: 20)"))
     }
 
     func testQuickOpenCatalogSearchesWorkspaceResourceSnippetAndWebCardRecords() throws {
@@ -4936,6 +4935,16 @@ final class AppBehaviorTests: XCTestCase {
         )
 
         XCTAssertEqual(draggedIDs, ["frame-a", "inside-card", "linked-card"])
+    }
+
+    func testOrganizationFrameDragIncludesNestedLinkedDescendants() {
+        let outer = CanvasFrameRect(id: "outer", x: 0, y: 0, width: 500, height: 500)
+        let inner = CanvasFrameRect(id: "inner", x: 20, y: 30, width: 300, height: 300)
+        let card = CanvasFrameRect(id: "card", x: 900, y: 900, width: 100, height: 80)
+        XCTAssertEqual(CanvasOrganizationFrameDragPolicy.draggedNodeIDs(
+            baseNodeIDs: ["outer"], frameRectsByID: ["outer": outer, "inner": inner],
+            cardRects: [outer, inner, card], parentNodeIDsByCardID: ["inner": "outer", "card": "inner"]
+        ), ["outer", "inner", "card"])
     }
 
     func testCanvasNodeResizeCommitPolicySupportsCardsAndOrganizationFrames() {

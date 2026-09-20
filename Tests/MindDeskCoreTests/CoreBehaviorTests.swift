@@ -6070,7 +6070,7 @@ final class CoreBehaviorTests: XCTestCase {
 
 
 
-    func testCanvasReviewOffNoticeHasExactApprovedDocumentationPlacement() throws {
+    func testHistoricalReviewNoticesRemainInHistoricalDocumentation() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
@@ -6078,10 +6078,7 @@ final class CoreBehaviorTests: XCTestCase {
         let englishNotice = "**Canvas Review is currently off.** This version does not start an Agent or review helper, generate an AI context package, or provide Canvas content to a model through this feature. MindDesk's normal storage, system backup, sync, and any external services you use remain subject to their own privacy settings."
         let chineseNotice = "**Canvas Review 当前处于关闭状态。** 此版本不会通过该功能启动 Agent 或审阅助手、生成 AI 上下文包，也不会向模型提供 Canvas 内容。MindDesk 的常规存储、系统备份、同步以及您使用的任何外部服务，仍受其各自隐私设置约束。"
         let expectedEnglishPlacements = [
-            ("README.md", "### Data, Privacy, and Reliability"),
-            ("docs/user-manual.md", "## Safety Boundary Quick Reference"),
-            ("docs/releases/v3.0.0.md", "## Current capability notice"),
-            ("docs/feature-checklist.md", "# MindDesk 功能回归清单")
+            ("docs/releases/v3.0.0.md", "## Current capability notice")
         ]
 
         for (relativePath, heading) in expectedEnglishPlacements {
@@ -6103,10 +6100,13 @@ final class CoreBehaviorTests: XCTestCase {
             contentsOf: repositoryRoot.appendingPathComponent("README.md"),
             encoding: .utf8
         )
-        XCTAssertEqual(readme.components(separatedBy: chineseNotice).count - 1, 1)
-        let chineseHeading = try XCTUnwrap(readme.range(of: "### 数据、隐私与稳定性"))
-        let chineseNoticeRange = try XCTUnwrap(readme.range(of: chineseNotice))
-        XCTAssertLessThan(chineseHeading.lowerBound, chineseNoticeRange.lowerBound)
+        XCTAssertFalse(readme.contains(englishNotice))
+        XCTAssertFalse(readme.contains(chineseNotice))
+        XCTAssertTrue(readme.contains("href=\"#中文\""))
+        XCTAssertTrue(readme.contains("id=\"中文\""))
+        XCTAssertTrue(readme.contains("href=\"#english\""))
+        XCTAssertTrue(readme.contains("model service"))
+        XCTAssertTrue(readme.contains("Create preview"))
 
         let changelog = try String(
             contentsOf: repositoryRoot.appendingPathComponent("CHANGELOG.md"),

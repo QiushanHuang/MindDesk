@@ -170,6 +170,10 @@ for relative_root in production_roots:
                 if module not in allowed_imports:
                     raise SystemExit(f"unapproved production import {module!r} in {relative}")
             for pattern in zero_runtime_patterns:
+                # User-approved organizing assistant: only this data-preview adapter
+                # may launch the fixed local Codex executable. Legacy runtimes stay denied.
+                if relative == "Sources/MindDesk/Organization/CodexOrganizationService.swift" and pattern is zero_runtime_patterns[0]:
+                    continue
                 if pattern.search(text):
                     raise SystemExit(f"zero-call runtime family is present in {relative}")
             if relative.startswith("Sources/MindDesk/"):

@@ -253,7 +253,12 @@ final class WorkspacePrimaryCanvasIntegrationTests: XCTestCase {
 
         XCTAssertNil(operationID)
         XCTAssertNil(controller.primaryCanvasResolutionSlot)
-        await allowResolutionTasksToSettle()
+        // A fixed number of yields does not ensure the cancelled worker has
+        // finished on a loaded CI runner. Wait for the observable release.
+        for _ in 0..<200 {
+            if weakLifetimeToken.value == nil { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
         XCTAssertEqual(observation.commitCount, 0)
         XCTAssertNil(weakLifetimeToken.value)
     }

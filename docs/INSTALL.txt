@@ -1,0 +1,29 @@
+MindDesk 3.2.0 | macOS 14+ | Apple silicon
+
+ENGLISH
+1. Download the DMG or ZIP from github.com/QiushanHuang/MindDesk/releases.
+2. Quit an older running copy. Open the DMG and drag MindDesk.app to Applications.
+   For ZIP: extract it, then move MindDesk.app to Applications.
+3. Launch from Applications. This release is ad-hoc signed, not Apple-notarized.
+   If blocked, verify the source, then use System Settings > Privacy & Security > Open Anyway.
+4. Create a workspace, add your resources, and open Canvas.
+5. The optional organizer needs a separately installed, signed-in Codex CLI and network access.
+   Requesting a preview sends the selected card titles and text through Codex to its model service.
+
+Your workspace data is stored separately from the app. Export a Manifest and keep a backup before updating.
+Read USER-GUIDE.md or https://github.com/QiushanHuang/MindDesk/blob/main/docs/user-manual.md.
+
+简体中文
+1. 从 github.com/QiushanHuang/MindDesk/releases 下载 DMG 或 ZIP。
+2. 先退出旧版。打开 DMG，将 MindDesk.app 拖到“应用程序”；ZIP 则解压后移动 App。
+3. 从“应用程序”启动。本包为 ad-hoc 签名，未经过 Apple 公证。
+   若被阻止，请确认来源，再到“系统设置 > 隐私与安全性 > 仍要打开”。
+4. 创建工作区、添加资源，然后进入 Canvas。
+5. 可选整理助手需要另行安装并登录 Codex CLI，同时需要联网。
+   请求预览时，选中卡片的标题与文字会通过 Codex 发往模型服务。
+
+工作区数据与 App 分开保存。更新前建议导出 Manifest 并保留备份。
+操作指南见随附 USER-GUIDE.md 或上述在线地址。
+
+Created and maintained by / 作者与维护者:
+Qiushan (QiushanHuang) — https://github.com/QiushanHuang

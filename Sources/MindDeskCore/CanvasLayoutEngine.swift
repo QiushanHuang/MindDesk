@@ -27,6 +27,61 @@ public struct CanvasLayoutEdge: Codable, Equatable, Sendable {
 }
 
 public enum CanvasLayoutEngine {
+    public static func arrangeGroups(_ nodes: [CanvasLayoutNode], frameIDs: Set<String>, parents: [String: String], lockedIDs: Set<String>, edges: [CanvasLayoutEdge]) -> [CanvasLayoutNode] {
+        guard Set(nodes.map(\.id)).count == nodes.count else { return nodes }
+        let byID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+        let frames = nodes.filter { frameIDs.contains($0.id) }
+        var owner: [String: String] = [:]
+        for node in nodes {
+            if let parent = parents[node.id], parent != node.id, frameIDs.contains(parent), byID[parent] != nil {
+                owner[node.id] = parent
+            } else {
+                owner[node.id] = frames.filter { frame in
+                    frame.id != node.id && frame.width * frame.height > node.width * node.height &&
+                    node.x >= frame.x && node.y >= frame.y &&
+                    node.x + node.width <= frame.x + frame.width && node.y + node.height <= frame.y + frame.height
+                }.sorted {
+                    let a = $0.width * $0.height, b = $1.width * $1.height
+                    return a == b ? $0.id < $1.id : a < b
+                }.first?.id
+            }
+        }
+        var roots: [String: String] = [:]
+        for node in nodes {
+            var id = node.id
+            var visited: Set<String> = []
+            while let parent = owner[id] {
+                // Corrupt cyclic membership must not split or move a group.
+                guard visited.insert(id).inserted else { return nodes }
+                id = parent
+            }
+            roots[node.id] = id
+        }
+        let groups = Dictionary(grouping: nodes) { roots[$0.id]! }
+        let bounds = nodes.filter { roots[$0.id] == $0.id }.map { root in
+            let members = groups[root.id]!
+            let x = members.map(\.x).min()!, y = members.map(\.y).min()!
+            return CanvasLayoutNode(id: root.id, x: x, y: y,
+                width: members.map { $0.x + $0.width }.max()! - x,
+                height: members.map { $0.y + $0.height }.max()! - y)
+        }
+        let fixed = Set(lockedIDs.compactMap { roots[$0] })
+        let mappedEdges = edges.compactMap { edge -> CanvasLayoutEdge? in
+            guard let source = roots[edge.sourceNodeId], let target = roots[edge.targetNodeId], source != target else { return nil }
+            return CanvasLayoutEdge(sourceNodeId: source, targetNodeId: target)
+        }
+        let arranged = autoArrange(bounds.filter { !fixed.contains($0.id) }, fixedNodes: bounds.filter { fixed.contains($0.id) }, edges: mappedEdges)
+        let original = Dictionary(uniqueKeysWithValues: bounds.map { ($0.id, $0) })
+        let result = Dictionary(uniqueKeysWithValues: arranged.map { ($0.id, $0) })
+        return nodes.map { node in
+            guard let root = roots[node.id], let before = original[root], let after = result[root] else { return node }
+            var moved = node
+            moved.x += after.x - before.x
+            moved.y += after.y - before.y
+            return moved
+        }
+    }
+
     public static func autoArrange(
         _ nodes: [CanvasLayoutNode],
         columns: Int = 3,

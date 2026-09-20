@@ -116,6 +116,15 @@ printf 'import CoreGraphics\nimport SwiftUI\nimport MindDeskCore\nimport QuartzC
 printf 'import Foundation\npublic let value = 1\n' >"$source_repo/Sources/MindDeskCore/Allowed.swift"
 s0_policy_check_source_tree "$source_repo" >/dev/null || fail "allowed source fixture was rejected"
 
+mkdir -p "$source_repo/Sources/MindDesk/Organization"
+printf 'import Foundation\nlet child = Process()\n' >"$source_repo/Sources/MindDesk/Organization/CodexOrganizationService.swift"
+s0_policy_check_source_tree "$source_repo" >/dev/null || fail "organizing adapter process boundary was rejected"
+printf 'import Foundation\nlet child = Process()\n' >"$source_repo/Sources/MindDesk/UnscopedProcess.swift"
+if s0_policy_check_source_tree "$source_repo" >/dev/null 2>&1; then
+  fail "process launch outside the organizing adapter was accepted"
+fi
+rm "$source_repo/Sources/MindDesk/UnscopedProcess.swift"
+
 printf 'import Network\n' >"$source_repo/Sources/MindDesk/Forbidden.swift"
 if s0_policy_check_source_tree "$source_repo" >/dev/null 2>&1; then
   fail "unknown production import was accepted"

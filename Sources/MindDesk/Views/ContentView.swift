@@ -1715,6 +1715,7 @@ struct QuickOpenPanel: View {
     @State private var query = ""
     @State private var results: [QuickOpenRecord] = []
     @State private var selectedIndex = 0
+    @State private var kindFilter: QuickOpenRecordKind?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1731,6 +1732,18 @@ struct QuickOpenPanel: View {
             .padding(.vertical, 9)
             .background(.regularMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 6) {
+                Button("All") { kindFilter = nil }
+                    .tint(kindFilter == nil ? .accentColor : .secondary)
+                ForEach(QuickOpenCatalogDescriptor.searchableKinds, id: \.self) { kind in
+                    Button(kind.title) { kindFilter = kind }
+                        .tint(kindFilter == kind ? .accentColor : .secondary)
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .accessibilityLabel("Filter by content type")
 
             if results.isEmpty {
                 ContentUnavailableView(
@@ -1806,7 +1819,7 @@ struct QuickOpenPanel: View {
             }
         }
         .padding(16)
-        .frame(width: 560, height: 430)
+        .frame(width: 620, height: 490)
         .background(QuickOpenKeyMonitor { event in
             handleKeyDown(event)
         })
@@ -1818,6 +1831,10 @@ struct QuickOpenPanel: View {
         }
         .onChange(of: query) { _, _ in
             refreshResults(resetSelection: true)
+        }
+        .onChange(of: kindFilter) { _, _ in
+            refreshResults(resetSelection: true)
+            isSearchFocused = true
         }
         .onChange(of: records) { _, _ in
             refreshResults(resetSelection: false)
@@ -1835,7 +1852,8 @@ struct QuickOpenPanel: View {
     }
 
     private func refreshResults(resetSelection: Bool) {
-        results = QuickOpenIndex.results(for: query, in: records, limit: 20)
+        let scopedRecords = kindFilter.map { kind in records.filter { $0.kind == kind } } ?? records
+        results = QuickOpenIndex.results(for: query, in: scopedRecords, limit: 20)
         if resetSelection {
             selectedIndex = 0
         } else {
