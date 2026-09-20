@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">MindDesk</title>
+  <desc id="desc">Three connected cards form an M on a deep blue project desk.</desc>
+  <rect x="48" y="48" width="928" height="928" rx="216" fill="#132D46"/>
+  <path d="M278 382L512 600L746 382" fill="none" stroke="#70D7C7" stroke-width="42" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="166" y="226" width="224" height="286" rx="42" fill="#F3F5EE"/>
+  <rect x="634" y="226" width="224" height="286" rx="42" fill="#F3F5EE"/>
+  <rect x="384" y="500" width="256" height="230" rx="42" fill="#70D7C7"/>
+  <path d="M220 302H320M220 354H292M688 302H788M688 354H760" fill="none" stroke="#132D46" stroke-width="20" stroke-linecap="round"/>
+  <path d="M446 612L490 650L574 568" fill="none" stroke="#132D46" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M260 812H764" stroke="#F3F5EE" stroke-width="24" stroke-linecap="round"/>
+</svg>

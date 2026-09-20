@@ -444,11 +444,16 @@ enum CanvasOrganizationFrameDragPolicy {
         parentNodeIDsByCardID: [String: String?]
     ) -> Set<String> {
         var draggedIDs = baseNodeIDs
-        for frameID in baseNodeIDs {
+        var pending = Array(baseNodeIDs)
+        var visited: Set<String> = []
+        while let frameID = pending.popLast() {
+            guard visited.insert(frameID).inserted else { continue }
             guard let frameRect = frameRectsByID[frameID] else { continue }
             let containedIDs = Set(CanvasFrameGeometry.childNodeIDs(inside: frameRect, candidates: cardRects))
             for cardRect in cardRects where containedIDs.contains(cardRect.id) || parentNodeIDsByCardID[cardRect.id] == frameID {
-                draggedIDs.insert(cardRect.id)
+                if draggedIDs.insert(cardRect.id).inserted, frameRectsByID[cardRect.id] != nil {
+                    pending.append(cardRect.id)
+                }
             }
         }
         return draggedIDs
@@ -862,6 +867,8 @@ struct WorkspaceCanvasView: View {
     private(set) var clipboardService: ClipboardService = ClipboardService()
 
     @State private var selectedNodeIDs: Set<String> = []
+    @State private var organizationSelection: OrganizationSelection?
+    @State private var isQuickNotePresented = false
     @State private var selectedEdgeIDs: Set<String> = []
     @State private var editingNodeIDs: Set<String> = []
     @State private var mode: CanvasInteractionMode = .select
@@ -1157,6 +1164,28 @@ struct WorkspaceCanvasView: View {
         .animation(.easeInOut(duration: 0.16), value: canvasRightRailPanel)
         .animation(.easeInOut(duration: 0.16), value: isTodoPanelOpen)
         .animation(.easeInOut(duration: 0.16), value: isTodoDoneColumnOpen)
+        .sheet(item: $organizationSelection) { selection in
+            OrganizationSheet(selection: selection) { proposal, request in
+                try OrganizationApplyService.apply(proposal, request: request, selection: selection,
+                    canvas: canvas, context: modelContext, undoManager: undoManager, onUndoError: onStatus)
+                if request.intent == .extractTasks { isTodoPanelOpen = true }
+                onStatus("Organization applied. Use Undo to restore the previous state.")
+            }
+        }
+        .sheet(isPresented: $isQuickNotePresented) {
+            QuickNoteCaptureSheet { title, body in
+                let point = nextNodePosition()
+                let node = CanvasNodeModel(canvasId: canvas.id, title: title, body: body,
+                    nodeType: .note, x: point.x, y: point.y,
+                    width: CanvasNodeMetrics.noteWidth, height: CanvasNodeMetrics.noteHeight)
+                modelContext.insert(node)
+                do { try modelContext.save() }
+                catch { modelContext.rollback(); throw error }
+                selectedNodeIDs = [node.id]
+                selectedEdgeIDs = []
+                onStatus("Note saved. Select it to organize or turn it into tasks.")
+            }
+        }
         .onAppear {
             if !isTodoPanelInitialized {
                 initializeTodoPanelDefaults()
@@ -1184,6 +1213,8 @@ struct WorkspaceCanvasView: View {
                 consumeReadyCanvasNodeOpenRequest()
             }
             .onChange(of: canvas.id) { _, _ in
+                organizationSelection = nil
+                isQuickNotePresented = false
                 initializeTodoPanelDefaults()
                 resetTransientCanvasInteractionState()
             }
@@ -1363,6 +1394,22 @@ struct WorkspaceCanvasView: View {
                 .buttonStyle(.bordered)
                 .tint(isTodoPanelOpen ? .accentColor : nil)
                 .help(isTodoPanelOpen ? "Close workspace tasks" : "Open workspace tasks")
+
+                Button {
+                    flushPendingScrollZoomCommit()
+                    flushPendingNodeTextCommits()
+                    let selection = OrganizationSelection(canvas: canvas,
+                        nodes: workflowNodes.filter { selectedNodeIDs.contains($0.id) })
+                    if !selection.cards.isEmpty { organizationSelection = selection }
+                } label: {
+                    Label("Organize selected", systemImage: "sparkles")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!workflowNodes.contains {
+                    selectedNodeIDs.contains($0.id) && !$0.locked && $0.nodeType != .groupFrame
+                })
+                .help("Select editable cards to summarize, group, extract tasks, or arrange. Preview before applying.")
 
                 GroupBox("Add") {
                     VStack(alignment: .leading, spacing: 8) {
@@ -3297,7 +3344,7 @@ struct WorkspaceCanvasView: View {
         } else {
             baseNodes = [node]
         }
-        let cards = cachedRenderSnapshot.cardNodes
+        let cards = workflowNodes
         let frameRectsByID = Dictionary(
             workflowNodes
                 .filter { $0.nodeType == .groupFrame }
@@ -4057,13 +4104,8 @@ struct WorkspaceCanvasView: View {
     }
 
     private func addNoteNode() {
-        let point = nextNodePosition()
-        let node = CanvasNodeModel(canvasId: canvas.id, title: "Note", body: "Write a workflow note here.", nodeType: .note, x: point.x, y: point.y, width: CanvasNodeMetrics.noteWidth, height: CanvasNodeMetrics.noteHeight, collapsed: false)
-        modelContext.insert(node)
-        if saveModelChanges(failurePrefix: "Could not add note card", successStatus: "Added note card") {
-            selectedNodeIDs = [node.id]
-            selectedEdgeIDs = []
-        }
+        flushPendingNodeTextCommits()
+        isQuickNotePresented = true
     }
 
     private func addFrameNode() {
@@ -4308,35 +4350,38 @@ struct WorkspaceCanvasView: View {
     }
 
     private func autoArrange() {
-        let mutableNodeIDs = CanvasLockedNodeMutationPolicy.mutableNodeIDs(
-            from: Set(workflowNodes.map(\.id)),
-            lockedNodeIDs: lockedNodeIDs
-        )
-        let mutableNodes = workflowNodes.filter { mutableNodeIDs.contains($0.id) }
-        let lockedNodes = workflowNodes.filter { lockedNodeIDs.contains($0.id) }
-        guard !mutableNodes.isEmpty else {
-            onStatus("Unlock cards before auto arranging the canvas.")
-            return
-        }
-        let layout = mutableNodes.map { node in
-            let size = nodeSize(for: node)
-            return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
-        }
-        let fixedLayout = lockedNodes.map { node in
+        flushPendingNodeTextCommits()
+        let layout = workflowNodes.map { node in
             let size = nodeSize(for: node)
             return CanvasLayoutNode(id: node.id, x: node.x, y: node.y, width: size.width, height: size.height)
         }
         let layoutEdges = visibleEdges.map {
             CanvasLayoutEdge(sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId)
         }
-        if apply(CanvasLayoutEngine.autoArrange(
+        let arranged = CanvasLayoutEngine.arrangeGroups(
             layout,
-            fixedNodes: fixedLayout,
-            edges: layoutEdges,
-            horizontalSpacing: 96,
-            verticalSpacing: 56,
-            disconnectedColumns: 3
-        )) {
+            frameIDs: Set(workflowNodes.filter { $0.nodeType == .groupFrame }.map(\.id)),
+            parents: Dictionary(workflowNodes.compactMap { node in node.parentNodeId.map { (node.id, $0) } }, uniquingKeysWith: { first, _ in first }),
+            lockedIDs: lockedNodeIDs,
+            edges: layoutEdges
+        )
+        let starts = Dictionary(workflowNodes.map { ($0.id, CanvasNodeDragStart(x: $0.x, y: $0.y, parentNodeId: $0.parentNodeId)) }, uniquingKeysWith: { first, _ in first })
+        let positions = Dictionary(arranged.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var edgeStarts: [CanvasEdgeControlPointSnapshot] = []
+        for edge in visibleEdges {
+            guard let x = edge.controlPointX, let y = edge.controlPointY,
+                  let a = starts[edge.sourceNodeId], let b = starts[edge.targetNodeId],
+                  let newA = positions[edge.sourceNodeId], let newB = positions[edge.targetNodeId] else { continue }
+            let dx = newA.x - a.x, dy = newA.y - a.y
+            if abs(dx - (newB.x - b.x)) < 0.0001 && abs(dy - (newB.y - b.y)) < 0.0001 {
+                edgeStarts.append(CanvasEdgeControlPointSnapshot(id: edge.id, x: x, y: y))
+                edge.controlPointX = x + dx
+                edge.controlPointY = y + dy
+            }
+        }
+        if apply(arranged) {
+            registerNodePositionUndo(starts, edgeControlPointSnapshots: edgeStarts)
+            fitAllNodes()
             onStatus("Auto arranged canvas")
         }
     }

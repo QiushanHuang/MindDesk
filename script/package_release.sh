@@ -214,8 +214,8 @@ submit_notary() {
 
 mkdir -p "$APP_CONTENTS/MacOS" "$APP_CONTENTS/Resources" "$ARTIFACT_DIR" "$DMG_ROOT"
 
-swift build --package-path "$ROOT_DIR" --scratch-path "$BUILD_SCRATCH" -c release
-BUILD_DIR="$(swift build --package-path "$ROOT_DIR" --scratch-path "$BUILD_SCRATCH" -c release --show-bin-path)"
+swift build --build-system native --package-path "$ROOT_DIR" --scratch-path "$BUILD_SCRATCH" -c release
+BUILD_DIR="$(swift build --build-system native --package-path "$ROOT_DIR" --scratch-path "$BUILD_SCRATCH" -c release --show-bin-path)"
 BUILD_DIR="$(cd -P "$BUILD_DIR" && pwd)"
 [[ "$BUILD_DIR" == "$BUILD_SCRATCH"/* && -d "$BUILD_DIR" && ! -L "$BUILD_DIR" ]] || { echo "SwiftPM returned a build directory outside the private scratch" >&2; exit 1; }
 BUILD_BINARY="$BUILD_DIR/$APP_NAME"
@@ -362,7 +362,8 @@ cp "$NORMALIZED_PLAN" "$ARTIFACT_DIR/normalized-build-plan.json"
 cp "$SOURCE_POLICY" "$ARTIFACT_DIR/source-policy-evidence.json"
 
 if [[ -f "$RELEASE_NOTES_SOURCE" ]]; then cp "$RELEASE_NOTES_SOURCE" "$ARTIFACT_DIR/RELEASE-NOTES.md"; else printf '# %s v%s\n\nPrivate local Canvas release.\n' "$APP_DISPLAY_NAME" "$VERSION" >"$ARTIFACT_DIR/RELEASE-NOTES.md"; fi
-printf '%s %s\n\nInstall by opening %s and dragging %s.app to Applications.\n' "$APP_DISPLAY_NAME" "$VERSION" "$(basename "$DMG_PATH")" "$APP_DISPLAY_NAME" >"$ARTIFACT_DIR/INSTALL.txt"
+cp "$ROOT_DIR/docs/INSTALL.txt" "$ARTIFACT_DIR/INSTALL.txt"
+cp "$ROOT_DIR/docs/user-manual.md" "$ARTIFACT_DIR/USER-GUIDE.md"
 
 python3 - "$ARTIFACT_DIR" "$SOURCE_HEAD" "$VERSION" "$SUFFIX" "$MODE" "$RELEASE_NAME" <<'PY'
 import hashlib,json,os,sys

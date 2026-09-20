@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+## 2026-09-20 - v3.2.0 organizing assistant and Canvas recovery
+
+- Added preview-first summaries, grouping, task extraction and arrangement using the signed-in local Codex CLI.
+- Added quick-note capture with optional titles and type filters in Quick Open.
+- Restored the established Canvas rendering path and subtle grid; fixed nested frame dragging and group-preserving Auto Arrange with undo.
+- Fixed desktop organizer startup failing with status 127 when Node was absent from the app search path.
+- Added a connected-card logo and app icon, bilingual product introduction, same-page README language badges and a practical operation guide.
+- 新增先预览后应用的整理助手、快速笔记和搜索类型筛选；恢复画布样式，修复框与卡片分离及预览启动失败；更新 Logo 与中英指南。
+- Full details: [English / 中文](docs/releases/v3.2.0.md).
+
 ## 2026-08-11 - v3.1.1 smoother Canvas update
 
 ### Improved

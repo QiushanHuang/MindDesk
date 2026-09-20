@@ -1,8 +1,16 @@
 # MindDesk 功能回归清单
 
-**Canvas Review is currently off.** This version does not start an Agent or review helper, generate an AI context package, or provide Canvas content to a model through this feature. MindDesk's normal storage, system backup, sync, and any external services you use remain subject to their own privacy settings.
+v3.2.0 增加可选整理助手：通过本机 Codex 对所选卡片生成预览，用户确认后应用。原有终端式代理入口仍不提供。
 
-本清单覆盖当前私有、手动 Canvas 产品。未勾选条目表示仍需在正式发布环境完成，不代表当前功能入口。
+本清单覆盖本地画布与可选整理助手。未勾选条目表示尚未完成对应实机检查。
+
+## v3.2.0
+
+- [x] 嵌套分组拖动、自动排列及锁定成员回归测试。
+- [x] 整理助手预览校验、过期选择拦截与应用撤销测试。
+- [x] 精简桌面 PATH 下的真实合成预览成功。
+- [x] 快速笔记与 Quick Open 类型筛选已集成。
+- [ ] 全屏手势流畅度及视觉方向实机验收。
 
 ## 启动与数据
 
