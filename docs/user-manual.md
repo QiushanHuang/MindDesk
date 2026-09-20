@@ -41,7 +41,7 @@ Install the [Codex CLI](https://developers.openai.com/codex/cli) and sign in usi
 1. Select one or more unlocked, non-frame cards.
 2. Click Organize selected and inspect Included cards.
 3. Choose Summarize, Suggest groups, Extract tasks or Arrange canvas.
-4. Click Create preview and wait for the result. You can cancel a running request.
+4. Click Generate preview and wait for the result. You can cancel a running request.
 5. Edit the summary, group names or task details shown in the preview, then apply.
 
 A summary creates a new note. Group suggestions move selected cards into new named frames beside existing content; cards omitted from the suggestion stay in place. Task extraction creates workspace tasks with references to their source cards. Existing file contents and original card text stay unchanged.
@@ -147,7 +147,7 @@ Home 用于返回最近的项目。工作区包含 Overview（概览）、Tasks�
 1. 选择一张或多张未锁定的普通卡片，不要只选分组框。
 2. 点击 Organize selected，在 Included cards 中确认将发送的内容。
 3. 选择 Summarize（摘要）、Suggest groups（分组建议）、Extract tasks（提取任务）或 Arrange canvas（整理画布）。
-4. 点击 Create preview。生成过程中可以取消。
+4. 点击 Generate preview。生成过程中可以取消。
 5. 查看并修改预览中的摘要、组名或任务信息，再应用。
 
 摘要会生成新笔记；分组建议会在现有内容旁建立命名框并移动相关卡片，未获分组建议的卡片不动；提取任务会创建工作区任务并保留来源卡片引用。原文件内容和原始卡片文字不变。

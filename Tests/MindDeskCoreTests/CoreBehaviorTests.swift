@@ -6106,7 +6106,7 @@ final class CoreBehaviorTests: XCTestCase {
         XCTAssertTrue(readme.contains("id=\"中文\""))
         XCTAssertTrue(readme.contains("href=\"#english\""))
         XCTAssertTrue(readme.contains("model service"))
-        XCTAssertTrue(readme.contains("Create preview"))
+        XCTAssertTrue(readme.contains("Generate preview"))
 
         let changelog = try String(
             contentsOf: repositoryRoot.appendingPathComponent("CHANGELOG.md"),
