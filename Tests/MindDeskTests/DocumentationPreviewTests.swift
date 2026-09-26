@@ -70,17 +70,19 @@ final class DocumentationPreviewTests: XCTestCase {
             expandedHeight: 360
         )
         try await render(taskView.padding(24).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 1180, height: 408), to: output.appendingPathComponent("tasks.png"))
-        let selection = OrganizationSelection(canvas: canvas, nodes: nodes.filter { $0.nodeType == .note })
-        try await render(OrganizationSheet(selection: selection, apply: { _, _ in }).modelContainer(container), size: CGSize(width: 780, height: 580), to: output.appendingPathComponent("organizer.png"))
+        let selection = OrganizationSelection(canvas: canvas, nodes: nodes.filter { $0.nodeType == .note }, contextNodes: nodes, edges: [edge])
+        try await render(OrganizationSheet(selection: selection, apply: { _, _ in }).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 860, height: 820), to: output.appendingPathComponent("organizer.png"))
+        try await render(OrganizationSheet(selection: selection, apply: { _, _ in }).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 860, height: 820), to: output.appendingPathComponent("organizer-dark.png"), scheme: .dark)
+        try await render(OrganizationWorkflowEditor(workflows: [], seed: .init(id: "demo", title: "Weekly research plan", intent: .extractTasks, scope: .neighbors, instructions: "Keep observations separate from assumptions. Do not invent deadlines."), save: { _ in }), size: CGSize(width: 760, height: 560), to: output.appendingPathComponent("workflows.png"))
         try await render(QuickNoteCaptureSheet(save: { _, _ in }), size: CGSize(width: 560, height: 380), to: output.appendingPathComponent("quick-note.png"))
     }
 
-    private func render<V: View>(_ view: V, size: CGSize, to url: URL) async throws {
+    private func render<V: View>(_ view: V, size: CGSize, to url: URL, scheme: ColorScheme = .light) async throws {
         let host = NSHostingView(rootView: view
             .frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.controlActiveState, .active)
-            .preferredColorScheme(.light))
+            .environment(\.colorScheme, scheme).preferredColorScheme(scheme))
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host

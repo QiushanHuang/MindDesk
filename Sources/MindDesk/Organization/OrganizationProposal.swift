@@ -9,6 +9,32 @@ struct OrganizationCard: Codable, Equatable, Identifiable, Sendable {
     var title: String
     var body: String
     var kind: String
+    var parentID: String? = nil
+    var locked: Bool = false
+}
+
+enum OrganizationContextScope: String, Codable, CaseIterable, Identifiable, Sendable {
+    case selection, neighbors
+    var id: String { rawValue }
+    var title: String { self == .selection ? "Selection + groups" : "Selection + neighbors" }
+}
+
+struct OrganizationLink: Codable, Equatable, Sendable {
+    var id: String
+    var sourceID: String
+    var targetID: String
+    var label: String
+    var sourceArrow: String
+    var targetArrow: String
+
+    var directionSymbol: String {
+        switch (sourceArrow == "arrow", targetArrow == "arrow") {
+        case (true, true): "↔"
+        case (true, false): "←"
+        case (false, true): "→"
+        case (false, false): "—"
+        }
+    }
 }
 
 struct OrganizationRequest: Codable, Equatable, Sendable {
@@ -16,6 +42,13 @@ struct OrganizationRequest: Codable, Equatable, Sendable {
     var canvasID: String
     var intent: OrganizationIntent
     var cards: [OrganizationCard]
+    var sourceID: String = ""
+    var contextScope: OrganizationContextScope = .selection
+    var referenceCards: [OrganizationCard] = []
+    var links: [OrganizationLink] = []
+    var instructions: String = ""
+    var revisionFeedback: String = ""
+    var previousProposal: OrganizationProposal? = nil
 
     func validate() throws {
         guard !cards.isEmpty, cards.count <= 100, Set(cards.map(\.id)).count == cards.count else {
@@ -23,14 +56,30 @@ struct OrganizationRequest: Codable, Equatable, Sendable {
         }
         try checkedText(workspaceID, maximum: 200)
         try checkedText(canvasID, maximum: 200)
-        for card in cards {
+        guard referenceCards.count <= 100, links.count <= 400,
+              Set(referenceCards.map(\.id)).count == referenceCards.count,
+              Set(cards.map(\.id)).isDisjoint(with: referenceCards.map(\.id)),
+              Set(links.map(\.id)).count == links.count else {
+            throw OrganizationError.invalidInput("The context is too large or contains ambiguous object IDs. Choose fewer cards or Selection + groups.")
+        }
+        try checkedText(instructions, maximum: 4_000, allowEmpty: true)
+        try checkedText(revisionFeedback, maximum: 4_000, allowEmpty: true)
+        let knownIDs = Set((cards + referenceCards).map(\.id))
+        for link in links {
+            guard knownIDs.contains(link.sourceID), knownIDs.contains(link.targetID) else { throw OrganizationError.invalidProposal }
+            try checkedText(link.id, maximum: 200)
+            try checkedText(link.label, maximum: 2_000, allowEmpty: true)
+            try checkedText(link.sourceArrow, maximum: 40)
+            try checkedText(link.targetArrow, maximum: 40)
+        }
+        for card in cards + referenceCards {
             try checkedText(card.id, maximum: 200)
             try checkedText(card.title, maximum: 500, allowEmpty: true)
             try checkedText(card.body, maximum: 20_000, allowEmpty: true)
             try checkedText(card.kind, maximum: 100)
         }
         guard try JSONEncoder().encode(self).count <= 256_000 else {
-            throw OrganizationError.invalidInput("Selected card content exceeds 256 KB. Choose fewer cards.")
+            throw OrganizationError.invalidInput("Selected card content exceeds 256 KB. Choose fewer cards or a smaller context scope.")
         }
     }
 }

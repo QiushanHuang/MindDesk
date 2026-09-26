@@ -39,14 +39,15 @@ Choose the note control, write or paste your text, then click Save to canvas or 
 Install the [Codex CLI](https://developers.openai.com/codex/cli) and sign in using your own account. The current integration looks in ~/.npm-global/bin, /opt/homebrew/bin and /usr/local/bin. For npm installations, Node must also be available; standard Homebrew and /usr/local installations are supported.
 
 1. Select one or more unlocked, non-frame cards.
-2. Click Organize selected and inspect Included cards.
-3. Choose Summarize, Suggest groups, Extract tasks or Arrange canvas.
-4. Click Generate preview and wait for the result. You can cancel a running request.
-5. Edit the summary, group names or task details shown in the preview, then apply.
+2. Click Organize selected and inspect Included cards and relationships.
+3. Choose Summarize, Suggest groups, Extract tasks or Arrange canvas. Choose Selection + groups or Selection + neighbors and add optional instructions.
+4. Use Inspect request to see the editable targets, reference-only cards, relationships and instructions. Save workflow… stores a reusable local preset; Manage… supports draft editing with Save/Cancel.
+5. Click Generate preview and wait for the result. You can cancel a running request.
+6. Edit the summary, group names or task details. Enter feedback and choose Revise preview if needed; Inspect request includes the edited previous draft and feedback. Apply only after reviewing the result.
 
 A summary creates a new note. Group suggestions move selected cards into new named frames beside existing content; cards omitted from the suggestion stay in place. Task extraction creates workspace tasks with references to their source cards. Existing file contents and original card text stay unchanged.
 
-The selected card titles and text are sent through Codex to its model service. This requires network access and uses your Codex account's model availability and usage allowance. No proposal is applied until you confirm it. If the underlying selection changes while a preview is open, create a fresh preview.
+The included card titles, notes, relationships, instructions and optional previous preview are sent through Codex to its model service. Reference-only cards cannot be modified; file contents are not read. This requires network access and uses your Codex account's model availability and usage allowance. No proposal is applied until you confirm it. If source cards, reference context or included relationships change while a preview is open, create a fresh preview. Editing the action, scope or instructions clears the old preview.
 
 ## Tasks, resources and snippets
 
@@ -145,14 +146,15 @@ Home 用于返回最近的项目。工作区包含 Overview（概览）、Tasks�
 先安装并登录 [Codex CLI](https://developers.openai.com/codex/cli)，使用自己的账号。当前集成会在 ~/.npm-global/bin、/opt/homebrew/bin 和 /usr/local/bin 查找 Codex；通过 npm 安装时还需要 Node，支持常见 Homebrew 和 /usr/local 安装位置。
 
 1. 选择一张或多张未锁定的普通卡片，不要只选分组框。
-2. 点击 Organize selected，在 Included cards 中确认将发送的内容。
+2. 点击 Organize selected，在 Included cards and relationships 中确认可修改卡片与只读参考。
 3. 选择 Summarize（摘要）、Suggest groups（分组建议）、Extract tasks（提取任务）或 Arrange canvas（整理画布）。
-4. 点击 Generate preview。生成过程中可以取消。
-5. 查看并修改预览中的摘要、组名或任务信息，再应用。
+4. 选择上下文范围并填写自定义指令；Inspect request 可查看完整输入。Save workflow… 保存工作流，Manage… 支持编辑草稿并通过 Save/Cancel 保存或取消。
+5. 点击 Generate preview。生成过程中可以取消。
+6. 查看并修改预览。需要重新生成时，填写反馈并点击 Revise preview；Inspect request 会包含旧草稿和反馈。确认结果后再应用。
 
 摘要会生成新笔记；分组建议会在现有内容旁建立命名框并移动相关卡片，未获分组建议的卡片不动；提取任务会创建工作区任务并保留来源卡片引用。原文件内容和原始卡片文字不变。
 
-点击生成预览时，所选卡片的标题和文字会通过 Codex 发送给模型服务，需要联网，使用你的 Codex 账号权限与用量额度。确认应用前不会改变画布。预览期间若原始选择内容发生变化，请重新生成。
+点击生成时，明确包含的卡片文字、关系、指令及可选旧预览会通过 Codex 发往模型服务。只读参考不能被修改，原文件内容不会被读取。确认应用前不会改变画布；来源、参考内容或相关连线变化后需要重新生成。修改操作、范围或指令会使旧预览失效。
 
 ### 任务、资源与片段
 

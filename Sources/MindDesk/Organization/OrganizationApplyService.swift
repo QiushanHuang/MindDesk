@@ -6,18 +6,47 @@ struct OrganizationSelection: Identifiable {
     let workspaceID: String
     let canvasID: String
     let cards: [OrganizationSourceSnapshot]
+    let selectedIDs: Set<String>
+    let contextSources: [OrganizationSourceSnapshot]
+    let contextLinks: [OrganizationLink]
 
     @MainActor
-    init(canvas: CanvasModel, nodes: [CanvasNodeModel]) {
+    init(canvas: CanvasModel, nodes: [CanvasNodeModel], contextNodes: [CanvasNodeModel] = [], edges: [CanvasEdgeModel] = []) {
         workspaceID = canvas.workspaceId
         canvasID = canvas.id
+        selectedIDs = Set(nodes.filter { $0.canvasId == canvas.id }.map(\.id))
+        let sources = contextNodes.isEmpty ? nodes : contextNodes
+        contextSources = sources.filter { $0.canvasId == canvas.id }.sorted { $0.id < $1.id }.map(OrganizationSourceSnapshot.init)
+        contextLinks = edges.filter { $0.canvasId == canvas.id }.map {
+            .init(id: $0.id, sourceID: $0.sourceNodeId, targetID: $0.targetNodeId, label: $0.label,
+                  sourceArrow: $0.sourceArrowRaw, targetArrow: $0.targetArrowRaw)
+        }.sorted { $0.id < $1.id }
         cards = nodes.filter { $0.canvasId == canvas.id && !$0.locked && $0.nodeType != .groupFrame }
             .sorted { $0.id < $1.id }.map(OrganizationSourceSnapshot.init)
     }
 
-    func request(intent: OrganizationIntent) -> OrganizationRequest {
-        OrganizationRequest(workspaceID: workspaceID, canvasID: canvasID, intent: intent,
-                            cards: cards.map(\.card))
+    func request(intent: OrganizationIntent, scope: OrganizationContextScope = .selection, instructions: String = "", feedback: String = "", previous: OrganizationProposal? = nil) -> OrganizationRequest {
+        let targetIDs = Set(cards.map { $0.card.id })
+        var included = selectedIDs
+        if scope == .neighbors {
+            for link in contextLinks where selectedIDs.contains(link.sourceID) || selectedIDs.contains(link.targetID) {
+                included.formUnion([link.sourceID, link.targetID])
+            }
+        }
+        var previousIDs = Set<String>()
+        while included != previousIDs {
+            previousIDs = included
+            for source in contextSources where included.contains(source.card.id) {
+                if let parent = source.parentID { included.insert(parent) }
+            }
+        }
+        let references = contextSources.filter { included.contains($0.card.id) && !targetIDs.contains($0.card.id) }.map(\.card)
+        let knownIDs = targetIDs.union(references.map(\.id))
+        return OrganizationRequest(workspaceID: workspaceID, canvasID: canvasID, intent: intent,
+            cards: cards.map(\.card), sourceID: id.uuidString, contextScope: scope, referenceCards: references,
+            links: contextLinks.filter { knownIDs.contains($0.sourceID) && knownIDs.contains($0.targetID) },
+            instructions: instructions, revisionFeedback: feedback, previousProposal: previous)
+
     }
 }
 
@@ -34,7 +63,7 @@ struct OrganizationSourceSnapshot: Equatable {
 
     @MainActor
     init(_ node: CanvasNodeModel) {
-        card = OrganizationCard(id: node.id, title: node.title, body: node.body, kind: node.nodeTypeRaw)
+        card = OrganizationCard(id: node.id, title: node.title, body: node.body, kind: node.nodeTypeRaw, parentID: node.parentNodeId, locked: node.locked)
         canvasID = node.canvasId
         x = node.x; y = node.y; width = node.width; height = node.height
         parentID = node.parentNodeId; updatedAt = node.updatedAt; locked = node.locked
@@ -77,8 +106,12 @@ enum OrganizationApplyService {
     ) throws {
         try proposal.validate(for: request)
         guard !context.hasChanges else { throw OrganizationApplyError.unsavedChanges }
+        var sourceRequest = request
+        sourceRequest.instructions = ""
+        sourceRequest.revisionFeedback = ""
+        sourceRequest.previousProposal = nil
         guard canvas.id == selection.canvasID, canvas.workspaceId == selection.workspaceID,
-              request == selection.request(intent: request.intent) else {
+              sourceRequest == selection.request(intent: request.intent, scope: request.contextScope) else {
             throw OrganizationApplyError.staleSelection
         }
         let nodes = try context.fetch(FetchDescriptor<CanvasNodeModel>())
@@ -92,6 +125,14 @@ enum OrganizationApplyService {
                   node.width < 100_000, node.height < 100_000 else {
                 throw OrganizationApplyError.invalidGeometry
             }
+        }
+
+        let edges = try context.fetch(FetchDescriptor<CanvasEdgeModel>())
+        let currentSelection = OrganizationSelection(canvas: canvas,
+            nodes: nodes.filter { selection.selectedIDs.contains($0.id) }, contextNodes: nodes, edges: edges)
+        let currentRequest = currentSelection.request(intent: request.intent, scope: request.contextScope)
+        guard request.referenceCards == currentRequest.referenceCards, request.links == currentRequest.links else {
+            throw OrganizationApplyError.staleSelection
         }
 
         var createdNodeIDs: [String] = []

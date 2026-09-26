@@ -6,10 +6,46 @@ import SwiftData
 final class OrganizationApplyTests: XCTestCase {
     private func context() throws -> ModelContext {
         let container = try ModelContainer(
-            for: WorkspaceModel.self, CanvasModel.self, CanvasNodeModel.self, WorkspaceTodoModel.self,
+            for: WorkspaceModel.self, CanvasModel.self, CanvasNodeModel.self, CanvasEdgeModel.self, WorkspaceTodoModel.self,
             configurations: ModelConfiguration(isStoredInMemoryOnly: true)
         )
         return ModelContext(container)
+    }
+
+    func testChangedReferenceOrLinkRejectsPreviewBeforeAnyMutation() throws {
+        let context = try context()
+        let canvas = CanvasModel(id: "canvas", workspaceId: "w")
+        let a = CanvasNodeModel(id: "a", canvasId: canvas.id, title: "Target", nodeType: .note, x: 0, y: 0)
+        let b = CanvasNodeModel(id: "b", canvasId: canvas.id, title: "Reference", nodeType: .note, x: 300, y: 0)
+        let edge = CanvasEdgeModel(id: "ab", canvasId: canvas.id, sourceNodeId: a.id, targetNodeId: b.id, label: "supports")
+        context.insert(canvas); context.insert(a); context.insert(b); context.insert(edge)
+        try context.save()
+        let selection = OrganizationSelection(canvas: canvas, nodes: [a], contextNodes: [a, b], edges: [edge])
+        let request = selection.request(intent: .summarize, scope: .neighbors, instructions: "Use short sentences.")
+        edge.label = "contradicts"
+        try context.save()
+        XCTAssertThrowsError(try OrganizationApplyService.apply(.init(summary: "Old interpretation", groups: [], tasks: []),
+            request: request, selection: selection, canvas: canvas, context: context, undoManager: nil))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<CanvasNodeModel>()).count, 2)
+        edge.label = "supports"
+        b.body = "Changed evidence"
+        try context.save()
+        XCTAssertThrowsError(try OrganizationApplyService.apply(.init(summary: "Old interpretation", groups: [], tasks: []),
+            request: request, selection: selection, canvas: canvas, context: context, undoManager: nil))
+        XCTAssertEqual(try context.fetch(FetchDescriptor<CanvasNodeModel>()).count, 2)
+    }
+
+    func testCustomGuidanceAndFeedbackDoNotBreakValidApply() throws {
+        let context = try context()
+        let canvas = CanvasModel(workspaceId: "w")
+        let node = CanvasNodeModel(canvasId: canvas.id, title: "Source", nodeType: .note, x: 0, y: 0)
+        context.insert(canvas); context.insert(node); try context.save()
+        let selection = OrganizationSelection(canvas: canvas, nodes: [node])
+        let request = selection.request(intent: .summarize, instructions: "In Chinese", feedback: "Shorter",
+                                        previous: .init(summary: "Previous text", groups: [], tasks: []))
+        try OrganizationApplyService.apply(.init(summary: "简洁摘要", groups: [], tasks: []), request: request,
+            selection: selection, canvas: canvas, context: context, undoManager: nil)
+        XCTAssertEqual(try context.fetch(FetchDescriptor<CanvasNodeModel>()).count, 2)
     }
 
     func testSummaryAddsNoteWithoutChangingSourceAndUndoRemovesIt() throws {

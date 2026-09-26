@@ -18,3 +18,5 @@ MINDDESK_DOCUMENTATION_PREVIEWS="$PWD/docs/screenshots" swift test --filter Docu
 The opt-in renderer uses an in-memory SwiftData container and a separate UserDefaults suite, removed afterward. It does not open the normal app database, read personal files, contact a model service or capture the desktop. It snapshots NSHostingView content directly. App source views are unchanged. These images were rendered with the v3.2.0 UI on macOS; system font and control rendering may differ on another OS version.
 
 中文：本目录为真实应用组件的演示截图，仅使用内存中的虚构项目。整理助手图展示生成前的操作选择，并非模型返回结果。截图不包含私人工作区或桌面内容，不会访问用户数据库、文件或模型服务。
+
+The v3.3 organizer and workflow-editor previews use scoped fictional card data. `organizer-dark.png` is the dark-appearance render; `workflows.png` shows the staged local preset editor. These renders do not call a model or open the personal store.

@@ -15,6 +15,32 @@ final class CodexOrganizationServiceTests: XCTestCase {
         XCTAssertTrue(proposal.tasks.isEmpty)
     }
 
+    func testSignedInCodexAcceptsContextAndRevisionFeedback() async throws {
+        guard ProcessInfo.processInfo.environment["MINDDESK_ORGANIZER_LIVE_SMOKE"] == "1" else {
+            throw XCTSkip("Opt-in synthetic context and revision acceptance")
+        }
+        var request = sampleRequest(.summarize)
+        request.cards[0].body = "The team agreed to compare two prototypes next week. The budget is still unknown."
+        request.instructions = "Write a short summary in Chinese. Keep unknown facts explicit."
+        request.referenceCards = [.init(id: "b", title: "Read-only background", body: "No budget has been approved.", kind: "note", locked: true)]
+        request.links = [.init(id: "ab", sourceID: "a", targetID: "b", label: "background", sourceArrow: "none", targetArrow: "none")]
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
+        let service = CodexOrganizationService(timeout: 120, environment: environment)
+        let first = try await service.generate(request: request)
+        XCTAssertFalse(first.summary.isEmpty)
+        XCTAssertNotNil(first.summary.range(of: "[\\p{Han}]", options: .regularExpression))
+        request.previousProposal = first
+        request.revisionFeedback = "Replace the summary with one short sentence in English. Preserve the unknown budget."
+        request.instructions = "Write in English."
+        let revised = try await service.generate(request: request)
+        XCTAssertFalse(revised.summary.isEmpty)
+        XCTAssertNotEqual(first.summary, revised.summary)
+        XCTAssertTrue(revised.groups.isEmpty && revised.tasks.isEmpty)
+        print("SYNTHETIC_CONTEXT_PREVIEW: \(first.summary)")
+        print("SYNTHETIC_REVISED_PREVIEW: \(revised.summary)")
+    }
+
     func testMissingExecutableIsFriendlyFailure() async {
         do {
             _ = try await CodexOrganizationService(executableURL: URL(fileURLWithPath: "/not/a/codex")).generate(request: sampleRequest(.summarize))

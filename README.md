@@ -5,7 +5,7 @@
 <p align="center">
 <a href="#english"><img src="https://img.shields.io/badge/English-Read-183B56" alt="English"></a>
 <a href="#中文"><img src="https://img.shields.io/badge/简体中文-阅读-168A83" alt="跳转到本页中文"></a>
-<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.2.0"><img src="https://img.shields.io/badge/release-v3.2.0-168A83" alt="Release v3.2.0"></a>
+<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.3.0"><img src="https://img.shields.io/badge/release-v3.3.0-168A83" alt="Release v3.3.0"></a>
 <img src="https://img.shields.io/badge/macOS-14%2B-183B56" alt="macOS 14 or newer">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-183B56" alt="MIT license"></a>
 </p>
@@ -111,11 +111,17 @@ Start in the writing area, then use **Save to canvas**. The title field is optio
 
 ### 5. Organizing assistant: preview the changes before applying
 
-Select unlocked, non-frame cards and click **Organize selected**. Review **Included cards**, choose an action and click **Generate preview**.
+Select unlocked, non-frame cards and click **Organize selected**. Choose an action, set the context scope and add instructions such as “keep unknown dates explicit” or “summarize in Chinese.” **Inspect request** shows the exact structured input before you send it.
+
+**New in 3.3:** save reusable workflows, include neighboring cards as read-only context, and revise a preview with feedback. Source or relationship changes are checked again before applying.
 
 ![Organizing assistant action picker with four selected demo cards and the Generate preview button](docs/screenshots/organizer.png)
 
-This image shows the **action-selection screen**, before a model request: the four choices are across the top, Included cards lets you inspect the input, and **Generate preview** starts the request. The result then appears in an editable preview with **Apply changes**. No generated result is shown in this screenshot.
+This is the **preparation screen**, using fictional cards. Editable targets and reference-only context are counted separately. **Selection + groups** includes the selected cards and their parent frames; **Selection + neighbors** adds directly connected cards. A reference-only card cannot become a modification target.
+
+Use **Save workflow…** to keep the action, scope and instructions together. **Manage…** lets you edit, duplicate or remove saved workflows; only **Save** commits those edits.
+
+<img src="docs/screenshots/workflows.png" width="680" alt="Saved workflow editor with action, context, instructions and explicit Save and Cancel controls">
 
 | Action | Result after you apply the preview |
 | --- | --- |
@@ -124,11 +130,13 @@ This image shows the **action-selection screen**, before a model request: the fo
 | Extract tasks | New workspace tasks with source-card names recorded in their details. |
 | Arrange canvas | Selected cards organized into suggested groups beside the existing content. |
 
-Edit the summary, group names or task details before applying. Cancel if the suggestion is not useful. Creating a preview leaves the canvas unchanged; applying a result supports Undo. Cards left out of a grouping suggestion stay where they are.
+Edit the summary, group names or task details before applying. To ask for another result, enter feedback and choose **Revise preview**; the edited draft and feedback are included in the replacement request. You can inspect that exact request before and during generation.
+
+**Apply changes** rechecks the source cards and included relationships. If they changed, generate a fresh preview. Applying supports Undo; cards omitted from a grouping suggestion stay in place.
 
 **Auto Arrange and the assistant do different jobs.** Auto Arrange is a local layout command that preserves existing groups. The assistant uses selected card text to suggest meaningful new groups and returns a preview. Manually bent links may need a route adjustment after assistant-driven regrouping.
 
-The organizer uses your installed, signed-in Codex CLI. The selected card titles and text are sent through Codex to its model service when you request a preview. This is an optional online feature, not an on-device model; the rest of your canvas remains local. Review the included cards before sending sensitive material.
+The organizer uses your installed, signed-in Codex CLI. The included card titles, notes, relationships, instructions and optional revision draft are sent through Codex to its model service only when you request a preview. This is an optional online feature, not an on-device model; the rest of your canvas remains local. Review the included cards before sending sensitive material.
 
 ### 6. Export and continuity: keep your project organization portable
 
@@ -138,9 +146,9 @@ The [operation guide](docs/user-manual.md) walks through these controls and incl
 
 ## Download and start
 
-Current release: `v3.2.0`.
+Current release: `v3.3.0`.
 
-**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.2.0/MindDesk-v3.2.0-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.2.0/MindDesk-v3.2.0-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
+**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
 
 Requires macOS 14 or newer. The supplied build is for Apple silicon (M-series Macs). Intel users can build from source.
 
@@ -154,13 +162,13 @@ To update, quit MindDesk and replace the app in Applications. Your local workspa
 
 For the optional organizer, install and sign in to the [Codex CLI](https://developers.openai.com/codex/cli) once. It uses the model access and usage limits of your Codex account; MindDesk does not include a model subscription.
 
-[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.2.0](docs/releases/v3.2.0.md) · [Full changelog](CHANGELOG.md)
+[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.3.0](docs/releases/v3.3.0.md) · [Full changelog](CHANGELOG.md)
 
 ## Your files and data
 
 MindDesk stores project organization on your Mac. Removing a resource from MindDesk removes its reference, not the original Finder file. Manifest import/export lets you transfer app records; exported files can include paths and note text, so share them with the same care as the project itself. File access may need to be granted again on another Mac.
 
-The default database is at `~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store`. Keep regular backups. The optional organizer sends the selected card content only when you create a preview; it does not run commands from your cards.
+The default database is at `~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store`. Keep regular backups. The optional organizer sends the explicitly included context only when you create a preview; it does not run commands from your cards.
 
 ## Technical overview
 
@@ -332,11 +340,17 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 #### 5. 整理助手：先看清结果，再应用
 
-选中未锁定的普通卡片，点击 **Organize selected**，在 **Included cards** 中确认内容，选择操作后点击 **Generate preview**。
+选中未锁定的普通卡片，点击 **Organize selected**，选择操作和上下文范围，并补充要求，例如“保留未知日期”或“用中文概括”。发送前可通过 **Inspect request** 查看完整结构化输入。
+
+**3.3 新增：** 保存可复用工作流、将邻接卡片作为只读参考、根据反馈重新生成预览。应用前会再次检查来源卡片和相关连线是否变化。
 
 ![整理助手操作选择界面：四种操作、选中卡片数量与生成预览按钮](docs/screenshots/organizer.png)
 
-这是发送请求前的**操作选择界面**：顶部选择四种整理方式，Included cards 查看输入，右下角 **Generate preview** 开始生成。结果返回后会出现可编辑预览和 **Apply changes** 按钮，由你确认后应用。图中尚未生成模型结果。
+这是使用虚构卡片渲染的**准备界面**。可修改卡片与只读参考分开计数。**Selection + groups** 包含选中卡片及所属分组；**Selection + neighbors** 还包含直接相连的卡片。只读参考不能成为修改对象。
+
+用 **Save workflow…** 保存操作、范围和指令；在 **Manage…** 中编辑、复制或删除工作流，点击 **Save** 才会保存本次编辑。
+
+<img src="docs/screenshots/workflows.png" width="680" alt="自定义工作流编辑器，包含操作、上下文、指令以及保存和取消按钮">
 
 | 操作 | 应用预览后得到什么 |
 | --- | --- |
@@ -349,7 +363,9 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 **Auto Arrange 和整理助手不是同一个功能。** 前者在本地按已有分组自动排版；后者会根据所选卡片文字，生成新的分组建议并让你预览。助手重新分组后，手动弯曲过的连线可能需要调整路径。
 
-整理助手复用本机已登录的 Codex CLI。点击生成预览时，选中卡片的标题和文字会通过 Codex 发往模型服务；它是可选的联网功能，不是本地离线模型。发送敏感材料前，请查看 Included cards 中包含的内容。
+整理助手复用本机已登录的 Codex CLI。点击生成时，明确包含的卡片文字、关系、指令及可选的旧预览会发往模型服务；原文件内容不会被读取。发送前请检查 **Included cards and relationships** 和 **Inspect request**。
+
+预览返回后，可以直接编辑，也可以填写反馈并点击 **Revise preview**。本次编辑后的草稿与反馈会一同参与重新生成。点击 **Apply changes** 时会检查来源是否仍然有效；来源卡片或相关关系变化后，需要重新生成。应用后可撤销。
 
 #### 6. 导入导出与备份：保留整理成果
 
@@ -359,9 +375,9 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 ### 下载并开始使用
 
-当前版本：`v3.2.0`。
+当前版本：`v3.3.0`。
 
-**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.2.0/MindDesk-v3.2.0-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.2.0/MindDesk-v3.2.0-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
+**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
 
 需要 macOS 14 或更新版本。现成安装包适用于 M 系列 Mac；Intel Mac 可从源码构建。
 
@@ -375,13 +391,13 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 使用整理助手前，请安装并登录一次 [Codex CLI](https://developers.openai.com/codex/cli)。助手使用你的 Codex 账号权限和用量额度，MindDesk 不包含模型订阅。
 
-[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.2.0 更新内容](docs/releases/v3.2.0.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
+[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.3.0 更新内容](docs/releases/v3.3.0.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
 
 ### 文件与数据
 
 MindDesk 把项目组织信息保存在你的 Mac 上。移除资源引用不会删除 Finder 中的原始文件。Manifest 可用于迁移应用记录，其中可能含有文件路径和笔记文字，分享前请确认内容；换一台 Mac 后，部分文件需要重新授权访问。
 
-默认数据库位于 `~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store`。请保留常规备份。整理助手只在你生成预览时发送所选卡片内容，不会执行卡片里的命令。
+默认数据库位于 `~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store`。请保留常规备份。整理助手只在你生成预览时发送明确包含的上下文，不会执行卡片里的命令。
 
 ### 技术说明与项目结构
 
@@ -398,7 +414,7 @@ MindDesk 使用 **Swift 6 与 SwiftUI** 编写，通过 AppKit 接入 macOS 行�
 | 数据交换 | 带版本与引用校验的 Manifest JSON | 在导入前检查数据格式与记录关系。 |
 | 质量检查 | 核心及应用测试、Debug/Release CI、签名包与归档校验 | 覆盖数据、导航、布局和整理操作的回归场景。 |
 
-数据流可以概括为：界面操作 → 核心布局与记录逻辑 → 本地 SwiftData。只有请求整理预览时，选中卡片才经本机 Codex 发往在线模型服务；返回建议经校验、预览、用户确认后写回本地记录。
+数据流可以概括为：界面操作 → 核心布局与记录逻辑 → 本地 SwiftData。只有请求整理预览时，明确包含的卡片、关系和指令才经本机 Codex 发往在线模型服务；返回建议经校验、预览、用户确认后写回本地记录。
 
 画布以世界坐标保存卡片和框的位置，再根据当前视野进行平移与缩放映射。项目中的内容位置与屏幕上的显示位置分开处理，方便在全局结构和局部内容之间切换。
 

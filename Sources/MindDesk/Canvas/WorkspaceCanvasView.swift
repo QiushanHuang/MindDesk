@@ -1399,7 +1399,8 @@ struct WorkspaceCanvasView: View {
                     flushPendingScrollZoomCommit()
                     flushPendingNodeTextCommits()
                     let selection = OrganizationSelection(canvas: canvas,
-                        nodes: workflowNodes.filter { selectedNodeIDs.contains($0.id) })
+                        nodes: workflowNodes.filter { selectedNodeIDs.contains($0.id) },
+                        contextNodes: workflowNodes, edges: visibleEdges)
                     if !selection.cards.isEmpty { organizationSelection = selection }
                 } label: {
                     Label("Organize selected", systemImage: "sparkles")

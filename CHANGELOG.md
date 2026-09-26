@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-09-26 — v3.3.0: context you can inspect
+
+- Add explicit selection/group and selection/neighbor context scopes, with read-only reference cards and directed/labeled links.
+- Add custom instructions and locally saved workflows with staged editing, duplication, deletion, Save and Cancel.
+- Show the exact draft, in-flight or revision request, including user-edited previous output and feedback.
+- Bind proposals to source snapshots and recheck references/relationships before applying. Context-only IDs remain invalid modification targets.
+- Preserve the 3.2 canvas, quick note, resource and task features and existing apply/undo workflow.
+- Refresh bilingual README, operation guide, release notes and native component previews.
+
+
 > Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
 
 ## Unreleased
