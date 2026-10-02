@@ -381,17 +381,27 @@ public struct SnippetLibraryRecord: Equatable, Identifiable, Sendable {
 }
 
 public enum SnippetLibraryFiltering {
+    public static func includes(
+        recordScope: String,
+        recordWorkspaceId: String?,
+        scope: String?,
+        workspaceId: String?
+    ) -> Bool {
+        guard let scope else { return true }
+        if scope == "global" {
+            return recordScope == "global"
+        }
+        return recordScope == "global" || recordWorkspaceId == workspaceId
+    }
+
     public static func visible(
         _ records: [SnippetLibraryRecord],
         scope: String?,
         workspaceId: String?
     ) -> [SnippetLibraryRecord] {
         let filtered = records.filter { record in
-            guard let scope else { return true }
-            if scope == "global" {
-                return record.scope == "global"
-            }
-            return record.scope == "global" || record.workspaceId == workspaceId
+            includes(recordScope: record.scope, recordWorkspaceId: record.workspaceId,
+                     scope: scope, workspaceId: workspaceId)
         }
         return ordered(filtered)
     }

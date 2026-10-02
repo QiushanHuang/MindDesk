@@ -2134,6 +2134,7 @@ struct ResourceRenameSheet: View {
 }
 
 struct HomeView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let workspaces: [WorkspaceModel]
     let workspaceBriefsByID: [String: WorkspaceReentryBrief]
     let resources: [ResourcePinModel]
@@ -2152,10 +2153,13 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("MindDesk")
-                    .font(.largeTitle.bold())
-                Text("Personal workspace for folders, files, commands, prompts, and workflow maps.")
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("MindDesk")
+                        .font(.largeTitle.bold())
+                    Text("Personal workspace for folders, files, commands, prompts, and workflow maps.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 DashboardSection(title: "Recent Workspaces") {
                     CardGrid {
@@ -2216,7 +2220,7 @@ struct HomeView: View {
     }
 
     private func toggleSnippet(_ snippet: SnippetModel) {
-        withAnimation(.easeInOut(duration: 0.16)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) {
             if expandedSnippetIDs.contains(snippet.id) {
                 expandedSnippetIDs.remove(snippet.id)
             } else {
@@ -2300,6 +2304,7 @@ struct HomeWorkspaceResumeCard: View {
                         Text(workspace.title)
                             .font(.headline)
                             .lineLimit(1)
+                            .help(workspace.title)
                         Text(workspace.details.isEmpty ? "No description" : workspace.details)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -3017,15 +3022,16 @@ struct WorkspaceResumeBadgeView: View {
 }
 
 struct HomeResourceCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let resource: ResourcePinModel
     let onSelect: () -> Void
     let onOpen: () -> Void
     let onCopy: () -> Void
     let onInspect: () -> Void
-    @State private var feedback: String?
+    @StateObject private var feedback = TransientFeedbackController()
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .bottomTrailing) {
             Button(action: onSelect) {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: resource.targetType == .folder ? "folder" : "doc")
@@ -3036,16 +3042,19 @@ struct HomeResourceCard: View {
                         Text(resource.displayName)
                             .font(.headline)
                             .lineLimit(1)
+                            .help(resource.displayName)
                         Text(resource.displayPath)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .truncationMode(.middle)
+                            .help(resource.displayPath)
                     }
-                    Spacer(minLength: 76)
+                    Spacer(minLength: 0)
                 }
                 .padding(12)
-                .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+                .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
                 .background(.thinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
@@ -3058,6 +3067,7 @@ struct HomeResourceCard: View {
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help(resource.targetType == .folder ? "Open in Finder" : "Reveal in Finder")
+                .accessibilityLabel(resource.targetType == .folder ? "Open in Finder" : "Reveal in Finder")
                 Button {
                     onCopy()
                     showFeedback("Copied")
@@ -3066,27 +3076,31 @@ struct HomeResourceCard: View {
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help("Copy full path")
+                .accessibilityLabel("Copy full path")
                 Button(action: onInspect) {
                     Image(systemName: "info.circle")
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help("Show details")
+                .accessibilityLabel("Show details")
             }
             .padding(8)
 
-            if let feedback {
-                Text(feedback)
+            if let message = feedback.message {
+                Text(message)
                     .font(.caption2.bold())
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(Color.accentColor.opacity(0.92))
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
-                    .padding(.top, 36)
+                    .padding(.bottom, 36)
                     .padding(.trailing, 8)
-                    .transition(.opacity.combined(with: .scale))
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale))
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: feedback.message)
+        .onDisappear { feedback.cancel() }
         .contextMenu {
             Button(resource.targetType == .folder ? "Open in Finder" : "Reveal in Finder", action: onOpen)
             Button("Copy Full Path") {
@@ -3098,15 +3112,7 @@ struct HomeResourceCard: View {
     }
 
     private func showFeedback(_ text: String) {
-        withAnimation(.easeOut(duration: 0.12)) {
-            feedback = text
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            guard feedback == text else { return }
-            withAnimation(.easeIn(duration: 0.16)) {
-                feedback = nil
-            }
-        }
+        feedback.show(text)
     }
 }
 
@@ -3127,7 +3133,7 @@ struct CardGrid<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12, alignment: .top)], spacing: 12) {
             content
         }
     }
@@ -3257,13 +3263,13 @@ struct GlobalLibraryView: View {
         )
     }
 
-    private var displayResources: [ResourcePinModel] {
+    private func displayResources(from records: [GlobalResourceLibraryRecord]) -> [ResourcePinModel] {
         let resourceById = Dictionary(uniqueKeysWithValues: resources.map { ($0.id, $0) })
-        return displayRecords.compactMap { resourceById[$0.resource.id] }
+        return records.compactMap { resourceById[$0.resource.id] }
     }
 
-    private var workspaceUsageByResourceID: [String: [ResourceWorkspaceUsage]] {
-        Dictionary(uniqueKeysWithValues: displayRecords.map { record in
+    private func workspaceUsageByResourceID(from records: [GlobalResourceLibraryRecord]) -> [String: [ResourceWorkspaceUsage]] {
+        Dictionary(uniqueKeysWithValues: records.map { record in
             let usage = zip(record.workspaceIDs, record.workspaceTitles).map {
                 ResourceWorkspaceUsage(id: $0.0, title: $0.1)
             }
@@ -3284,6 +3290,9 @@ struct GlobalLibraryView: View {
     }
 
     var body: some View {
+        let records = displayRecords
+        let displayedResources = displayResources(from: records)
+        let usageByResourceID = workspaceUsageByResourceID(from: records)
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
@@ -3302,7 +3311,7 @@ struct GlobalLibraryView: View {
                 ForEach(GlobalLibraryResourceSectionPolicy.sections) { section in
                     ResourceListView(
                         title: section.title,
-                        resources: displayResources,
+                        resources: displayedResources,
                         knownResources: knownResources,
                         scope: .global,
                         workspaceId: nil,
@@ -3313,7 +3322,7 @@ struct GlobalLibraryView: View {
                         onInspect: onInspect,
                         onRemove: onRemove,
                         clipboardService: clipboardService,
-                        workspaceUsageByResourceID: workspaceUsageByResourceID,
+                        workspaceUsageByResourceID: usageByResourceID,
                         onSelectWorkspace: onSelectWorkspace,
                         listMinHeight: 122,
                         listMaxHeight: 240,

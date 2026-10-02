@@ -546,7 +546,7 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(canvasSource.contains("CanvasLiveWorldMetricPolicy.rasterPlan("))
         XCTAssertEqual(canvasSource.components(separatedBy: "rasterPlan: edgeRasterPlan").count - 1, 2)
         XCTAssertTrue(canvasSource.contains("worldPresentationScale"))
-        XCTAssertEqual(canvasSource.components(separatedBy: "routingClearance: worldEdgeRoutingClearance").count - 1, 2)
+        XCTAssertEqual(canvasSource.components(separatedBy: "routingClearance: worldEdgeRoutingClearance").count - 1, 1)
         XCTAssertTrue(canvasSource.contains("let hitSize = worldScreenMetric(CanvasResizeHandleGeometry.hitSize(zoom: effectiveZoom))"))
         XCTAssertTrue(canvasSource.contains("let worldInset = worldScreenMetric(targetInset)"))
         XCTAssertFalse(canvasSource.contains("lineScale: CGFloat(worldRenderZoom)"))

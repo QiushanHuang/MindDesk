@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+### 2026-10-02 - Existing workflow polish
+
+These are source updates after v3.3.0. The published v3.3.0 DMG and ZIP remain unchanged; this update adds no features.
+
+- Adapt task panels to the available width and height, keep titles and details readable, and make divider drags respond immediately when reversing at a limit or resizing the window.
+- Stack resource metadata in narrow lists and wrap snippet actions when needed, keeping all existing actions and workspace links available. Refine Home card spacing and alignment.
+- Give the quick-note editor a clear boundary and flexible height for writing and error messages.
+- Restart feedback timing on repeated actions and cancel pending feedback when a card disappears. Older callbacks cannot clear a newer message.
+- Filter resources before sorting; scope snippet searches before reading text and constructing sort records. Reuse list projections and retain recently used canvas geometry when its cache fills. Search results and ordering keep their existing semantics.
+- Keep canvas cards and frames in consistent coordinates when zoom and pan gestures finish, fit the tool rail to its width, and keep permitted connection animations visible at low zoom without phase jumps.
+- Respect macOS Reduce Motion for panel, snippet-expansion and feedback animations; label icon controls for accessibility.
+
+Regression checks cover feedback lifetime, divider boundaries, cache retention and search equivalence with 2,048 resources and 1,024 snippets. Native component previews use synthetic data. FPS, CPU and power improvements have not been measured.
+
+### 2026-10-02 - 既有操作优化
+
+这是 v3.3.0 之后的源码更新。已发布的 v3.3.0 DMG 与 ZIP 保持不变，本次不增加功能。
+
+- 任务面板适应可用宽高，分行显示标题与说明；分隔线拖到边界后反向移动、调整窗口大小时及时响应。
+- 窄资源列表分层显示信息，片段操作按需换行，保留全部原有操作和工作区链接；调整首页卡片间距与对齐。
+- 快速笔记采用清晰的编辑区边界与弹性高度，为正文和错误信息留出空间。
+- 连续操作重新开始反馈计时，卡片消失时取消待执行提示；旧回调不会清除较新的消息。
+- 资源先搜索再排序；片段先限定工作区，再读取文字和生成排序记录。复用列表计算结果，画布几何缓存满额时保留最近使用项。搜索结果与排序语义保持不变。
+- 缩放和平移结束后，画布卡片与分组框保持一致的坐标；工具栏适应实际宽度，允许播放的连线动画在低缩放下继续显示，避免相位跳变。
+- 面板、片段展开和操作反馈动画遵循 macOS“减少动态效果”；为图标控件补充可访问名称。
+
+回归检查覆盖反馈生命周期、分隔线边界、缓存保留及搜索等价性，搜索样例包含 2,048 条资源与 1,024 条片段。原生组件预览使用合成数据。尚未测量 FPS、CPU 或功耗的改善幅度。
+
 ## 2026-09-26 — v3.3.0: context you can inspect
 
 - Add explicit selection/group and selection/neighbor context scopes, with read-only reference cards and directed/labeled links.
@@ -11,8 +41,6 @@
 
 
 > Historical capability notice: older entries below preserve release-line history and may describe retired review, package, proposal, or embedded helper surfaces. Those entries are no longer current product instructions or availability claims.
-
-## Unreleased
 
 ## 2026-09-20 - v3.2.0 organizing assistant and Canvas recovery
 

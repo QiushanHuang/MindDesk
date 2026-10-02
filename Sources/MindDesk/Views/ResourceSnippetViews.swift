@@ -28,6 +28,32 @@ enum ResourceListOrderingPolicy {
     }
 }
 
+enum ResourceListFilteringPolicy {
+    static func visible(
+        _ resources: [ResourcePinModel],
+        targetFilter: ResourceTargetType?,
+        searchText: String,
+        workspaceUsageByResourceID: [String: [ResourceWorkspaceUsage]]
+    ) -> [ResourcePinModel] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let matching = resources.filter { resource in
+            if let targetFilter, resource.targetType != targetFilter { return false }
+            guard !query.isEmpty else { return true }
+            let cached = resource.searchText.isEmpty ? [
+                resource.title,
+                resource.originalName,
+                resource.customName,
+                resource.displayPath,
+                resource.note,
+                resource.tagsText
+            ].joined(separator: " ").lowercased() : resource.searchText
+            let usage = workspaceUsageByResourceID[resource.id, default: []].map(\.title).joined(separator: " ").lowercased()
+            return "\(cached) \(usage)".contains(query)
+        }
+        return ResourceListOrderingPolicy.ordered(matching)
+    }
+}
+
 enum ResourceRowActionID: String, Equatable, Sendable {
     case open
     case reveal
@@ -135,28 +161,12 @@ struct ResourceListView: View {
     @State private var renamingResource: ResourcePinModel?
 
     private var filteredResources: [ResourcePinModel] {
-        let typed = resources.filter { resource in
-            guard let targetFilter else { return true }
-            return resource.targetType == targetFilter
-        }
-        let ordered = ResourceListOrderingPolicy.ordered(typed)
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return ordered }
-        return ordered.filter {
-            let cached = $0.searchText.isEmpty ? [
-                $0.title,
-                $0.originalName,
-                $0.customName,
-                $0.displayPath,
-                $0.note,
-                $0.tagsText
-            ].joined(separator: " ").lowercased() : $0.searchText
-            let usage = workspaceUsageByResourceID[$0.id, default: []].map(\.title).joined(separator: " ").lowercased()
-            return "\(cached) \(usage)".contains(query)
-        }
+        ResourceListFilteringPolicy.visible(resources, targetFilter: targetFilter, searchText: searchText,
+                                            workspaceUsageByResourceID: workspaceUsageByResourceID)
     }
 
     var body: some View {
+        let visibleResources = filteredResources
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(title)
@@ -170,43 +180,48 @@ struct ResourceListView: View {
             }
             TextField("Search resources", text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Search resources")
 
-            VStack(spacing: 0) {
-                ResourceListHeader()
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if filteredResources.isEmpty {
-                            ResourceEmptyState(title: emptyTitle)
-                                .frame(maxWidth: .infinity, minHeight: compactEmptyState ? 72 : 112)
-                        } else {
-                            ForEach(filteredResources) { resource in
-                                ResourceRowView(
-                                    resource: resource,
-                                    workspaceUsage: workspaceUsageByResourceID[resource.id, default: []],
-                                    onOpen: { performResourceAction(resource, action: .open) },
-                                    onReveal: { performResourceAction(resource, action: .reveal) },
-                                    onCopy: { performResourceAction(resource, action: .copy) },
-                                    onAlias: { createAlias(for: resource) },
-                                    onReauthorize: { reauthorize(resource) },
-                                    onInspect: {
-                                        onInspect(.resource(resource.id))
-                                        onStatus("Showing info for \(resource.displayName)")
-                                    },
-                                    onSelect: {
-                                        onSelect?(resource)
-                                    },
-                                    onRename: { renamingResource = resource },
-                                    onTogglePin: { togglePin(resource) },
-                                    canRemove: canRemove(resource),
-                                    onRemove: { onRemove(resource) },
-                                    onSelectWorkspace: onSelectWorkspace
-                                )
+            GeometryReader { proxy in
+                let compact = proxy.size.width < ResourceListLayout.compactWidthThreshold
+                VStack(spacing: 0) {
+                    ResourceListHeader(compact: compact)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            if visibleResources.isEmpty {
+                                ResourceEmptyState(title: searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? emptyTitle : "No matching resources")
+                                    .frame(maxWidth: .infinity, minHeight: compactEmptyState ? 72 : 112)
+                            } else {
+                                ForEach(visibleResources) { resource in
+                                    ResourceRowView(
+                                        resource: resource,
+                                        workspaceUsage: workspaceUsageByResourceID[resource.id, default: []],
+                                        compact: compact,
+                                        onOpen: { performResourceAction(resource, action: .open) },
+                                        onReveal: { performResourceAction(resource, action: .reveal) },
+                                        onCopy: { performResourceAction(resource, action: .copy) },
+                                        onAlias: { createAlias(for: resource) },
+                                        onReauthorize: { reauthorize(resource) },
+                                        onInspect: {
+                                            onInspect(.resource(resource.id))
+                                            onStatus("Showing info for \(resource.displayName)")
+                                        },
+                                        onSelect: {
+                                            onSelect?(resource)
+                                        },
+                                        onRename: { renamingResource = resource },
+                                        onTogglePin: { togglePin(resource) },
+                                        canRemove: canRemove(resource),
+                                        onRemove: { onRemove(resource) },
+                                        onSelectWorkspace: onSelectWorkspace
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
-            .frame(minHeight: effectiveListMinHeight, maxHeight: listMaxHeight)
+            .frame(minHeight: visibleResources.isEmpty && compactEmptyState ? min(listMinHeight, 112) : listMinHeight, maxHeight: listMaxHeight)
             .background(.background)
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
@@ -230,10 +245,6 @@ struct ResourceListView: View {
                 }
             }
         }
-    }
-
-    private var effectiveListMinHeight: CGFloat {
-        filteredResources.isEmpty && compactEmptyState ? min(listMinHeight, 112) : listMinHeight
     }
 
     private var emptyTitle: String {
@@ -982,31 +993,48 @@ private struct QuickLookPreview: NSViewRepresentable {
     }
 }
 
+private enum ResourceListLayout {
+    static let compactWidthThreshold: CGFloat = 900
+    static let nameMinWidth: CGFloat = 180
+    static let nameMaxWidth: CGFloat = 240
+    static let statusWidth: CGFloat = 84
+    static let workspacesWidth: CGFloat = 160
+    static let actionsWidth: CGFloat = 188
+}
+
 private struct ResourceListHeader: View {
+    let compact: Bool
+
     var body: some View {
         HStack(spacing: 10) {
             Text("Name")
-                .frame(minWidth: 180, maxWidth: 260, alignment: .leading)
-            Text("Status")
-                .frame(width: 80, alignment: .leading)
-            Text("Workspaces")
-                .frame(width: 180, alignment: .leading)
-            Text("Path")
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: compact ? nil : ResourceListLayout.nameMinWidth,
+                       maxWidth: compact ? .infinity : ResourceListLayout.nameMaxWidth,
+                       alignment: .leading)
+            if !compact {
+                Text("Status")
+                    .frame(width: ResourceListLayout.statusWidth, alignment: .leading)
+                Text("Workspaces")
+                    .frame(width: ResourceListLayout.workspacesWidth, alignment: .leading)
+                Text("Path")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Text("Actions")
-                .frame(width: 238, alignment: .leading)
+                .frame(width: ResourceListLayout.actionsWidth, alignment: .leading)
         }
-        .font(.caption.bold())
+        .font(.caption.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 8)
         .background(.quaternary.opacity(0.28))
+        .accessibilityHidden(true)
     }
 }
 
 private struct ResourceRowView: View {
     let resource: ResourcePinModel
     let workspaceUsage: [ResourceWorkspaceUsage]
+    let compact: Bool
     let onOpen: () -> Void
     let onReveal: () -> Void
     let onCopy: () -> Void
@@ -1021,71 +1049,42 @@ private struct ResourceRowView: View {
     let onSelectWorkspace: ((String) -> Void)?
 
     var body: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: resource.targetType == .folder ? "folder" : "doc")
-                    .foregroundStyle(resource.isPinned ? Color.accentColor : Color.secondary)
-                    .frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(resource.displayName)
-                        .font(.callout.weight(.medium))
-                        .lineLimit(1)
-                    Text(resource.targetType == .folder ? "Folder" : "File")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(minWidth: 180, maxWidth: 260, alignment: .leading)
-
-            Text(resource.statusRaw)
-                .font(.caption)
-                .foregroundStyle(resource.status == .available ? Color.secondary : Color.red)
-                .frame(width: 80, alignment: .leading)
-
-            WorkspaceUsageColumn(
-                usage: workspaceUsage,
-                onSelectWorkspace: onSelectWorkspace
-            )
-            .frame(width: 180, alignment: .leading)
-
-            Text(resource.displayPath)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 5) {
-                ForEach(ResourceRowActionPresentationPolicy.primaryActions(isPinned: resource.isPinned)) { action in
-                    iconButton(action.systemImage ?? "circle", action.helpText) {
-                        perform(action.id)
+        Group {
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 10) {
+                        resourceName
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        actionBar
+                    }
+                    resourcePath
+                    HStack(spacing: 8) {
+                        resourceStatus
+                            .fixedSize()
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("Workspaces:")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        workspaceLinks
                     }
                 }
-                Menu {
-                    ForEach(ResourceRowActionPresentationPolicy.moreMenuActions(canRemove: canRemove)) { action in
-                        if action.id == .remove {
-                            Divider()
-                            Button(action.title, role: .destructive) {
-                                perform(action.id)
-                            }
-                        } else {
-                            Button(action.title) {
-                                perform(action.id)
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .frame(width: 24, height: 24)
+            } else {
+                HStack(spacing: 10) {
+                    resourceName
+                        .frame(minWidth: ResourceListLayout.nameMinWidth,
+                               maxWidth: ResourceListLayout.nameMaxWidth, alignment: .leading)
+                    resourceStatus
+                        .frame(width: ResourceListLayout.statusWidth, alignment: .leading)
+                    workspaceLinks
+                        .frame(width: ResourceListLayout.workspacesWidth, alignment: .leading)
+                    resourcePath
+                    actionBar
                 }
-                .menuStyle(.borderlessButton)
-                .help("More actions")
             }
-            .frame(width: 238, alignment: .leading)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.vertical, compact ? 11 : 8)
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .simultaneousGesture(TapGesture(count: 2).onEnded { _ in
@@ -1106,6 +1105,78 @@ private struct ResourceRowView: View {
             }
         }
         Divider()
+    }
+
+    private var resourceName: some View {
+        HStack(spacing: 8) {
+            Image(systemName: resource.targetType == .folder ? "folder" : "doc")
+                .foregroundStyle(resource.isPinned ? Color.accentColor : Color.secondary)
+                .frame(width: 18)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(resource.displayName)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .help(resource.displayName)
+                Text(resource.targetType == .folder ? "Folder" : "File")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var resourceStatus: some View {
+        Text(resource.statusRaw)
+            .font(.caption)
+            .foregroundStyle(resource.status == .available ? Color.secondary : Color.red)
+            .lineLimit(1)
+            .accessibilityLabel("Status: \(resource.statusRaw)")
+    }
+
+    private var workspaceLinks: some View {
+        WorkspaceUsageColumn(usage: workspaceUsage, onSelectWorkspace: onSelectWorkspace)
+    }
+
+    private var resourcePath: some View {
+        Text(resource.displayPath)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .textSelection(.enabled)
+            .help(resource.displayPath)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var actionBar: some View {
+        HStack(spacing: 5) {
+            ForEach(ResourceRowActionPresentationPolicy.primaryActions(isPinned: resource.isPinned)) { action in
+                iconButton(action.systemImage ?? "circle", action.helpText) {
+                    perform(action.id)
+                }
+            }
+            Menu {
+                ForEach(ResourceRowActionPresentationPolicy.moreMenuActions(canRemove: canRemove)) { action in
+                    if action.id == .remove {
+                        Divider()
+                        Button(action.title, role: .destructive) {
+                            perform(action.id)
+                        }
+                    } else {
+                        Button(action.title) {
+                            perform(action.id)
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .frame(width: 24, height: 24)
+            }
+            .menuStyle(.borderlessButton)
+            .help("More actions")
+            .accessibilityLabel("More actions for \(resource.displayName)")
+        }
+        .frame(width: ResourceListLayout.actionsWidth, alignment: .leading)
     }
 
     private func perform(_ actionID: ResourceRowActionID) {
@@ -1138,6 +1209,7 @@ private struct ResourceRowView: View {
         }
         .buttonStyle(.borderless)
         .help(help)
+        .accessibilityLabel("\(help): \(resource.displayName)")
     }
 }
 
@@ -1350,8 +1422,34 @@ enum SnippetActionCardReadabilityPolicy {
     }
 }
 
+enum SnippetListFilteringPolicy {
+    static func visible(
+        _ snippets: [SnippetModel],
+        scope: WorkbenchScope?,
+        workspaceId: String?,
+        searchText: String
+    ) -> [SnippetModel] {
+        let matching = snippets.filter { snippet in
+            guard SnippetLibraryFiltering.includes(recordScope: snippet.scopeRaw, recordWorkspaceId: snippet.workspaceId,
+                                                  scope: scope?.rawValue, workspaceId: workspaceId) else { return false }
+            guard !searchText.isEmpty else { return true }
+            return snippet.title.localizedCaseInsensitiveContains(searchText) ||
+                snippet.body.localizedCaseInsensitiveContains(searchText) ||
+                snippet.details.localizedCaseInsensitiveContains(searchText)
+        }
+        let snippetById = Dictionary(uniqueKeysWithValues: matching.map { ($0.id, $0) })
+        let records = matching.map {
+            SnippetLibraryRecord(id: $0.id, scope: $0.scopeRaw, workspaceId: $0.workspaceId, title: $0.title, updatedAt: $0.updatedAt)
+        }
+        return SnippetLibraryFiltering
+            .ordered(records)
+            .compactMap { snippetById[$0.id] }
+    }
+}
+
 struct SnippetLibraryView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let snippets: [SnippetModel]
     let resources: [ResourcePinModel]
     let scope: WorkbenchScope?
@@ -1370,22 +1468,11 @@ struct SnippetLibraryView: View {
     @State private var expandedSnippetIDs: Set<String> = []
 
     private var filteredSnippets: [SnippetModel] {
-        let snippetById = Dictionary(uniqueKeysWithValues: snippets.map { ($0.id, $0) })
-        let records = snippets.map {
-            SnippetLibraryRecord(id: $0.id, scope: $0.scopeRaw, workspaceId: $0.workspaceId, title: $0.title, updatedAt: $0.updatedAt)
-        }
-        let visible = SnippetLibraryFiltering
-            .visible(records, scope: scope?.rawValue, workspaceId: workspaceId)
-            .compactMap { snippetById[$0.id] }
-        guard !searchText.isEmpty else { return visible }
-        return visible.filter {
-            $0.title.localizedCaseInsensitiveContains(searchText) ||
-            $0.body.localizedCaseInsensitiveContains(searchText) ||
-            $0.details.localizedCaseInsensitiveContains(searchText)
-        }
+        SnippetListFilteringPolicy.visible(snippets, scope: scope, workspaceId: workspaceId, searchText: searchText)
     }
 
     var body: some View {
+        let visibleSnippets = filteredSnippets
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Snippets")
@@ -1402,13 +1489,14 @@ struct SnippetLibraryView: View {
             }
             TextField("Search snippets", text: $searchText)
                 .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Search snippets")
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    if filteredSnippets.isEmpty {
-                        ResourceEmptyState(title: "No snippets yet")
+                    if visibleSnippets.isEmpty {
+                        ResourceEmptyState(title: searchText.isEmpty ? "No snippets yet" : "No matching snippets")
                             .frame(maxWidth: .infinity, minHeight: compactEmptyState ? 72 : 112)
                     } else {
-                        ForEach(filteredSnippets) { snippet in
+                        ForEach(visibleSnippets) { snippet in
                             SnippetActionCard(
                                 snippet: snippet,
                                 isExpanded: expandedSnippetIDs.contains(snippet.id),
@@ -1426,7 +1514,7 @@ struct SnippetLibraryView: View {
                 }
                 .padding(.vertical, 2)
             }
-            .frame(minHeight: effectiveListMinHeight, maxHeight: listMaxHeight)
+            .frame(minHeight: visibleSnippets.isEmpty && compactEmptyState ? min(listMinHeight, 112) : listMinHeight, maxHeight: listMaxHeight)
         }
         .sheet(item: $creatingSnippetKind) { kind in
             SnippetEditor(initialKind: kind, scope: scope ?? .global, workspaceId: workspaceId, resources: resources) { draft in
@@ -1461,12 +1549,8 @@ struct SnippetLibraryView: View {
         }
     }
 
-    private var effectiveListMinHeight: CGFloat {
-        filteredSnippets.isEmpty && compactEmptyState ? min(listMinHeight, 112) : listMinHeight
-    }
-
     private func toggleSnippet(_ snippet: SnippetModel) {
-        withAnimation(.easeInOut(duration: 0.16)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.16)) {
             if expandedSnippetIDs.contains(snippet.id) {
                 expandedSnippetIDs.remove(snippet.id)
             } else {
@@ -1617,6 +1701,7 @@ private struct CommandRunRequest {
 }
 
 struct SnippetActionCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let snippet: SnippetModel
     let isExpanded: Bool
     var compact = false
@@ -1627,7 +1712,7 @@ struct SnippetActionCard: View {
     let onInspect: () -> Void
     let onOpenTerminal: (() -> Void)?
     let onRun: (() -> Void)?
-    @State private var feedback: String?
+    @StateObject private var feedback = TransientFeedbackController()
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -1678,8 +1763,8 @@ struct SnippetActionCard: View {
                 performExpansionGestureAction(SnippetExpansionPresentationPolicy.doubleClickActionID)
             })
 
-            if let feedback {
-                Text(feedback)
+            if let message = feedback.message {
+                Text(message)
                     .font(.caption2.bold())
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -1688,9 +1773,11 @@ struct SnippetActionCard: View {
                     .clipShape(Capsule())
                     .padding(.top, 38)
                     .padding(.trailing, 8)
-                    .transition(.opacity.combined(with: .scale))
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale))
             }
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: feedback.message)
+        .onDisappear { feedback.cancel() }
         .contextMenu {
             ForEach(SnippetActionPresentationPolicy.managementActions) { action in
                 if action.id == .delete {
@@ -1715,12 +1802,33 @@ struct SnippetActionCard: View {
     }
 
     private var actionBar: some View {
-        HStack(spacing: compact ? 4 : 5) {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: compact ? 4 : 5) {
+                primaryActionButtons
+                secondaryActionButtons
+            }
+            .fixedSize()
+
+            VStack(alignment: .trailing, spacing: 6) {
+                HStack(spacing: compact ? 4 : 5) {
+                    primaryActionButtons
+                }
+                HStack(spacing: compact ? 4 : 5) {
+                    secondaryActionButtons
+                }
+            }
+            .fixedSize()
+        }
+    }
+
+    private var primaryActionButtons: some View {
+        Group {
             Button(action: onToggleExpanded) {
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
             }
             .buttonStyle(CardIconButtonStyle())
             .help(isExpanded ? "Collapse snippet" : "Expand snippet")
+            .accessibilityLabel(isExpanded ? "Collapse snippet" : "Expand snippet")
 
             ForEach(SnippetActionPresentationPolicy.nonDestructiveManagementActions) { action in
                 Button {
@@ -1730,6 +1838,7 @@ struct SnippetActionCard: View {
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help(action.helpText)
+                .accessibilityLabel(action.helpText)
             }
 
             Button(action: onInspect) {
@@ -1737,13 +1846,19 @@ struct SnippetActionCard: View {
             }
             .buttonStyle(CardIconButtonStyle())
             .help("Show details")
+            .accessibilityLabel("Show details")
+        }
+    }
 
+    private var secondaryActionButtons: some View {
+        Group {
             if let onOpenTerminal {
                 Button(action: onOpenTerminal) {
                     Image(systemName: "terminal")
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help("Open Terminal with command prefilled")
+                .accessibilityLabel("Open Terminal with command prefilled")
             }
 
             if let onRun {
@@ -1752,6 +1867,7 @@ struct SnippetActionCard: View {
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help("Run command")
+                .accessibilityLabel("Run command")
             }
 
             ForEach(SnippetActionPresentationPolicy.destructiveManagementActions) { action in
@@ -1762,6 +1878,7 @@ struct SnippetActionCard: View {
                 }
                 .buttonStyle(CardIconButtonStyle())
                 .help(action.helpText)
+                .accessibilityLabel(action.helpText)
             }
         }
     }
@@ -1802,15 +1919,7 @@ struct SnippetActionCard: View {
     }
 
     private func showFeedback(_ text: String) {
-        withAnimation(.easeOut(duration: 0.12)) {
-            feedback = text
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            guard feedback == text else { return }
-            withAnimation(.easeIn(duration: 0.16)) {
-                feedback = nil
-            }
-        }
+        feedback.show(text)
     }
 
     private func performSnippetManagementAction(_ actionID: SnippetActionID) {

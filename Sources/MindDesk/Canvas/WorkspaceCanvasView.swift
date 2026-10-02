@@ -881,6 +881,7 @@ struct WorkspaceCanvasView: View {
     @State private var transientNodeOffsets: [String: CGSize] = [:]
     @State private var transientViewportOffset: CGSize = .zero
     @State private var transientZoomViewportOffset: CGSize = .zero
+    @State private var edgeGeometryCache = CanvasEdgeGeometryCache()
     @State private var zoomStart: Double?
     @State private var magnifyAnchor: CanvasEdgePoint?
     @State private var transientZoom: Double?
@@ -930,21 +931,11 @@ struct WorkspaceCanvasView: View {
         canvas.viewportY + Double(transientViewportOffset.height) + Double(transientZoomViewportOffset.height)
     }
 
-    private var worldRenderZoom: Double {
-        CanvasZoomScale.clamped(
-            canvas.zoom,
-            minimum: CanvasNodeMetrics.zoomMinimum,
-            maximum: CanvasNodeMetrics.zoomMaximum
-        )
-    }
-
-    private var worldRenderViewportX: Double {
-        canvas.viewportX
-    }
-
-    private var worldRenderViewportY: Double {
-        canvas.viewportY
-    }
+    // Geometry stays in model coordinates. Saving a camera gesture must not
+    // relayout cards or regenerate curves at a different coordinate scale.
+    private var worldRenderZoom: Double { 1 }
+    private var worldRenderViewportX: Double { 0 }
+    private var worldRenderViewportY: Double { 0 }
 
     private var liveWorldTransform: CanvasViewportVisualTransform {
         CanvasLiveViewportTransformPolicy.transform(
@@ -1161,9 +1152,9 @@ struct WorkspaceCanvasView: View {
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.16), value: canvasRightRailPanel)
-        .animation(.easeInOut(duration: 0.16), value: isTodoPanelOpen)
-        .animation(.easeInOut(duration: 0.16), value: isTodoDoneColumnOpen)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: canvasRightRailPanel)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isTodoPanelOpen)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: isTodoDoneColumnOpen)
         .sheet(item: $organizationSelection) { selection in
             OrganizationSheet(selection: selection) { proposal, request in
                 try OrganizationApplyService.apply(proposal, request: request, selection: selection,
@@ -1351,7 +1342,7 @@ struct WorkspaceCanvasView: View {
 
     private func todoPanelHeight(for availableHeight: CGFloat) -> CGFloat {
         guard isTodoPanelOpen else { return 42 }
-        return min(220, max(120, availableHeight * 0.16))
+        return min(240, max(180, availableHeight * 0.22))
     }
 
     private var canvasLeftRail: some View {
@@ -1379,7 +1370,7 @@ struct WorkspaceCanvasView: View {
                             Image(systemName: "sidebar.right")
                                 .frame(width: 24, height: 24)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(CanvasRailButtonStyle(isActive: canvasRightRailPanel == .inspector))
                         .tint(canvasRightRailPanel == .inspector ? .accentColor : nil)
                         .help(canvasRightRailPanel == .inspector ? "Hide canvas inspector" : "Show canvas inspector")
                     }
@@ -1391,7 +1382,7 @@ struct WorkspaceCanvasView: View {
                     Label(isTodoPanelOpen ? "Close Tasks" : "Open Tasks", systemImage: "checklist")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(CanvasRailButtonStyle(isActive: isTodoPanelOpen))
                 .tint(isTodoPanelOpen ? .accentColor : nil)
                 .help(isTodoPanelOpen ? "Close workspace tasks" : "Open workspace tasks")
 
@@ -1406,7 +1397,7 @@ struct WorkspaceCanvasView: View {
                     Label("Organize selected", systemImage: "sparkles")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(CanvasRailButtonStyle())
                 .disabled(!workflowNodes.contains {
                     selectedNodeIDs.contains($0.id) && !$0.locked && $0.nodeType != .groupFrame
                 })
@@ -1453,9 +1444,10 @@ struct WorkspaceCanvasView: View {
                             Button {
                                 addWebNode()
                             } label: {
-                                Image(systemName: "globe.badge.plus")
-                                    .frame(width: 22)
+                                Image(systemName: "plus")
+                                    .frame(width: 20, height: 18)
                             }
+                            .accessibilityLabel("Add web page card")
                             .help("Add web page card")
                         }
 
@@ -1473,7 +1465,7 @@ struct WorkspaceCanvasView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(CanvasRailButtonStyle())
                 }
 
                 GroupBox("Mode") {
@@ -1487,7 +1479,7 @@ struct WorkspaceCanvasView: View {
                                 Label(item.title, systemImage: item.systemImage)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(CanvasRailButtonStyle(isActive: mode == item))
                             .tint(mode == item ? .accentColor : nil)
                             .keyboardShortcut(item.shortcut, modifiers: .command)
                         }
@@ -1537,7 +1529,7 @@ struct WorkspaceCanvasView: View {
                             .disabled(selectedNodeIDs.isEmpty)
                         }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(CanvasRailButtonStyle())
                 }
 
                 GroupBox("Glow") {
@@ -1554,12 +1546,12 @@ struct WorkspaceCanvasView: View {
                             Text(theme.title).tag(theme)
                         }
                     }
-                    .pickerStyle(.segmented)
+                    .pickerStyle(.menu)
                     .labelsHidden()
                 }
             }
+            .frame(width: CanvasSideRailLayout.leftRailWidth - 24, alignment: .topLeading)
             .padding(12)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .defaultScrollAnchor(.top)
             .onAppear {
@@ -1570,7 +1562,9 @@ struct WorkspaceCanvasView: View {
             }
         }
         }
-        .background(.thinMaterial)
+        .font(.system(size: 12))
+        .groupBoxStyle(CanvasRailSectionStyle())
+        .background(Color(nsColor: .windowBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
@@ -1820,10 +1814,16 @@ struct WorkspaceCanvasView: View {
                     isSegmentVisible: isEdgeSegmentVisible(segment, in: edgeVisibleRect)
                 )
             }
-            let unroutedEdgeSegments = snapshot.edgeSegments(
+            let usesObstacleRouting = CanvasPerformancePolicy.usesObstacleRouting(
+                edgeCount: snapshot.visibleEdges.count,
+                obstacleCount: snapshot.cardNodes.count,
+                isInteracting: false
+            )
+            let edgeSegments = snapshot.edgeSegments(
                 targetClearance: worldEdgeTargetClearance,
                 routingClearance: worldEdgeRoutingClearance,
-                usesObstacleRouting: false,
+                usesObstacleRouting: usesObstacleRouting,
+                geometryCache: edgeGeometryCache,
                 rectFor: worldScreenRect(for:),
                 controlPointFor: resolvedWorldControlPoint(for:),
                 candidateEdgeIDs: candidateEdgeIDs,
@@ -1831,25 +1831,6 @@ struct WorkspaceCanvasView: View {
                 shouldIncludeEdge: shouldIncludeCanvasEdge
             )
             .filter(shouldKeepEdgeSegment)
-            let usesObstacleRouting =
-                effectiveZoom >= zoomBaseline &&
-                CanvasPerformancePolicy.usesObstacleRouting(
-                    edgeCount: unroutedEdgeSegments.count,
-                    obstacleCount: visibleCardNodes.count,
-                    isInteracting: isCanvasInteracting
-                )
-            let edgeSegments = usesObstacleRouting ? snapshot.edgeSegments(
-                targetClearance: worldEdgeTargetClearance,
-                routingClearance: worldEdgeRoutingClearance,
-                usesObstacleRouting: true,
-                routingObstacleNodes: visibleCardNodes,
-                rectFor: worldScreenRect(for:),
-                controlPointFor: resolvedWorldControlPoint(for:),
-                candidateEdgeIDs: candidateEdgeIDs,
-                shouldVisitEdge: shouldVisitCanvasEdge,
-                shouldIncludeEdge: shouldIncludeCanvasEdge
-            )
-            .filter(shouldKeepEdgeSegment) : unroutedEdgeSegments
             let routedPointCount = edgeSegments.reduce(0) { $0 + $1.routePoints.count }
             let edgeAnimationTimelinePlan = CanvasEdgeAnimationPolicy.effectiveTimelinePlan(
                 preferredFrameRate: CanvasAnimationFrameRate.resolved(canvasAnimationFrameRateRaw),
@@ -2218,34 +2199,32 @@ struct WorkspaceCanvasView: View {
         screenMetrics: CanvasEdgeWorldScreenMetrics,
         rasterPlan: CanvasWorldRasterPlan
     ) -> some View {
-        if let animationMinimumInterval {
-            TimelineView(.animation(minimumInterval: animationMinimumInterval)) { timeline in
-                CanvasEdgeStrokeLayer(
-                    segments: segments,
-                    transientControlPoints: transientControlPoints,
-                    selectedEdgeIDs: selectedEdgeIDs,
-                    theme: glowTheme,
-                    dashPhase: CanvasEdgeFlowPhase.dashPhase(
-                        elapsed: timeline.date.timeIntervalSinceReferenceDate,
-                        duration: 1.6,
-                        cycleLength: 172
-                    ),
-                    screenMetrics: screenMetrics,
-                    renderRect: renderRect,
-                    rasterPlan: rasterPlan
-                )
-            }
-        } else {
+        let paths = segments.map { segment in
+            CanvasPreparedEdgePath(id: segment.id, path: EdgePathFactory.curve(
+                start: segment.start, end: segment.end,
+                startDirection: segment.startDirection, endDirection: segment.endDirection,
+                control: transientControlPoints[segment.id] ?? segment.control,
+                routePoints: segment.routePoints
+            ))
+        }
+        ZStack(alignment: .topLeading) {
             CanvasEdgeStrokeLayer(
-                segments: segments,
-                transientControlPoints: transientControlPoints,
-                selectedEdgeIDs: selectedEdgeIDs,
-                theme: glowTheme,
-                dashPhase: nil,
-                screenMetrics: screenMetrics,
-                renderRect: renderRect,
-                rasterPlan: rasterPlan
+                paths: paths, selectedEdgeIDs: selectedEdgeIDs, theme: glowTheme,
+                dashPhase: nil, screenMetrics: screenMetrics,
+                renderRect: renderRect, rasterPlan: rasterPlan
             )
+            if let animationMinimumInterval {
+                TimelineView(.animation(minimumInterval: animationMinimumInterval)) { timeline in
+                    CanvasEdgeStrokeLayer(
+                        paths: paths, selectedEdgeIDs: [], theme: glowTheme,
+                        dashPhase: CanvasEdgeFlowPhase.dashPhase(
+                            elapsed: timeline.date.timeIntervalSinceReferenceDate,
+                            duration: 1.6, cycleLength: 72
+                        ),
+                        screenMetrics: screenMetrics, renderRect: renderRect, rasterPlan: rasterPlan
+                    )
+                }
+            }
         }
     }
 
@@ -2307,9 +2286,9 @@ struct WorkspaceCanvasView: View {
                 CanvasEdgeFlowStrokePolicy.strokeWidth(baseStrokeWidth: baseStrokeWidth),
                 liveWorldScale: scale
             ),
-            dashOnLength: worldScreenMetric(max(8, 24 * effectiveZoom), liveWorldScale: scale),
-            dashOffLength: worldScreenMetric(max(36, 148 * effectiveZoom), liveWorldScale: scale),
-            dashPhaseScale: worldScreenMetric(effectiveZoom, liveWorldScale: scale),
+            dashOnLength: worldScreenMetric(12, liveWorldScale: scale),
+            dashOffLength: worldScreenMetric(60, liveWorldScale: scale),
+            dashPhaseScale: worldScreenMetric(1, liveWorldScale: scale),
             arrowLength: worldScreenMetric(
                 CanvasEdgeVisualMetrics.arrowLength(
                     zoom: effectiveZoom,
@@ -2344,7 +2323,7 @@ struct WorkspaceCanvasView: View {
             ),
             iconSize: worldScreenMetric(max(6, 5.5 * effectiveZoom), liveWorldScale: scale),
             shadowRadius: worldScreenMetric(2 * effectiveZoom, liveWorldScale: scale),
-            shadowY: worldScreenMetric(effectiveZoom, liveWorldScale: scale)
+            shadowY: worldScreenMetric(1, liveWorldScale: scale)
         )
     }
 
@@ -2495,20 +2474,11 @@ struct WorkspaceCanvasView: View {
     }
 
     private var worldEdgeTargetClearance: Double {
-        let targetScreenClearance = max(
-            CanvasEdgeRouteDefaults.targetClearance,
-            CanvasEdgeVisualMetrics.arrowLength(
-                zoom: effectiveZoom,
-                baseLength: 13,
-                minimumLength: 6,
-                maximumLength: 16
-            ) * 0.6
-        )
-        return worldScreenMetric(targetScreenClearance)
+        CanvasEdgeRouteDefaults.targetClearance
     }
 
     private var worldEdgeRoutingClearance: Double {
-        worldScreenMetric(CanvasEdgeRouteDefaults.routingClearance)
+        CanvasEdgeRouteDefaults.routingClearance
     }
 
     private func shouldRenderNode(_ node: CanvasNodeModel, in visibleRect: CGRect) -> Bool {
@@ -4886,6 +4856,8 @@ private struct CanvasCardColorEditor: View {
 }
 
 struct CanvasNodeCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
     let node: CanvasNodeModel
     let resource: ResourcePinModel?
     let snippet: SnippetModel?
@@ -4904,7 +4876,7 @@ struct CanvasNodeCard: View {
     let onDelete: () -> Void
     let onTitleChange: (String) -> Void
     let onNoteChange: (String) -> Void
-    @State private var feedback: String?
+    @StateObject private var feedback = TransientFeedbackController()
     @State private var isEditingTitle = false
 
     var body: some View {
@@ -4920,8 +4892,8 @@ struct CanvasNodeCard: View {
                     lightweightCardContent(cardSize: proxy.size)
                 }
 
-                if let feedback {
-                    Text(feedback)
+                if let message = feedback.message {
+                    Text(message)
                         .font(.caption2.bold())
                         .padding(.horizontal, 7)
                         .padding(.vertical, 4)
@@ -4929,12 +4901,14 @@ struct CanvasNodeCard: View {
                         .foregroundStyle(.white)
                         .clipShape(Capsule())
                         .padding(8)
-                        .transition(.opacity.combined(with: .scale))
+                        .transition(reduceMotion ? .identity : .opacity.combined(with: .scale))
                 }
 
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: feedback.message)
+        .onDisappear { feedback.cancel() }
         .contextMenu {
             Button("Open") { onOpen() }
             Button("Copy") {
@@ -5326,7 +5300,9 @@ struct CanvasNodeCard: View {
     }
 
     private var noteBackground: Color {
-        Color(red: 1.0, green: 0.94, blue: 0.62).opacity(0.72)
+        colorScheme == .dark
+            ? Color(red: 0.25, green: 0.22, blue: 0.12)
+            : Color(red: 1.0, green: 0.94, blue: 0.62).opacity(0.72)
     }
 
     @ViewBuilder
@@ -5428,15 +5404,7 @@ struct CanvasNodeCard: View {
 
     private func triggerFeedback(_ message: String, action: () -> Void) {
         action()
-        withAnimation(.easeOut(duration: 0.12)) {
-            feedback = message
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            guard feedback == message else { return }
-            withAnimation(.easeIn(duration: 0.16)) {
-                feedback = nil
-            }
-        }
+        feedback.show(message)
     }
 
 }
@@ -6251,6 +6219,7 @@ private struct CanvasFileDropDelegate: DropDelegate {
 }
 
 struct CanvasFrameCard: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let node: CanvasNodeModel
     let isSelected: Bool
     let isConnectionSource: Bool
@@ -6263,7 +6232,7 @@ struct CanvasFrameCard: View {
     let onDelete: () -> Void
     let onTitleChange: (String) -> Void
     let onNoteChange: (String) -> Void
-    @State private var feedback: String?
+    @StateObject private var feedback = TransientFeedbackController()
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -6277,8 +6246,8 @@ struct CanvasFrameCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
             .shadow(color: .black.opacity(isSelected ? 0.12 : 0.04), radius: isSelected ? 6 : 2, y: 1)
 
-            if let feedback {
-                Text(feedback)
+            if let message = feedback.message {
+                Text(message)
                     .font(.caption2.bold())
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
@@ -6286,10 +6255,12 @@ struct CanvasFrameCard: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                     .padding(8)
-                    .transition(.opacity.combined(with: .scale))
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .scale))
             }
 
         }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: feedback.message)
+        .onDisappear { feedback.cancel() }
         .contextMenu {
             Button("Copy Note") {
                 triggerFeedback("Copied") {
@@ -6429,15 +6400,7 @@ struct CanvasFrameCard: View {
 
     private func triggerFeedback(_ message: String, action: () -> Void) {
         action()
-        withAnimation(.easeOut(duration: 0.12)) {
-            feedback = message
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            guard feedback == message else { return }
-            withAnimation(.easeIn(duration: 0.16)) {
-                feedback = nil
-            }
-        }
+        feedback.show(message)
     }
 
 }
@@ -6461,9 +6424,13 @@ private struct CanvasEdgeControlWorldScreenMetrics {
     let shadowY: Double
 }
 
+private struct CanvasPreparedEdgePath {
+    let id: String
+    let path: Path
+}
+
 private struct CanvasEdgeStrokeLayer: View {
-    let segments: [CanvasEdgeSegment]
-    let transientControlPoints: [String: CGPoint]
+    let paths: [CanvasPreparedEdgePath]
     let selectedEdgeIDs: Set<String>
     let theme: CanvasGlowTheme
     let dashPhase: Double?
@@ -6480,33 +6447,27 @@ private struct CanvasEdgeStrokeLayer: View {
                 )
                 .translatedBy(x: -renderRect.minX, y: -renderRect.minY)
             )
-            for segment in segments {
+            for edge in paths {
                 let baseStrokeWidth = CGFloat(screenMetrics.baseStrokeWidth)
                 let selectedStrokeWidth = CGFloat(screenMetrics.selectedStrokeWidth)
                 let flowStrokeWidth = CGFloat(screenMetrics.flowStrokeWidth)
-                let curve = EdgePathFactory.curve(
-                    start: segment.start,
-                    end: segment.end,
-                    startDirection: segment.startDirection,
-                    endDirection: segment.endDirection,
-                    control: transientControlPoints[segment.id] ?? segment.control,
-                    routePoints: segment.routePoints
-                )
+                let curve = edge.path
 
-                context.stroke(
-                    curve,
-                    with: .color(Color.secondary.opacity(0.36)),
-                    style: StrokeStyle(lineWidth: baseStrokeWidth, lineCap: .round, lineJoin: .round)
-                )
-
-                if selectedEdgeIDs.contains(segment.id) {
+                if dashPhase == nil {
                     context.stroke(
                         curve,
-                        with: .color(Color.accentColor.opacity(0.92)),
-                        style: StrokeStyle(lineWidth: selectedStrokeWidth, lineCap: .round, lineJoin: .round)
+                        with: .color(Color.secondary.opacity(0.36)),
+                        style: StrokeStyle(lineWidth: baseStrokeWidth, lineCap: .round, lineJoin: .round)
                     )
-                }
 
+                    if selectedEdgeIDs.contains(edge.id) {
+                        context.stroke(
+                            curve,
+                            with: .color(Color.accentColor.opacity(0.92)),
+                            style: StrokeStyle(lineWidth: selectedStrokeWidth, lineCap: .round, lineJoin: .round)
+                        )
+                    }
+                }
                 if let dashPhase {
                     context.stroke(
                         curve,
@@ -6963,5 +6924,30 @@ struct GridPattern: Shape {
             y += resolvedStep
         }
         return path
+    }
+}
+
+private struct CanvasRailSectionStyle: GroupBoxStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            configuration.label.font(.caption.weight(.medium)).foregroundStyle(.secondary)
+            configuration.content.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct CanvasRailButtonStyle: ButtonStyle {
+    var isActive = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .foregroundStyle(isActive ? Color.accentColor : Color.primary)
+            .background((isActive ? Color.accentColor : Color.primary)
+                .opacity(configuration.isPressed ? 0.16 : (isActive ? 0.11 : 0.055)), in: RoundedRectangle(cornerRadius: 6))
+            .opacity(isEnabled ? 1 : 0.45)
     }
 }

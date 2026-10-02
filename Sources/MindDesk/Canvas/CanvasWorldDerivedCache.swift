@@ -15,6 +15,51 @@ struct CanvasEdgeSegment: Identifiable {
     let targetArrowRaw: String
 }
 
+/// Bounded model-space geometry cache. Camera changes never enter the key.
+final class CanvasEdgeGeometryCache {
+    struct Key: Equatable {
+        let source: CanvasFrameRect
+        let target: CanvasFrameRect
+        let control: CGPoint?
+        let obstacles: [CanvasFrameRect]
+        let targetClearance: Double
+        let routingClearance: Double
+        let usesObstacleRouting: Bool
+        let style: String
+        let sourceArrow: String
+        let targetArrow: String
+    }
+
+    private struct Entry {
+        let key: Key
+        let segment: CanvasEdgeSegment
+        var lastAccess: UInt64
+    }
+
+    private var entries: [String: Entry] = [:]
+    private var accessSequence: UInt64 = 0
+    private(set) var buildCount = 0
+
+    func segment(id: String, key: Key, build: () -> CanvasEdgeSegment) -> CanvasEdgeSegment {
+        accessSequence += 1
+        if var entry = entries[id], entry.key == key {
+            entry.lastAccess = accessSequence
+            entries[id] = entry
+            return entry.segment
+        }
+        let segment = build()
+        // Keep hits cheap and preserve the working set when a new edge enters view.
+        // The bounded scan runs only when admitting a new ID to a full cache.
+        if entries.count >= 512, entries[id] == nil,
+           let oldestID = entries.min(by: { $0.value.lastAccess < $1.value.lastAccess })?.key {
+            entries.removeValue(forKey: oldestID)
+        }
+        entries[id] = Entry(key: key, segment: segment, lastAccess: accessSequence)
+        buildCount += 1
+        return segment
+    }
+}
+
 struct CanvasRenderSnapshot {
     let workflowNodes: [CanvasNodeModel]
     let nodeById: [String: CanvasNodeModel]
@@ -62,6 +107,7 @@ struct CanvasRenderSnapshot {
         routingClearance: Double,
         usesObstacleRouting: Bool = true,
         routingObstacleNodes: [CanvasNodeModel]? = nil,
+        geometryCache: CanvasEdgeGeometryCache? = nil,
         rectFor: (CanvasNodeModel) -> CanvasFrameRect,
         controlPointFor: (CanvasEdgeModel) -> CGPoint?,
         candidateEdgeIDs: [String]? = nil,
@@ -101,53 +147,60 @@ struct CanvasRenderSnapshot {
             if let shouldIncludeEdge, !shouldIncludeEdge(edge, sourceRect, targetRect, control) {
                 return nil
             }
-            let controlPoint = control.map { CanvasEdgePoint(x: $0.x, y: $0.y) }
-            let anchors = CanvasEdgeAnchoring.anchors(
-                source: sourceRect,
-                target: targetRect,
-                control: controlPoint,
-                targetClearance: targetClearance
-            )
-            let routePoints: [CanvasEdgePoint]
-            if usesObstacleRouting {
-                let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
-                    obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
-                }
-                if let controlPoint {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        waypoints: [controlPoint],
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                } else {
-                    routePoints = CanvasEdgeRoutePlanner.routePoints(
-                        start: anchors.start,
-                        end: anchors.end,
-                        startDirection: anchors.startDirection,
-                        endDirection: anchors.endDirection,
-                        obstacles: edgeObstacleRects,
-                        clearance: routingClearance
-                    )
-                }
-            } else {
-                routePoints = []
+            let edgeObstacleRects = obstacleRects.compactMap { obstacle -> CanvasFrameRect? in
+                obstacle.id == source.id || obstacle.id == target.id ? nil : obstacle.rect
             }
-            return CanvasEdgeSegment(
-                id: edge.id,
-                start: CGPoint(x: anchors.start.x, y: anchors.start.y),
-                end: CGPoint(x: anchors.end.x, y: anchors.end.y),
-                startDirection: CGPoint(x: anchors.startDirection.x, y: anchors.startDirection.y),
-                endDirection: CGPoint(x: anchors.endDirection.x, y: anchors.endDirection.y),
-                control: control,
-                routePoints: routePoints.map { CGPoint(x: $0.x, y: $0.y) },
-                isControlPointLocked: CanvasEdgeStyleOptions.isControlPointLocked(edge.style),
-                sourceArrowRaw: edge.sourceArrowRaw,
-                targetArrowRaw: edge.targetArrowRaw
+            let key = CanvasEdgeGeometryCache.Key(
+                source: sourceRect, target: targetRect, control: control,
+                obstacles: edgeObstacleRects, targetClearance: targetClearance,
+                routingClearance: routingClearance, usesObstacleRouting: usesObstacleRouting,
+                style: edge.style, sourceArrow: edge.sourceArrowRaw, targetArrow: edge.targetArrowRaw
             )
+            let build = {
+                let controlPoint = control.map { CanvasEdgePoint(x: $0.x, y: $0.y) }
+                let anchors = CanvasEdgeAnchoring.anchors(
+                    source: sourceRect, target: targetRect, control: controlPoint,
+                    targetClearance: targetClearance
+                )
+                let routePoints: [CanvasEdgePoint]
+                if usesObstacleRouting {
+                    if let controlPoint {
+                        routePoints = CanvasEdgeRoutePlanner.routePoints(
+                            start: anchors.start,
+                            end: anchors.end,
+                            waypoints: [controlPoint],
+                            startDirection: anchors.startDirection,
+                            endDirection: anchors.endDirection,
+                            obstacles: edgeObstacleRects,
+                            clearance: routingClearance
+                        )
+                    } else {
+                        routePoints = CanvasEdgeRoutePlanner.routePoints(
+                            start: anchors.start,
+                            end: anchors.end,
+                            startDirection: anchors.startDirection,
+                            endDirection: anchors.endDirection,
+                            obstacles: edgeObstacleRects,
+                            clearance: routingClearance
+                        )
+                    }
+                } else {
+                    routePoints = []
+                }
+                return CanvasEdgeSegment(
+                    id: edge.id,
+                    start: CGPoint(x: anchors.start.x, y: anchors.start.y),
+                    end: CGPoint(x: anchors.end.x, y: anchors.end.y),
+                    startDirection: CGPoint(x: anchors.startDirection.x, y: anchors.startDirection.y),
+                    endDirection: CGPoint(x: anchors.endDirection.x, y: anchors.endDirection.y),
+                    control: control,
+                    routePoints: routePoints.map { CGPoint(x: $0.x, y: $0.y) },
+                    isControlPointLocked: CanvasEdgeStyleOptions.isControlPointLocked(edge.style),
+                    sourceArrowRaw: edge.sourceArrowRaw,
+                    targetArrowRaw: edge.targetArrowRaw
+                )
+            }
+            return geometryCache?.segment(id: edge.id, key: key, build: build) ?? build()
         }
     }
 }

@@ -3495,7 +3495,7 @@ final class CoreBehaviorTests: XCTestCase {
             baselineZoom: 0.35,
             isInteracting: false
         ))
-        XCTAssertFalse(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
+        XCTAssertTrue(CanvasEdgeAnimationPolicy.shouldAnimateVisibleEdges(
             theme: "blue",
             animationsEnabled: true,
             reduceMotion: false,
@@ -3993,7 +3993,7 @@ final class CoreBehaviorTests: XCTestCase {
                 )
             ),
             (
-                "zoom below baseline",
+                "non-positive zoom",
                 CanvasEdgeAnimationPolicy.effectiveTimelineMinimumInterval(
                     preferredFrameRate: .smooth,
                     theme: "blue",
@@ -4002,7 +4002,7 @@ final class CoreBehaviorTests: XCTestCase {
                     visibleEdgeCount: 1,
                     visibleCardCount: 1,
                     routedPointCount: 0,
-                    zoom: 0.24,
+                    zoom: 0,
                     baselineZoom: 0.35,
                     isInteracting: false
                 )

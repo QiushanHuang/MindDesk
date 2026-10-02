@@ -64,6 +64,20 @@ final class DocumentationPreviewTests: XCTestCase {
             onStatus: { _ in }, onInspect: { _ in }, onOpenWorkspace: { _ in }
         )
         try await render(canvasView.padding(24).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 1200, height: 840), to: output.appendingPathComponent("canvas.png"))
+        if ProcessInfo.processInfo.environment["MINDDESK_CANVAS_ZOOM_PREVIEWS"] == "1" {
+            for zoom in [0.175, 0.35, 0.7, 1.4] {
+                canvas.zoom = zoom
+                try await render(canvasView.padding(24).modelContainer(container).defaultAppStorage(settings),
+                    size: CGSize(width: 1200, height: 840),
+                    to: output.appendingPathComponent("canvas-zoom-\(zoom).png"))
+            }
+            canvas.zoom = 0.7
+            try await render(canvasView.padding(24).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 800, height: 620), to: output.appendingPathComponent("canvas-compact.png"))
+            try await render(canvasView.padding(24).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 1200, height: 840), to: output.appendingPathComponent("canvas-dark.png"), scheme: .dark)
+            canvas.zoom = 1
+        }
         let taskView = WorkspaceTodoBoardView(
             workspaceId: workspace.id, resources: [], todos: todos, groups: groups,
             isOpen: .constant(true), isDoneColumnOpen: .constant(true), onStatus: { _ in },
@@ -74,7 +88,68 @@ final class DocumentationPreviewTests: XCTestCase {
         try await render(OrganizationSheet(selection: selection, apply: { _, _ in }).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 860, height: 820), to: output.appendingPathComponent("organizer.png"))
         try await render(OrganizationSheet(selection: selection, apply: { _, _ in }).modelContainer(container).defaultAppStorage(settings), size: CGSize(width: 860, height: 820), to: output.appendingPathComponent("organizer-dark.png"), scheme: .dark)
         try await render(OrganizationWorkflowEditor(workflows: [], seed: .init(id: "demo", title: "Weekly research plan", intent: .extractTasks, scope: .neighbors, instructions: "Keep observations separate from assumptions. Do not invent deadlines."), save: { _ in }), size: CGSize(width: 760, height: 560), to: output.appendingPathComponent("workflows.png"))
-        try await render(QuickNoteCaptureSheet(save: { _, _ in }), size: CGSize(width: 560, height: 380), to: output.appendingPathComponent("quick-note.png"))
+        try await render(QuickNoteCaptureSheet(save: { _, _ in }), size: CGSize(width: 560, height: 460), to: output.appendingPathComponent("quick-note.png"))
+        if ProcessInfo.processInfo.environment["MINDDESK_POLISH_PREVIEWS"] == "1" {
+            try await render(taskView.padding(20).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 700, height: 408), to: output.appendingPathComponent("tasks-compact.png"))
+            let collapsedTaskView = WorkspaceTodoBoardView(workspaceId: workspace.id, resources: [], todos: todos, groups: groups,
+                isOpen: .constant(false), isDoneColumnOpen: .constant(true), onStatus: { _ in })
+            try await render(collapsedTaskView.padding(20).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 560, height: 90), to: output.appendingPathComponent("tasks-collapsed.png"))
+            let shortTaskView = WorkspaceTodoBoardView(workspaceId: workspace.id, resources: [], todos: todos, groups: groups,
+                isOpen: .constant(true), isDoneColumnOpen: .constant(true), onStatus: { _ in }, expandedHeight: 180)
+            try await render(shortTaskView.padding(20).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 700, height: 220), to: output.appendingPathComponent("tasks-short-panel.png"))
+            try await render(taskView.padding(24).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 1180, height: 408), to: output.appendingPathComponent("tasks-dark.png"), scheme: .dark)
+            let resources = [
+                ResourcePinModel(id: "demo-resource-folder", title: "Shared experiment references and source material", targetType: .folder,
+                    displayPath: "/Demo/Research project/Shared experiment references and source material", lastResolvedPath: "/Demo/References", scope: .global),
+                ResourcePinModel(id: "demo-resource-file", title: "Comparison notes", targetType: .file,
+                    displayPath: "/Demo/Research project/Comparison notes and reproducibility checklist.pdf", lastResolvedPath: "/Demo/Comparison.pdf", scope: .global,
+                    originalName: "Comparison notes and reproducibility checklist.pdf", status: .unavailable)
+            ]
+            for resource in resources { context.insert(resource) }
+            let usages = [ResourceWorkspaceUsage(id: "a", title: "Research project"),
+                          ResourceWorkspaceUsage(id: "b", title: "Long-running comparison study"),
+                          ResourceWorkspaceUsage(id: "c", title: "Writing and publication")]
+            let resourceView = ResourceListView(title: "Resources", resources: resources, knownResources: resources,
+                scope: .global, workspaceId: nil, targetFilter: nil, pinImported: false,
+                onSelect: { _ in }, onStatus: { _ in }, onInspect: { _ in }, onRemove: { _ in },
+                workspaceUsageByResourceID: Dictionary(uniqueKeysWithValues: resources.map { ($0.id, usages) }),
+                onSelectWorkspace: { _ in })
+            for width in [650.0, 1150.0] {
+                try await render(resourceView.padding(24).modelContainer(container),
+                    size: CGSize(width: width, height: 460), to: output.appendingPathComponent("resources-\(Int(width)).png"))
+            }
+            try await render(resourceView.padding(24).modelContainer(container),
+                size: CGSize(width: 650, height: 460), to: output.appendingPathComponent("resources-dark.png"), scheme: .dark)
+            let homeView = HomeView(workspaces: [workspace], workspaceBriefsByID: [:], resources: resources, snippets: [],
+                onSelectWorkspace: { _ in }, onSelectResource: { _ in }, onOpenResource: { _ in },
+                onCopyResourcePath: { _ in }, onInspectResource: { _ in }, onCopySnippet: { _ in },
+                onEditSnippet: { _ in }, onDeleteSnippet: { _ in }, onInspectSnippet: { _ in })
+            try await render(homeView.modelContainer(container), size: CGSize(width: 800, height: 650),
+                to: output.appendingPathComponent("home.png"))
+            let command = SnippetModel(id: "demo-command", title: "Run a reproducible comparison", kind: .command,
+                body: "python compare.py --config demo.json", details: "Shared comparison command", scope: .global)
+            context.insert(command)
+            let commandCard = SnippetActionCard(snippet: command, isExpanded: false, compact: true,
+                onToggleExpanded: {}, onCopy: {}, onEdit: {}, onDelete: {}, onInspect: {},
+                onOpenTerminal: {}, onRun: {})
+            for width in [244.0, 304.0] {
+                try await render(commandCard.padding(12).modelContainer(container),
+                    size: CGSize(width: width, height: 210), to: output.appendingPathComponent("command-card-\(Int(width - 24)).png"))
+            }
+            try await render(commandCard.padding(12).modelContainer(container),
+                size: CGSize(width: 244, height: 210), to: output.appendingPathComponent("command-card-dark.png"), scheme: .dark)
+            let listCommandCard = SnippetActionCard(snippet: command, isExpanded: false,
+                onToggleExpanded: {}, onCopy: {}, onEdit: {}, onDelete: {}, onInspect: {},
+                onOpenTerminal: {}, onRun: {})
+            try await render(listCommandCard.padding(12).modelContainer(container),
+                size: CGSize(width: 364, height: 180), to: output.appendingPathComponent("command-list-narrow.png"))
+            try await render(shortTaskView.padding(20).modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 520, height: 220), to: output.appendingPathComponent("tasks-inspector-width.png"))
+        }
     }
 
     private func render<V: View>(_ view: V, size: CGSize, to url: URL, scheme: ColorScheme = .light) async throws {

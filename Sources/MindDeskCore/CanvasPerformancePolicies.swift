@@ -173,8 +173,8 @@ public extension CanvasEdgeAnimationPolicy {
               baselineZoom > 0 else {
             return stopped(.invalidZoom)
         }
-        guard zoom >= baselineZoom else {
-            return stopped(.zoomBelowBaseline)
+        guard zoom > 0 else {
+            return stopped(.invalidZoom)
         }
 
         let loadFrameRate = effectiveFrameRate(
@@ -229,7 +229,7 @@ public extension CanvasEdgeAnimationPolicy {
         guard zoom.isFinite,
               baselineZoom.isFinite,
               baselineZoom > 0,
-              zoom >= baselineZoom else {
+              zoom > 0 else {
             return false
         }
         return shouldAnimateEdge(

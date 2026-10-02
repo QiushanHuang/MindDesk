@@ -154,13 +154,9 @@ struct WorkspaceTodoBoardView: View {
     @State private var editingGroupId: String?
     @State private var editingGroupTitle = ""
     @State private var editingTodo: WorkspaceTodoModel?
-    @State private var dragStartRatio: Double?
+    @State private var splitDragState = TodoBoardSplitDragState()
     @State private var transientColumnRatio: Double?
     @FocusState private var focusedGroupRenameId: String?
-
-    private var openTodos: [WorkspaceTodoModel] {
-        orderedTodos(todos.filter { !$0.isCompleted })
-    }
 
     private var completedTodos: [WorkspaceTodoModel] {
         todos
@@ -191,7 +187,7 @@ struct WorkspaceTodoBoardView: View {
 
     private var selectedOpenTodos: [WorkspaceTodoModel] {
         guard let group = selectedGroup else { return [] }
-        return orderedTodos(openTodos.filter { groupId(for: $0) == group.id })
+        return orderedTodos(todos.filter { !$0.isCompleted && groupId(for: $0) == group.id })
     }
 
     private var isEffectivelyOpen: Bool {
@@ -238,7 +234,10 @@ struct WorkspaceTodoBoardView: View {
         }
         .onDisappear {
             commitEditingGroupIfNeeded()
+            resetSplitDrag()
         }
+        .onChange(of: isDoneColumnOpen) { _, _ in resetSplitDrag() }
+        .onChange(of: isOpen) { _, _ in resetSplitDrag() }
         .sheet(item: $editingTodo) { todo in
             WorkspaceTodoDetailView(todo: todo, resources: resources, onSave: {
                 save(status: "Updated task")
@@ -247,64 +246,109 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Label("Tasks", systemImage: "checklist")
-                .font(.headline)
-            Text("\(openTodos.count) open · \(completedTodos.count) done")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            Button {
-                addGroup()
-            } label: {
-                Label("New Group", systemImage: "folder.badge.plus")
-            }
-            .disabled(!isEffectivelyOpen)
-
-            Button {
-                addTodo()
-            } label: {
-                Label("New Task", systemImage: "plus")
-            }
-            .disabled(!isEffectivelyOpen)
-
-            Button {
-                isDoneColumnOpen.toggle()
-            } label: {
-                Label(isDoneColumnOpen ? "Hide Done" : "Show Done", systemImage: isDoneColumnOpen ? "sidebar.right" : "sidebar.leading")
-            }
-            .disabled(!isEffectivelyOpen)
-
-            if presentation.showsCollapseControl {
-                Button {
-                    isOpen.toggle()
-                } label: {
-                    Label(isOpen ? "Close Tasks" : "Open Tasks", systemImage: isOpen ? "chevron.down" : "chevron.up")
+        Group {
+            if !isEffectivelyOpen {
+                HStack(spacing: 10) {
+                    headerSummary
+                    Spacer(minLength: 12)
+                    Button { isOpen = true } label: {
+                        Label("Open Tasks", systemImage: "chevron.up")
+                    }
+                }
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) {
+                        headerSummary
+                        Spacer(minLength: 12)
+                        headerActions
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        headerSummary
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 8) { headerActions }
+                            HStack(spacing: 8) { headerActions }
+                                .labelStyle(.iconOnly)
+                        }
+                    }
                 }
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .buttonStyle(.bordered)
+    }
+
+    private var headerSummary: some View {
+        HStack(spacing: 10) {
+            Label("Tasks", systemImage: "checklist")
+                .font(.headline)
+            let completedCount = todos.count(where: \.isCompleted)
+            Text("\(todos.count - completedCount) open · \(completedCount) done")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private var headerActions: some View {
+        Button {
+            addGroup()
+        } label: {
+            Label("New Group", systemImage: "folder.badge.plus")
+        }
+        .disabled(!isEffectivelyOpen)
+        .help("New group")
+
+        Button {
+            addTodo()
+        } label: {
+            Label("New Task", systemImage: "plus")
+        }
+        .disabled(!isEffectivelyOpen)
+        .help("New task")
+
+        Button {
+            isDoneColumnOpen.toggle()
+        } label: {
+            Label(isDoneColumnOpen ? "Hide Done" : "Show Done", systemImage: isDoneColumnOpen ? "sidebar.right" : "sidebar.leading")
+        }
+        .disabled(!isEffectivelyOpen)
+        .help(isDoneColumnOpen ? "Hide completed tasks" : "Show completed tasks")
+
+        if presentation.showsCollapseControl {
+            Button {
+                isOpen.toggle()
+            } label: {
+                Label(isOpen ? "Close Tasks" : "Open Tasks", systemImage: isOpen ? "chevron.down" : "chevron.up")
+            }
+            .help(isOpen ? "Close tasks" : "Open tasks")
+        }
     }
 
     private var boardBody: some View {
         GeometryReader { proxy in
-            if isDoneColumnOpen {
+            if isDoneColumnOpen && proxy.size.width < 760 && proxy.size.height >= 240 {
+                VStack(spacing: 8) {
+                    openTaskArea
+                        .frame(height: max(1, (proxy.size.height - 9) * 0.6))
+                    Divider()
+                    doneColumn
+                }
+            } else if isDoneColumnOpen {
                 let dividerWidth = 10.0
-                let availableWidth = max(proxy.size.width - dividerWidth, 1)
-                let ratio = activeColumnRatio
-                let todoWidth = availableWidth * ratio
+                let layout = TodoBoardSplitLayout(availableWidth: max(proxy.size.width - dividerWidth, 1))
+                let todoWidth = layout.openWidth(ratio: activeColumnRatio)
 
                 HStack(spacing: 0) {
                     openTaskArea
                         .frame(width: todoWidth)
 
-                    splitDivider(availableWidth: availableWidth)
+                    splitDivider(layout: layout, displayedOpenWidth: todoWidth)
                         .frame(width: dividerWidth)
 
                     doneColumn
-                        .frame(width: availableWidth - todoWidth)
+                        .frame(width: layout.availableWidth - todoWidth)
                 }
             } else {
                 openTaskArea
@@ -313,15 +357,17 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private var openTaskArea: some View {
-        HStack(spacing: 10) {
-            groupList
-                .frame(width: 180)
-            Divider()
-            taskList(
-                title: selectedGroup?.title ?? defaultTodoGroupTitle,
-                items: selectedOpenTodos,
-                emptyText: "No tasks in this group"
-            )
+        GeometryReader { proxy in
+            HStack(spacing: 10) {
+                groupList
+                    .frame(width: min(180, max(100, proxy.size.width * 0.28)))
+                Divider()
+                taskList(
+                    title: selectedGroup?.title ?? defaultTodoGroupTitle,
+                    items: selectedOpenTodos,
+                    emptyText: "No tasks in this group"
+                )
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -335,9 +381,12 @@ struct WorkspaceTodoBoardView: View {
                 Spacer()
                 Button(action: addGroup) {
                     Image(systemName: "plus")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("New group")
+                .accessibilityLabel("New group")
             }
 
             ScrollView {
@@ -427,9 +476,12 @@ struct WorkspaceTodoBoardView: View {
                 Spacer()
                 Button(action: addTodo) {
                     Image(systemName: "plus")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help("New task")
+                .accessibilityLabel("New task")
             }
 
             if items.isEmpty {
@@ -463,9 +515,12 @@ struct WorkspaceTodoBoardView: View {
             } label: {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(todo.isCompleted ? .green : .secondary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(todo.isCompleted ? "Move \(todo.title) back to open" : "Mark \(todo.title) done")
+            .help(todo.isCompleted ? "Move back to open" : "Mark done")
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -475,15 +530,17 @@ struct WorkspaceTodoBoardView: View {
                             .foregroundStyle(Color.accentColor)
                     }
                     Text(todo.title)
-                        .lineLimit(1)
+                        .lineLimit(2)
                         .strikethrough(todo.isCompleted)
                         .layoutPriority(1)
-                    if let detail = TodoBoardTaskSummary.inlineDetail(todo.details) {
-                        Text(detail)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
+                }
+                .help(todo.title)
+                if let detail = TodoBoardTaskSummary.inlineDetail(todo.details) {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(todo.details)
                 }
 
                 HStack(spacing: 8) {
@@ -499,18 +556,19 @@ struct WorkspaceTodoBoardView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
                 editingTodo = todo
             } label: {
                 Image(systemName: "info.circle")
-                    .frame(width: 18, height: 18)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
             .help("Edit details")
+            .accessibilityLabel("Edit details for \(todo.title)")
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
@@ -553,7 +611,7 @@ struct WorkspaceTodoBoardView: View {
         TodoBoardColumnSplit.clampedRatio(transientColumnRatio ?? columnRatio)
     }
 
-    private func splitDivider(availableWidth: Double) -> some View {
+    private func splitDivider(layout: TodoBoardSplitLayout, displayedOpenWidth: Double) -> some View {
         Rectangle()
             .fill(.clear)
             .overlay {
@@ -565,23 +623,23 @@ struct WorkspaceTodoBoardView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
-                        if dragStartRatio == nil {
-                            dragStartRatio = activeColumnRatio
-                        }
-                        let start = dragStartRatio ?? TodoBoardColumnSplit.defaultRatio
-                        transientColumnRatio = TodoBoardColumnSplit.clampedRatio(
-                            start + Double(value.translation.width) / availableWidth
-                        )
+                        transientColumnRatio = splitDragState.update(
+                            translation: Double(value.translation.width),
+                            displayedOpenWidth: displayedOpenWidth, layout: layout)
                     }
                     .onEnded { _ in
                         if let transientColumnRatio {
                             columnRatio = transientColumnRatio
                         }
-                        transientColumnRatio = nil
-                        dragStartRatio = nil
+                        resetSplitDrag()
                     }
             )
             .help("Drag to resize open and done columns")
+    }
+
+    private func resetSplitDrag() {
+        transientColumnRatio = nil
+        splitDragState = TodoBoardSplitDragState()
     }
 
     @discardableResult

@@ -24,6 +24,8 @@ For example, a research workspace can hold a paper reference, notes about an ope
 
 The optional organizing assistant helps turn selected cards into a summary, groups or tasks. It generates an editable preview using your Codex account; you decide when to apply it.
 
+**Source update, 2026-10-02 (unreleased):** current source refines existing layouts, search and feedback. The task, quick-note, resource and snippet previews below show these changes. Published downloads remain **v3.3.0**. [Read the changes](CHANGELOG.md#unreleased).
+
 [Why choose it](#why-choose-minddesk) · [A complete workflow](#one-project-from-capture-to-action) · [Features](#features-in-detail) · [Technical overview](#technical-overview) · [Download](#download-and-start) · [中文](#中文)
 
 ## Less searching. More context.
@@ -87,6 +89,10 @@ Add files and folders from Finder, give their references readable names, and add
 
 Use Global Library for material shared by several projects, and workspace Resources for the collection you need in that project. Removing a reference from MindDesk leaves the original file in place. If you move a file outside the app or its access permission expires, reconnect the reference.
 
+In the current source, narrow lists put the path, status and workspace links below the name. All resource actions remain available.
+
+<img src="docs/screenshots/resources-650.png" width="650" alt="Narrow resource list with names, actions, paths, status and workspace links">
+
 ### 3. Tasks: move from a project map to the next action
 
 Create task groups, set due dates, link resources and move tasks between open and completed states. Keep a task next to the material needed to complete it rather than rewriting that context into a separate checklist.
@@ -97,6 +103,8 @@ Workspace Overview summarizes project information, while Tasks is where you mana
 
 In this task-panel preview, choose **Next experiment** or **Reading** in the left column. The middle column holds the selected group's open actions; **Done** shows completed work. Use **New Task** to add an action, click its circle when finished, and use the information button to edit details.
 
+Task titles and details have separate lines. The layout adapts to the available width and height; narrower, taller panels can stack open and completed tasks. The divider responds immediately when you reverse a drag at either limit.
+
 ### 4. Notes, snippets and search: capture once, find it again
 
 **Quick note** opens a small writing sheet. Paste or type the idea, leave the title blank if you prefer, and press **⌘ Return** to save it to the canvas. A missing title is taken from the first line.
@@ -105,7 +113,13 @@ In this task-panel preview, choose **Next experiment** or **Reading** in the lef
 
 Start in the writing area, then use **Save to canvas**. The title field is optional so that capture does not have to begin with naming or classification.
 
+The sheet now allows extra height for the editor and error messages instead of forcing all content into a fixed height.
+
 **Snippets** are for text you will reuse: a prompt, command, checklist or short reference. Store snippets globally or within a workspace, edit them, copy them, or add them to the canvas. Saving a command does not run it.
+
+When space is tight, the existing actions wrap into two rows. Repeating a copy action restarts its confirmation message; an older timer no longer clears the new feedback.
+
+<img src="docs/screenshots/command-list-narrow.png" width="364" alt="Narrow command snippet with all seven existing actions arranged in two rows">
 
 **Quick Open** is available with **⌘ K**. Search workspaces, resources, snippets and web cards, then narrow the results by type. It is a navigation shortcut, not full-text indexing of the contents of your local files.
 
@@ -146,7 +160,7 @@ The [operation guide](docs/user-manual.md) walks through these controls and incl
 
 ## Download and start
 
-Current release: `v3.3.0`.
+Current release: `v3.3.0`. These published assets do not include the 2026-10-02 source optimizations.
 
 **[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
 
@@ -200,6 +214,8 @@ flowchart LR
 
 The canvas stores card and frame positions in world coordinates, then maps them into the current viewport for panning and zooming. This separates where an item belongs in the project from where it appears on screen.
 
+The unreleased source filters search matches before sorting and skips text from unrelated workspaces. Canvas geometry caching retains recently used entries when full. Panel, snippet-expansion and feedback animations respect macOS **Reduce Motion**. These changes reduce repeated work; no FPS, CPU or power improvement has been measured.
+
 ### Source map
 
 | Path | What to look for |
@@ -252,6 +268,8 @@ Created and maintained by **[Qiushan (QiushanHuang)](https://github.com/QiushanH
 例如，做一个研究课题时，你可以把论文引用、待解决的问题、实验结果文件夹和“比较两种方案”的任务放在一起，用分组框标注主题，再用连线说明关系。下次打开项目，就能顺着问题找到原始资料，继续处理任务。
 
 可选的整理助手能把选中卡片整理成摘要、分组或任务。它通过你的 Codex 账号生成可编辑预览，由你决定是否应用。
+
+**2026-10-02 源码更新（未发布）：** 当前源码优化了既有布局、搜索和操作反馈。下方任务、快速笔记、资源与片段预览展示这些改进；已发布下载仍为 **v3.3.0**。[查看改动](CHANGELOG.md#unreleased)。
 
 [为什么选它](#为什么选它) · [完整使用流程](#一个项目从收集到行动) · [功能详解](#核心功能详解) · [技术说明](#技术说明与项目结构) · [下载](#下载并开始使用) · [English](#english)
 
@@ -316,6 +334,10 @@ MindDesk 把文件、笔记、链接和任务放到一张可整理的项目画�
 
 Global Library 适合跨项目共用的资料，工作区 Resources 用于查看当前项目需要的资源集合。移除 MindDesk 引用不会删除原文件；若在外部移动文件或访问授权失效，可重新关联。
 
+当前源码在较窄列表中把路径、状态和工作区链接放到名称下方，保留全部资源操作。
+
+<img src="docs/screenshots/resources-650.png" width="650" alt="窄版资源列表：名称、操作、路径、状态与工作区链接">
+
 #### 3. 任务看板：从“看懂”走向“去做”
 
 创建任务分组、设置截止日期、关联资源，并在未完成与已完成状态之间管理进度。需要用到某份文档的任务，可以和文档留在同一个工作区。
@@ -326,6 +348,8 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 图中左侧选择 **Next experiment** 或 **Reading** 分组，中间查看当前组的待办，右侧 **Done** 查看已完成项目。点击 **New Task** 添加任务，完成后点击圆圈勾选，通过信息按钮编辑详情。
 
+任务标题与说明分行显示。布局随可用宽高调整，较窄且足够高的面板可上下排列未完成与已完成任务。分隔线拖到边界后，反向移动会立即响应。
+
 #### 4. 快速记录、片段与搜索：先记下来，再快速找回
 
 **Quick note（快速笔记）** 打开独立输入框。写入或粘贴内容，按 **⌘ Return** 保存到画布。标题可留空，应用会采用第一行。
@@ -334,7 +358,13 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 直接在正文区记录，再点击 **Save to canvas**。标题可选，先把想法留下，不必一开始就想好名称与分类。
 
+输入框采用弹性高度，为正文和错误信息留出空间，不再把全部内容限制在固定高度内。
+
 **Snippets（片段）** 用于反复使用的文字，例如提示词、命令、检查清单或简短参考。可以全局保存，也可以归属某个工作区，之后编辑、复制或放到画布上。保存命令不会执行它。
+
+空间不足时，原有操作按钮会排成两行。连续复制会重新开始提示计时，旧计时器不会提前清除新反馈。
+
+<img src="docs/screenshots/command-list-narrow.png" width="364" alt="窄版命令片段：七个原有操作分成两行显示">
 
 按 **⌘ K** 打开 **Quick Open**，搜索工作区、资源、片段和网页卡片，再按类型筛选。这是应用内项目记录的查找入口，不是对本地文件正文进行全文索引。
 
@@ -375,7 +405,7 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 ### 下载并开始使用
 
-当前版本：`v3.3.0`。
+当前版本：`v3.3.0`。这些已发布安装包不包含 2026-10-02 的源码优化。
 
 **[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
 
@@ -417,6 +447,8 @@ MindDesk 使用 **Swift 6 与 SwiftUI** 编写，通过 AppKit 接入 macOS 行�
 数据流可以概括为：界面操作 → 核心布局与记录逻辑 → 本地 SwiftData。只有请求整理预览时，明确包含的卡片、关系和指令才经本机 Codex 发往在线模型服务；返回建议经校验、预览、用户确认后写回本地记录。
 
 画布以世界坐标保存卡片和框的位置，再根据当前视野进行平移与缩放映射。项目中的内容位置与屏幕上的显示位置分开处理，方便在全局结构和局部内容之间切换。
+
+未发布源码会先匹配搜索内容再排序，并跳过其他工作区的片段正文；画布几何缓存满额时保留最近使用的记录。面板、片段展开和操作反馈动画遵循 macOS **“减少动态效果”**。这些改动减少重复计算，尚未测量 FPS、CPU 或功耗的改善幅度。
 
 | 目录 | 包含内容 |
 | --- | --- |

@@ -10,17 +10,45 @@ struct QuickNoteCaptureSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label("Quick note", systemImage: "square.and.pencil").font(.title2.bold())
-            Text("Capture the thought now. Organize it when you're ready.").foregroundStyle(.secondary)
-            TextField("Title (optional)", text: $title).textFieldStyle(.roundedBorder)
-            TextEditor(text: $text).font(.body).focused($focused).frame(minHeight: 200)
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Quick note", systemImage: "square.and.pencil")
+                    .font(.title2.bold())
+                Text("Capture the thought now. Organize it when you're ready.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            TextField("Title (optional)", text: $title)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Title (optional)")
+            TextEditor(text: $text)
+                .font(.body)
+                .focused($focused)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .frame(minHeight: 200)
+                .background(.background)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(Color.secondary.opacity(0.2))
+                }
                 .overlay(alignment: .topLeading) {
                     if text.isEmpty {
-                        Text("Write or paste your note…").foregroundStyle(.tertiary)
-                            .padding(5).allowsHitTesting(false)
+                        Text("Write or paste your note…")
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
                     }
                 }
-            if let errorMessage { Text(errorMessage).foregroundStyle(.red) }
+                .accessibilityLabel("Note content")
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
@@ -39,7 +67,9 @@ struct QuickNoteCaptureSheet: View {
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(24).frame(width: 560, height: 380)
+        .padding(24)
+        .frame(width: 560)
+        .frame(minHeight: 420, idealHeight: 460)
         .onAppear { focused = true }
         .interactiveDismissDisabled(!text.isEmpty)
     }
