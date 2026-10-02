@@ -3,11 +3,11 @@
 
 [English](#english-guide) · [简体中文](#中文操作指南) · [Download](https://github.com/QiushanHuang/MindDesk/releases/latest)
 
-This guide includes the **2026-10-02 unreleased source optimizations**. Published downloads remain v3.3.0; adaptive layouts and feedback improvements described here require a build from current source. [Source changes](../CHANGELOG.md#unreleased).
+This guide covers **v3.3.1**, including adaptive layouts and feedback improvements. [Release notes](releases/v3.3.1.md).
 
 ## Install and update
 
-Download the v3.3.0 DMG for Apple silicon, open it and drag MindDesk.app into Applications. macOS 14 or newer is required. This build is ad-hoc signed, not Apple-notarized. If macOS blocks launch, confirm the download came from QiushanHuang/MindDesk, then open System Settings → Privacy & Security → Open Anyway.
+Download the v3.3.1 DMG for Apple silicon, open it and drag MindDesk.app into Applications. macOS 14 or newer is required. This build is ad-hoc signed, not Apple-notarized. If macOS blocks launch, confirm the download came from QiushanHuang/MindDesk, then open System Settings → Privacy & Security → Open Anyway.
 
 To update, quit MindDesk before replacing the app. Workspaces live separately from the application bundle. Export a Manifest and keep a backup before a major update.
 
@@ -36,7 +36,7 @@ A manually bent connection may need a route adjustment after the organizer moves
 
 Choose the note control, write or paste your text, then click Save to canvas or press ⌘ Return. The title is optional; if left blank, MindDesk uses the first line. Cancel closes the sheet without adding a card.
 
-The current source uses a bordered editor and flexible sheet height, leaving room for error messages without squeezing the writing area.
+Quick note uses a bordered editor and flexible sheet height, leaving room for error messages without squeezing the writing area.
 
 ## Generate an organizing preview
 
@@ -71,7 +71,7 @@ Snippet actions wrap when space is limited. Repeating Copy restarts the confirma
 
 Press ⌘ K and type part of a title or related text. Use the type filters for workspaces, resources, snippets or web cards, then open a result. Press ⌘ , for Settings, including appearance, canvas interaction and task defaults.
 
-Resource and snippet list searches retain their existing fields and ordering. The current source filters matches before sorting and skips snippet text outside the selected workspace scope. Panel, snippet-expansion and feedback animations follow macOS Reduce Motion in System Settings → Accessibility → Display.
+Resource and snippet list searches retain their existing fields and ordering. List searches filter matches before sorting and skips snippet text outside the selected workspace scope. Panel, snippet-expansion and feedback animations follow macOS Reduce Motion in System Settings → Accessibility → Display.
 
 ## Export, transfer and backup
 
@@ -85,7 +85,7 @@ The default store is ~/Library/Application Support/studio.qiushan.minddesk/Store
 
 | Symptom | What to do |
 | --- | --- |
-| Preview reports status 127 | Install v3.3.0 and fully quit/reopen the app. Check that Codex CLI and its runtime are installed in the supported locations above. |
+| Preview reports status 127 | Install v3.3.1 and fully quit/reopen the app. Check that Codex CLI and its runtime are installed in the supported locations above. |
 | Preview fails for another reason | Check Codex sign-in, network and account access. Retry with fewer cards if it times out. The failed preview does not change cards. |
 | A file no longer opens | Check that the file still exists, reconnect the reference and grant macOS file access if requested. |
 | Canvas is preparing or unavailable | Wait for preparation; use Try Again if offered. Other workspace pages remain available. |
@@ -122,11 +122,11 @@ Use the suffix matching the machine architecture; this command does not cross-co
 
 [English](#english-guide) · [返回项目首页](../README.md#中文)
 
-本指南包含 **2026-10-02 尚未发布的源码优化**。已发布下载仍为 v3.3.0；文中的自适应布局与反馈改进需要从当前源码构建。[查看源码改动](../CHANGELOG.md#unreleased)。
+本指南适用于 **v3.3.1**，包含自适应布局与操作反馈改进。[查看版本说明](releases/v3.3.1.md#中文更新说明)。
 
 ### 安装与更新
 
-下载适用于 Apple 芯片的 v3.3.0 DMG，打开后将 MindDesk.app 拖入“应用程序”。需要 macOS 14 或更新版本。本包采用 ad-hoc 签名，未经过 Apple 公证。若首次启动被阻止，确认来自 QiushanHuang/MindDesk 后，前往“系统设置 → 隐私与安全性 → 仍要打开”。
+下载适用于 Apple 芯片的 v3.3.1 DMG，打开后将 MindDesk.app 拖入“应用程序”。需要 macOS 14 或更新版本。本包采用 ad-hoc 签名，未经过 Apple 公证。若首次启动被阻止，确认来自 QiushanHuang/MindDesk 后，前往“系统设置 → 隐私与安全性 → 仍要打开”。
 
 更新前退出 MindDesk，再替换 App。工作区数据与 App 分开保存；大版本更新前请导出 Manifest，并保留备份。
 
@@ -155,7 +155,7 @@ Home 用于返回最近的项目。工作区包含 Overview（概览）、Tasks�
 
 点击笔记控件，写入或粘贴内容，点击 Save to canvas 或按 ⌘ Return 保存。标题可以不填，应用会采用第一行。点击 Cancel 则不添加卡片。
 
-当前源码为编辑区增加边界，并采用弹性窗口高度，为错误信息留出空间，避免挤压正文输入区。
+编辑区带有清晰边界，并采用弹性窗口高度，为错误信息留出空间，避免挤压正文输入区。
 
 ### 使用整理助手
 
@@ -190,7 +190,7 @@ Snippets 保存提示词、命令和常用文字，可创建、查找、编辑�
 
 按 ⌘ K 输入标题或相关文字，通过类型筛选查找工作区、资源、片段和网页卡片。按 ⌘ , 打开设置，调整外观、画布交互和任务默认选项。
 
-资源和片段列表保持原有搜索字段与排序。当前源码先匹配再排序，并跳过所选工作区范围外的片段正文。面板、片段展开和操作反馈动画遵循“系统设置 → 辅助功能 → 显示”中的“减少动态效果”。
+资源和片段列表保持原有搜索字段与排序。搜索会先匹配再排序，并跳过所选工作区范围外的片段正文。面板、片段展开和操作反馈动画遵循“系统设置 → 辅助功能 → 显示”中的“减少动态效果”。
 
 ### 导出、迁移与备份
 
@@ -204,7 +204,7 @@ Manifest 不包含原文件本身，也不会迁移 macOS 文件访问授权。�
 
 | 问题 | 处理方式 |
 | --- | --- |
-| 预览报 127 | 安装 v3.3.0，完全退出后重新打开；确认 Codex CLI 及运行环境在上述支持位置。 |
+| 预览报 127 | 安装 v3.3.1，完全退出后重新打开；确认 Codex CLI 及运行环境在上述支持位置。 |
 | 预览报其他错误 | 检查 Codex 登录、网络和账号权限；超时时可减少选中卡片后重试。失败的预览不会修改卡片。 |
 | 文件打不开 | 确认原文件仍存在，重新关联引用，并按提示授权访问。 |
 | 画布准备中或不可用 | 等待准备；出现 Try Again 时可重试，其他工作区页面仍可使用。 |

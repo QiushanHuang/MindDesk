@@ -5,7 +5,7 @@
 <p align="center">
 <a href="#english"><img src="https://img.shields.io/badge/English-Read-183B56" alt="English"></a>
 <a href="#中文"><img src="https://img.shields.io/badge/简体中文-阅读-168A83" alt="跳转到本页中文"></a>
-<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.3.0"><img src="https://img.shields.io/badge/release-v3.3.0-168A83" alt="Release v3.3.0"></a>
+<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.3.1"><img src="https://img.shields.io/badge/release-v3.3.1-168A83" alt="Release v3.3.1"></a>
 <img src="https://img.shields.io/badge/macOS-14%2B-183B56" alt="macOS 14 or newer">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-183B56" alt="MIT license"></a>
 </p>
@@ -24,7 +24,7 @@ For example, a research workspace can hold a paper reference, notes about an ope
 
 The optional organizing assistant helps turn selected cards into a summary, groups or tasks. It generates an editable preview using your Codex account; you decide when to apply it.
 
-**Source update, 2026-10-02 (unreleased):** current source refines existing layouts, search and feedback. The task, quick-note, resource and snippet previews below show these changes. Published downloads remain **v3.3.0**. [Read the changes](CHANGELOG.md#unreleased).
+**v3.3.1: existing workflow polish.** Clearer layouts, more consistent feedback and less repeated work in search and canvas rendering. This update adds no features. [Read the release notes](docs/releases/v3.3.1.md).
 
 [Why choose it](#why-choose-minddesk) · [A complete workflow](#one-project-from-capture-to-action) · [Features](#features-in-detail) · [Technical overview](#technical-overview) · [Download](#download-and-start) · [中文](#中文)
 
@@ -89,7 +89,7 @@ Add files and folders from Finder, give their references readable names, and add
 
 Use Global Library for material shared by several projects, and workspace Resources for the collection you need in that project. Removing a reference from MindDesk leaves the original file in place. If you move a file outside the app or its access permission expires, reconnect the reference.
 
-In the current source, narrow lists put the path, status and workspace links below the name. All resource actions remain available.
+Narrow lists put the path, status and workspace links below the name. All resource actions remain available.
 
 <img src="docs/screenshots/resources-650.png" width="650" alt="Narrow resource list with names, actions, paths, status and workspace links">
 
@@ -160,9 +160,9 @@ The [operation guide](docs/user-manual.md) walks through these controls and incl
 
 ## Download and start
 
-Current release: `v3.3.0`. These published assets do not include the 2026-10-02 source optimizations.
+Current release: `v3.3.1`.
 
-**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
+**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
 
 Requires macOS 14 or newer. The supplied build is for Apple silicon (M-series Macs). Intel users can build from source.
 
@@ -176,7 +176,7 @@ To update, quit MindDesk and replace the app in Applications. Your local workspa
 
 For the optional organizer, install and sign in to the [Codex CLI](https://developers.openai.com/codex/cli) once. It uses the model access and usage limits of your Codex account; MindDesk does not include a model subscription.
 
-[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.3.0](docs/releases/v3.3.0.md) · [Full changelog](CHANGELOG.md)
+[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.3.1](docs/releases/v3.3.1.md) · [Full changelog](CHANGELOG.md)
 
 ## Your files and data
 
@@ -214,7 +214,7 @@ flowchart LR
 
 The canvas stores card and frame positions in world coordinates, then maps them into the current viewport for panning and zooming. This separates where an item belongs in the project from where it appears on screen.
 
-The unreleased source filters search matches before sorting and skips text from unrelated workspaces. Canvas geometry caching retains recently used entries when full. Panel, snippet-expansion and feedback animations respect macOS **Reduce Motion**. These changes reduce repeated work; no FPS, CPU or power improvement has been measured.
+List searches filter matches before sorting and skips text from unrelated workspaces. Canvas geometry caching retains recently used entries when full. Panel, snippet-expansion and feedback animations respect macOS **Reduce Motion**. These changes reduce repeated work; no FPS, CPU or power improvement has been measured.
 
 ### Source map
 
@@ -269,7 +269,7 @@ Created and maintained by **[Qiushan (QiushanHuang)](https://github.com/QiushanH
 
 可选的整理助手能把选中卡片整理成摘要、分组或任务。它通过你的 Codex 账号生成可编辑预览，由你决定是否应用。
 
-**2026-10-02 源码更新（未发布）：** 当前源码优化了既有布局、搜索和操作反馈。下方任务、快速笔记、资源与片段预览展示这些改进；已发布下载仍为 **v3.3.0**。[查看改动](CHANGELOG.md#unreleased)。
+**v3.3.1：既有操作优化。** 改善布局与连续操作反馈，减少搜索和画布渲染中的重复计算，不增加新功能。[查看版本说明](docs/releases/v3.3.1.md#中文更新说明)。
 
 [为什么选它](#为什么选它) · [完整使用流程](#一个项目从收集到行动) · [功能详解](#核心功能详解) · [技术说明](#技术说明与项目结构) · [下载](#下载并开始使用) · [English](#english)
 
@@ -334,7 +334,7 @@ MindDesk 把文件、笔记、链接和任务放到一张可整理的项目画�
 
 Global Library 适合跨项目共用的资料，工作区 Resources 用于查看当前项目需要的资源集合。移除 MindDesk 引用不会删除原文件；若在外部移动文件或访问授权失效，可重新关联。
 
-当前源码在较窄列表中把路径、状态和工作区链接放到名称下方，保留全部资源操作。
+较窄列表会把路径、状态和工作区链接放到名称下方，保留全部资源操作。
 
 <img src="docs/screenshots/resources-650.png" width="650" alt="窄版资源列表：名称、操作、路径、状态与工作区链接">
 
@@ -405,9 +405,9 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 ### 下载并开始使用
 
-当前版本：`v3.3.0`。这些已发布安装包不包含 2026-10-02 的源码优化。
+当前版本：`v3.3.1`。
 
-**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.0/MindDesk-v3.3.0-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
+**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
 
 需要 macOS 14 或更新版本。现成安装包适用于 M 系列 Mac；Intel Mac 可从源码构建。
 
@@ -421,7 +421,7 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 使用整理助手前，请安装并登录一次 [Codex CLI](https://developers.openai.com/codex/cli)。助手使用你的 Codex 账号权限和用量额度，MindDesk 不包含模型订阅。
 
-[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.3.0 更新内容](docs/releases/v3.3.0.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
+[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.3.1 更新内容](docs/releases/v3.3.1.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
 
 ### 文件与数据
 
@@ -448,7 +448,7 @@ MindDesk 使用 **Swift 6 与 SwiftUI** 编写，通过 AppKit 接入 macOS 行�
 
 画布以世界坐标保存卡片和框的位置，再根据当前视野进行平移与缩放映射。项目中的内容位置与屏幕上的显示位置分开处理，方便在全局结构和局部内容之间切换。
 
-未发布源码会先匹配搜索内容再排序，并跳过其他工作区的片段正文；画布几何缓存满额时保留最近使用的记录。面板、片段展开和操作反馈动画遵循 macOS **“减少动态效果”**。这些改动减少重复计算，尚未测量 FPS、CPU 或功耗的改善幅度。
+列表搜索会先匹配内容再排序，并跳过其他工作区的片段正文；画布几何缓存满额时保留最近使用的记录。面板、片段展开和操作反馈动画遵循 macOS **“减少动态效果”**。这些改动减少重复计算，尚未测量 FPS、CPU 或功耗的改善幅度。
 
 | 目录 | 包含内容 |
 | --- | --- |

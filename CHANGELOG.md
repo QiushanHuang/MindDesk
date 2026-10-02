@@ -1,10 +1,8 @@
 # Changelog
 
-## Unreleased
+## 2026-10-02 - v3.3.1: existing workflow polish
 
-### 2026-10-02 - Existing workflow polish
-
-These are source updates after v3.3.0. The published v3.3.0 DMG and ZIP remain unchanged; this update adds no features.
+This patch improves existing layouts, interactions and rendering without adding features. [Release notes](docs/releases/v3.3.1.md).
 
 - Adapt task panels to the available width and height, keep titles and details readable, and make divider drags respond immediately when reversing at a limit or resizing the window.
 - Stack resource metadata in narrow lists and wrap snippet actions when needed, keeping all existing actions and workspace links available. Refine Home card spacing and alignment.
@@ -18,7 +16,7 @@ Regression checks cover feedback lifetime, divider boundaries, cache retention a
 
 ### 2026-10-02 - 既有操作优化
 
-这是 v3.3.0 之后的源码更新。已发布的 v3.3.0 DMG 与 ZIP 保持不变，本次不增加功能。
+本补丁优化既有布局、交互和渲染，不增加功能。[版本说明](docs/releases/v3.3.1.md#中文更新说明)。
 
 - 任务面板适应可用宽高，分行显示标题与说明；分隔线拖到边界后反向移动、调整窗口大小时及时响应。
 - 窄资源列表分层显示信息，片段操作按需换行，保留全部原有操作和工作区链接；调整首页卡片间距与对齐。
