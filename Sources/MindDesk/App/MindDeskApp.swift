@@ -26,6 +26,7 @@ struct MindDeskMenuCommands: Commands {
         static let exportManifestShortcutKey = "e"
         static let exportManifestShortcutModifiers = "command+shift"
         static let requiresFocusedMindDeskWindow = true
+        static let workweftBridgeTitle = "Workweft Canvas Bridge…"
     }
 
     @FocusedValue(\.mindDeskCommands) private var commands
@@ -61,6 +62,13 @@ struct MindDeskMenuCommands: Commands {
             }
             .keyboardShortcut("i", modifiers: [.command, .shift])
             .disabled(commands == nil)
+
+            Divider()
+
+            Button(WorkbenchMenuDescriptor.workweftBridgeTitle) {
+                commands?.workweftBridge?()
+            }
+            .disabled(commands?.workweftBridge == nil)
         }
     }
 }

@@ -1575,7 +1575,7 @@ final class AppBehaviorTests: XCTestCase {
 
         XCTAssertTrue(settingsSource.contains("@AppStorage(CanvasScrollZoomDirectionSettingsDescriptor.preferenceKey)"))
         XCTAssertTrue(settingsSource.contains("Picker(AppSettingsView.canvasScrollZoomDirectionTitle"))
-        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasScrollZoomDirectionHelpText)"))
+        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasScrollZoomDirectionHelpText,"))
         XCTAssertTrue(canvasSource.contains("@AppStorage(CanvasScrollZoomDirectionSettingsDescriptor.preferenceKey)"))
         XCTAssertTrue(canvasSource.contains("CanvasScrollZoomRuntimePolicy.zoom"))
         XCTAssertTrue(canvasSource.contains("directionRawValue: scrollZoomDirectionRaw"))
@@ -1611,7 +1611,7 @@ final class AppBehaviorTests: XCTestCase {
 
         XCTAssertTrue(settingsSource.contains("@AppStorage(CanvasAnimationFrameRateSettingsDescriptor.preferenceKey)"))
         XCTAssertTrue(settingsSource.contains("Picker(AppSettingsView.canvasAnimationFrameRateTitle"))
-        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasAnimationFrameRateHelpText)"))
+        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasAnimationFrameRateHelpText,"))
     }
 
     func testWorkspaceCanvasUsesAnimationTimelinePlanForBlueFlowCPUThrottle() throws {
@@ -1644,7 +1644,7 @@ final class AppBehaviorTests: XCTestCase {
 
         XCTAssertTrue(settingsSource.contains("@AppStorage(CanvasZoomCommitCadenceSettingsDescriptor.preferenceKey)"))
         XCTAssertTrue(settingsSource.contains("Picker(AppSettingsView.canvasZoomCommitCadenceTitle"))
-        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasZoomCommitCadenceHelpText)"))
+        XCTAssertTrue(settingsSource.contains("SettingsHelpText(AppSettingsView.canvasZoomCommitCadenceHelpText,"))
     }
 
     func testAppSettingsPaneSelectionUsesAppStorageBackedTabSelection() throws {
@@ -1696,10 +1696,15 @@ final class AppBehaviorTests: XCTestCase {
         XCTAssertTrue(settingsFormSource.contains("Form {"))
         XCTAssertTrue(settingsFormSource.contains(".frame(maxWidth: .infinity, alignment: .top)"))
         XCTAssertTrue(settingsFormSource.contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)"))
-        XCTAssertTrue(helpTextSource.contains(".fixedSize(horizontal: false, vertical: true)"))
-        XCTAssertFalse(helpTextSource.contains(".lineLimit"))
-        XCTAssertTrue(infoRowSource.contains(".fixedSize(horizontal: false, vertical: true)"))
-        XCTAssertFalse(infoRowSource.contains(".lineLimit"))
+        XCTAssertTrue(helpTextSource.contains("InformationButton(subject: subject, text: text)"))
+        XCTAssertTrue(infoRowSource.contains("InformationButton(subject: title, text: description)"))
+        let informationButtonSource = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("Sources/MindDesk/Views/InformationButton.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(informationButtonSource.contains(".popover(isPresented:"))
+        XCTAssertTrue(informationButtonSource.contains(".accessibilityHint(text)"))
+        XCTAssertTrue(informationButtonSource.contains(".fixedSize(horizontal: false, vertical: true)"))
     }
 
     func testWorkspaceCanvasTodoStartupUsesSharedNoAutoGroupPolicy() throws {
@@ -3225,18 +3230,18 @@ final class AppBehaviorTests: XCTestCase {
         let unpinnedPrimary = ResourceRowActionPresentationPolicy.primaryActions(isPinned: false)
         let pinnedPrimary = ResourceRowActionPresentationPolicy.primaryActions(isPinned: true)
 
-        XCTAssertEqual(unpinnedPrimary.map(\.id), [.open, .reveal, .copyPath, .pinToggle, .details])
+        XCTAssertEqual(unpinnedPrimary.map(\.id), [.open, .pinToggle])
         XCTAssertEqual(
             unpinnedPrimary.map(\.systemImage),
-            ["arrow.up.forward.app", "arrow.right.square", "doc.on.doc", "pin", "info.circle"]
+            ["arrow.up.forward.app", "pin"]
         )
-        XCTAssertEqual(unpinnedPrimary.map(\.helpText), ["Open", "Reveal", "Copy full path", "Pin", "Details"])
+        XCTAssertEqual(unpinnedPrimary.map(\.helpText), ["Open", "Pin"])
         XCTAssertEqual(pinnedPrimary.first { $0.id == .pinToggle }?.systemImage, "pin.slash")
         XCTAssertEqual(pinnedPrimary.first { $0.id == .pinToggle }?.helpText, "Unpin")
 
         XCTAssertEqual(
             ResourceRowActionPresentationPolicy.moreMenuTitles(canRemove: true),
-            ["Rename in MindDesk", "Create Finder Alias", "Reauthorize", "Remove from MindDesk"]
+            ["Reveal in Finder", "Copy Full Path", "Details", "Rename in MindDesk", "Create Finder Alias", "Reauthorize", "Remove from MindDesk"]
         )
         XCTAssertEqual(
             ResourceRowActionPresentationPolicy.contextMenuTitles(isPinned: false, canRemove: true),
@@ -3583,7 +3588,7 @@ final class AppBehaviorTests: XCTestCase {
 
     func testHomeRecentSnippetCompactCardsKeepTitlesAndExpandedBodiesReadable() throws {
         XCTAssertEqual(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: true), 3)
-        XCTAssertEqual(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: false), 1)
+        XCTAssertEqual(SnippetActionCardReadabilityPolicy.titleLineLimit(compact: false), 2)
         XCTAssertEqual(SnippetActionCardReadabilityPolicy.subtitleLineLimit(compact: true), 2)
         XCTAssertNil(SnippetActionCardReadabilityPolicy.expandedBodyLineLimit(compact: true))
         XCTAssertNil(SnippetActionCardReadabilityPolicy.expandedBodyLineLimit(compact: false))

@@ -46,6 +46,14 @@ enum WorkbenchError: LocalizedError {
     }
 }
 
+enum ManifestExportError: LocalizedError {
+    case pairedCanvasesRequireExplicitExclusion
+
+    var errorDescription: String? {
+        "Workweft paired canvases cannot be preserved in a MindDesk Manifest. Export them separately and keep a raw database backup for their pairing state."
+    }
+}
+
 struct ClipboardService {
     private let writer: @MainActor (String) -> Void
 
@@ -485,9 +493,10 @@ struct ImportExportService: Sendable {
 
     static let schemaVersion = 2
     static let manifestExportDefaultFilename = "MindDesk-Backup.json"
+    static let manifestExportWithoutBridgeFilename = "MindDesk-Backup-without-Workweft.json"
     static let manifestExportPanelMessage = "Export MindDesk metadata. Bookmark authorization data is not exported."
     static let globalLibraryOnlyExclusionText = "Global Library Only excludes workspaces, canvases, cards, links, aliases, todo groups, task groups, todos, and tasks."
-    static let manifestExportOptionsHelpText = "\(globalLibraryOnlyExclusionText) Portable JSON never includes security-scoped bookmark authorization data, but it can include paths, notes, snippets, and canvas text."
+    static let manifestExportOptionsHelpText = "\(globalLibraryOnlyExclusionText) Workweft paired canvases and pairing state are not included; export their graphs separately and keep a raw database backup. Portable JSON never includes security-scoped bookmark authorization data, but it can include paths, notes, snippets, and canvas text."
 
     func makeManifest(
         workspaces: [WorkspaceModel],
@@ -498,9 +507,14 @@ struct ImportExportService: Sendable {
         edges: [CanvasEdgeModel],
         aliases: [FinderAliasRecordModel],
         todoGroups: [WorkspaceTodoGroupModel],
-        todos: [WorkspaceTodoModel]
-    ) -> ExportManifest {
-        ExportManifest(
+        todos: [WorkspaceTodoModel],
+        allowExcludingPairedCanvases: Bool = false
+    ) throws -> ExportManifest {
+        let pairedCanvasIDs = Set(canvases.filter { $0.workweftBridgeState != nil }.map(\.id))
+        guard pairedCanvasIDs.isEmpty || allowExcludingPairedCanvases else {
+            throw ManifestExportError.pairedCanvasesRequireExplicitExclusion
+        }
+        return ExportManifest(
             schemaVersion: Self.schemaVersion,
             exportedAt: .now,
             workspaces: workspaces.map {
@@ -512,13 +526,13 @@ struct ImportExportService: Sendable {
             snippets: snippets.map {
                 SnippetRecord(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, kind: $0.kindRaw, body: $0.body, details: $0.details, tags: $0.tags, scope: $0.scopeRaw, workingDirectoryRef: $0.workingDirectoryRef, requiresConfirmation: $0.requiresConfirmation, lastCopiedAt: $0.lastCopiedAt, lastUsedAt: $0.lastUsedAt, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
             },
-            canvases: canvases.map {
+            canvases: canvases.filter { !pairedCanvasIDs.contains($0.id) }.map {
                 CanvasRecord(id: $0.id, workspaceId: $0.workspaceId, title: $0.title, viewportX: $0.viewportX, viewportY: $0.viewportY, zoom: $0.zoom, linkAnimationTheme: $0.linkAnimationThemeRaw, animationsEnabled: $0.animationsEnabled, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
             },
-            nodes: nodes.map {
+            nodes: nodes.filter { !pairedCanvasIDs.contains($0.canvasId) }.map {
                 CanvasNodeRecord(id: $0.id, canvasId: $0.canvasId, title: $0.title, body: $0.body, nodeType: $0.nodeTypeRaw, objectType: $0.objectType, objectId: $0.objectId, x: $0.x, y: $0.y, width: $0.width, height: $0.height, collapsed: $0.collapsed, parentNodeId: $0.parentNodeId, zIndex: $0.zIndex, locked: $0.locked, style: $0.styleRaw, accentColor: $0.accentColorRaw, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
             },
-            edges: edges.map {
+            edges: edges.filter { !pairedCanvasIDs.contains($0.canvasId) }.map {
                 CanvasEdgeRecord(id: $0.id, canvasId: $0.canvasId, sourceNodeId: $0.sourceNodeId, targetNodeId: $0.targetNodeId, label: $0.label, style: $0.style, sourceArrow: $0.sourceArrowRaw, targetArrow: $0.targetArrowRaw, animated: $0.animated, animationTheme: $0.animationThemeRaw, controlPointX: $0.controlPointX, controlPointY: $0.controlPointY, createdAt: $0.createdAt, updatedAt: $0.updatedAt)
             },
             aliases: aliases.map {
@@ -773,9 +787,14 @@ struct FileDialogs {
 
     @MainActor
     static func saveJSON() -> URL? {
+        saveJSON(suggestedFilename: ImportExportService.manifestExportDefaultFilename)
+    }
+
+    @MainActor
+    static func saveJSON(suggestedFilename: String) -> URL? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
-        panel.nameFieldStringValue = ImportExportService.manifestExportDefaultFilename
+        panel.nameFieldStringValue = suggestedFilename
         panel.message = ImportExportService.manifestExportPanelMessage
         return panel.runModal() == .OK ? panel.url : nil
     }

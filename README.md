@@ -5,7 +5,7 @@
 <p align="center">
 <a href="#english"><img src="https://img.shields.io/badge/English-Read-183B56" alt="English"></a>
 <a href="#中文"><img src="https://img.shields.io/badge/简体中文-阅读-168A83" alt="跳转到本页中文"></a>
-<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.3.1"><img src="https://img.shields.io/badge/release-v3.3.1-168A83" alt="Release v3.3.1"></a>
+<a href="https://github.com/QiushanHuang/MindDesk/releases/tag/v3.4.0"><img src="https://img.shields.io/badge/release-v3.4.0-168A83" alt="Release v3.4.0"></a>
 <img src="https://img.shields.io/badge/macOS-14%2B-183B56" alt="macOS 14 or newer">
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-183B56" alt="MIT license"></a>
 </p>
@@ -24,7 +24,7 @@ For example, a research workspace can hold a paper reference, notes about an ope
 
 The optional organizing assistant helps turn selected cards into a summary, groups or tasks. It generates an editable preview using your Codex account; you decide when to apply it.
 
-**v3.3.1: existing workflow polish.** Clearer layouts, more consistent feedback and less repeated work in search and canvas rendering. This update adds no features. [Read the release notes](docs/releases/v3.3.1.md).
+**v3.4.0: a clearer workspace.** A quieter interface, safer task creation and an optional file-based Workweft canvas bridge. [Read the release notes](docs/releases/v3.4.0.md).
 
 [Why choose it](#why-choose-minddesk) · [A complete workflow](#one-project-from-capture-to-action) · [Features](#features-in-detail) · [Technical overview](#technical-overview) · [Download](#download-and-start) · [中文](#中文)
 
@@ -117,9 +117,9 @@ The sheet now allows extra height for the editor and error messages instead of f
 
 **Snippets** are for text you will reuse: a prompt, command, checklist or short reference. Store snippets globally or within a workspace, edit them, copy them, or add them to the canvas. Saving a command does not run it.
 
-When space is tight, the existing actions wrap into two rows. Repeating a copy action restarts its confirmation message; an older timer no longer clears the new feedback.
+Copy and Run remain visible; editing, details and other actions are in the more menu. Commands still require confirmation before running.
 
-<img src="docs/screenshots/command-list-narrow.png" width="364" alt="Narrow command snippet with all seven existing actions arranged in two rows">
+<img src="docs/screenshots/command-list-narrow.png" width="364" alt="Narrow command snippet with Copy, Run and a more-actions menu">
 
 **Quick Open** is available with **⌘ K**. Search workspaces, resources, snippets and web cards, then narrow the results by type. It is a navigation shortcut, not full-text indexing of the contents of your local files.
 
@@ -152,17 +152,21 @@ Edit the summary, group names or task details before applying. To ask for anothe
 
 The organizer uses your installed, signed-in Codex CLI. The included card titles, notes, relationships, instructions and optional revision draft are sent through Codex to its model service only when you request a preview. This is an optional online feature, not an on-device model; the rest of your canvas remains local. Review the included cards before sending sensitive material.
 
+### Workweft canvas bridge
+
+With a workspace selected, choose **Workbench → Workweft Canvas Bridge…** to preview a local bridge JSON package. Review its cards, links and conflicts before applying. Linked Workweft text is read-only in MindDesk; card placement and grouping can be edited and exported back as JSON. Import undo is available only in the same bridge window while the imported canvas remains unchanged. This is a file exchange, not live synchronization of resources or tasks.
+
 ### 6. Export and continuity: keep your project organization portable
 
-Export and import MindDesk records with Manifest JSON. This transfers workspace organization, notes, tasks and references; it does not bundle the original files or transfer macOS file-access permission. Move source files separately when changing Macs and reconnect them if necessary. Keep a regular backup of the local data store.
+Export and import MindDesk records with Manifest JSON. This transfers workspace organization, notes, tasks and references; it does not bundle the original files or transfer macOS file-access permission. Workweft paired canvases are excluded only after an explicit warning; export their graphs through the bridge and keep a raw database backup to preserve pairing state.
 
 The [operation guide](docs/user-manual.md) walks through these controls and includes troubleshooting for file access, canvas availability and organizing previews.
 
 ## Download and start
 
-Current release: `v3.3.1`.
+Current release: `v3.4.0`.
 
-**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
+**[Download for Apple silicon](https://github.com/QiushanHuang/MindDesk/releases/download/v3.4.0/MindDesk-v3.4.0-macOS-arm64-adhoc.dmg)** · [ZIP alternative](https://github.com/QiushanHuang/MindDesk/releases/download/v3.4.0/MindDesk-v3.4.0-macOS-arm64-adhoc.zip) · [All releases](https://github.com/QiushanHuang/MindDesk/releases)
 
 Requires macOS 14 or newer. The supplied build is for Apple silicon (M-series Macs). Intel users can build from source.
 
@@ -176,7 +180,7 @@ To update, quit MindDesk and replace the app in Applications. Your local workspa
 
 For the optional organizer, install and sign in to the [Codex CLI](https://developers.openai.com/codex/cli) once. It uses the model access and usage limits of your Codex account; MindDesk does not include a model subscription.
 
-[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.3.1](docs/releases/v3.3.1.md) · [Full changelog](CHANGELOG.md)
+[English / 中文 operation guide](docs/user-manual.md) · [What's new in v3.4.0](docs/releases/v3.4.0.md) · [Full changelog](CHANGELOG.md)
 
 ## Your files and data
 
@@ -269,7 +273,7 @@ Created and maintained by **[Qiushan (QiushanHuang)](https://github.com/QiushanH
 
 可选的整理助手能把选中卡片整理成摘要、分组或任务。它通过你的 Codex 账号生成可编辑预览，由你决定是否应用。
 
-**v3.3.1：既有操作优化。** 改善布局与连续操作反馈，减少搜索和画布渲染中的重复计算，不增加新功能。[查看版本说明](docs/releases/v3.3.1.md#中文更新说明)。
+**v3.4.0：更清爽的工作区。** 精简界面与常用操作，改进任务创建，并加入可选的 Workweft 文件画布桥接。[查看版本说明](docs/releases/v3.4.0.md#中文更新说明)。
 
 [为什么选它](#为什么选它) · [完整使用流程](#一个项目从收集到行动) · [功能详解](#核心功能详解) · [技术说明](#技术说明与项目结构) · [下载](#下载并开始使用) · [English](#english)
 
@@ -362,9 +366,9 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 **Snippets（片段）** 用于反复使用的文字，例如提示词、命令、检查清单或简短参考。可以全局保存，也可以归属某个工作区，之后编辑、复制或放到画布上。保存命令不会执行它。
 
-空间不足时，原有操作按钮会排成两行。连续复制会重新开始提示计时，旧计时器不会提前清除新反馈。
+Copy 和 Run 保持可见；编辑、详情与其他操作放在更多菜单中。运行命令前仍需确认。
 
-<img src="docs/screenshots/command-list-narrow.png" width="364" alt="窄版命令片段：七个原有操作分成两行显示">
+<img src="docs/screenshots/command-list-narrow.png" width="364" alt="窄版命令片段：复制、运行与更多操作菜单">
 
 按 **⌘ K** 打开 **Quick Open**，搜索工作区、资源、片段和网页卡片，再按类型筛选。这是应用内项目记录的查找入口，不是对本地文件正文进行全文索引。
 
@@ -397,17 +401,21 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 预览返回后，可以直接编辑，也可以填写反馈并点击 **Revise preview**。本次编辑后的草稿与反馈会一同参与重新生成。点击 **Apply changes** 时会检查来源是否仍然有效；来源卡片或相关关系变化后，需要重新生成。应用后可撤销。
 
+#### Workweft 画布桥接
+
+选中工作区后，通过 **Workbench → Workweft Canvas Bridge…** 预览本地桥接 JSON。检查卡片、连线和冲突后再应用。Workweft 关联文字在 MindDesk 中只读；卡片位置与分组可以调整并导出 JSON。导入撤销只在桥接窗口保持打开且画布未再次修改时可用。这是文件交换，不会实时同步资源或任务。
+
 #### 6. 导入导出与备份：保留整理成果
 
-通过 Manifest JSON 导出、导入工作区组织信息、笔记、任务和资源引用。它不打包原始文件，也不迁移 macOS 文件访问权限；更换 Mac 时请单独移动原文件，并按需重新关联。日常保留本地数据库备份。
+通过 Manifest JSON 导出、导入工作区组织信息、笔记、任务和资源引用。它不打包原始文件，也不迁移 macOS 文件访问权限。Workweft 配对画布不能包含在 Manifest 中，导出时会明确提示；请另行导出桥接画布，并保留原始数据库备份以保存配对状态。
 
 更详细的控件操作和故障处理见[中英操作指南](docs/user-manual.md#中文操作指南)。
 
 ### 下载并开始使用
 
-当前版本：`v3.3.1`。
+当前版本：`v3.4.0`。
 
-**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.3.1/MindDesk-v3.3.1-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
+**[下载 Apple 芯片版](https://github.com/QiushanHuang/MindDesk/releases/download/v3.4.0/MindDesk-v3.4.0-macOS-arm64-adhoc.dmg)** · [ZIP 压缩包](https://github.com/QiushanHuang/MindDesk/releases/download/v3.4.0/MindDesk-v3.4.0-macOS-arm64-adhoc.zip) · [所有版本](https://github.com/QiushanHuang/MindDesk/releases)
 
 需要 macOS 14 或更新版本。现成安装包适用于 M 系列 Mac；Intel Mac 可从源码构建。
 
@@ -421,7 +429,7 @@ Overview 提供项目概览，Tasks 管理完整任务列表；任务卡片则�
 
 使用整理助手前，请安装并登录一次 [Codex CLI](https://developers.openai.com/codex/cli)。助手使用你的 Codex 账号权限和用量额度，MindDesk 不包含模型订阅。
 
-[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.3.1 更新内容](docs/releases/v3.3.1.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
+[中英操作指南](docs/user-manual.md#中文操作指南) · [v3.4.0 更新内容](docs/releases/v3.4.0.md#中文更新说明) · [完整更新日志](CHANGELOG.md)
 
 ### 文件与数据
 

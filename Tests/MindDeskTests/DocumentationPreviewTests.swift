@@ -1,4 +1,5 @@
 import AppKit
+import MindDeskCore
 import SwiftData
 import SwiftUI
 import XCTest
@@ -124,12 +125,48 @@ final class DocumentationPreviewTests: XCTestCase {
             }
             try await render(resourceView.padding(24).modelContainer(container),
                 size: CGSize(width: 650, height: 460), to: output.appendingPathComponent("resources-dark.png"), scheme: .dark)
+            let unavailableResource = ResourcePreviewView(resource: resources[1], onStatus: { _ in }, onInspect: { _ in }, onRemove: { _ in })
+            try await render(unavailableResource.modelContainer(container), size: CGSize(width: 800, height: 600),
+                to: output.appendingPathComponent("resource-reconnect.png"))
             let homeView = HomeView(workspaces: [workspace], workspaceBriefsByID: [:], resources: resources, snippets: [],
                 onSelectWorkspace: { _ in }, onSelectResource: { _ in }, onOpenResource: { _ in },
                 onCopyResourcePath: { _ in }, onInspectResource: { _ in }, onCopySnippet: { _ in },
                 onEditSnippet: { _ in }, onDeleteSnippet: { _ in }, onInspectSnippet: { _ in })
             try await render(homeView.modelContainer(container), size: CGSize(width: 800, height: 650),
                 to: output.appendingPathComponent("home.png"))
+            try await render(homeView.modelContainer(container), size: CGSize(width: 800, height: 650),
+                to: output.appendingPathComponent("home-dark.png"), scheme: .dark)
+            let emptyHome = HomeView(workspaces: [], workspaceBriefsByID: [:], resources: [], snippets: [],
+                onSelectWorkspace: { _ in }, onSelectResource: { _ in }, onOpenResource: { _ in },
+                onCopyResourcePath: { _ in }, onInspectResource: { _ in }, onCopySnippet: { _ in },
+                onEditSnippet: { _ in }, onDeleteSnippet: { _ in }, onInspectSnippet: { _ in })
+            try await render(emptyHome.modelContainer(container), size: CGSize(width: 800, height: 650),
+                to: output.appendingPathComponent("home-empty.png"))
+            for pane in [AppSettingsPaneSelection.general, .canvas, .data] {
+                settings.set(pane.rawValue, forKey: AppSettingsPaneSelectionDescriptor.preferenceKey)
+                try await render(AppSettingsView().defaultAppStorage(settings), size: CGSize(width: 720, height: 640),
+                    to: output.appendingPathComponent("settings-\(pane.rawValue).png"))
+            }
+            settings.set(AppWorkspaceOpenDestination.overview.rawValue, forKey: AppPreferenceKeys.workspaceOpenDestination)
+            let brief = try XCTUnwrap(WorkspaceReentryBriefMapper.briefsByWorkspaceID(
+                workspaces: [workspace], resources: resources, snippets: [], todos: todos,
+                canvases: [canvas], nodes: nodes, edges: [edge], now: Date()
+            )[workspace.id])
+            let workspaceView = WorkspaceDetailView(workspaceWindowScopeController: controller, workspace: workspace,
+                canvasNodeTarget: nil, reentryBrief: brief, workspaces: [workspace], resources: resources,
+                snippets: [], todos: todos, todoGroups: groups, canvases: [canvas], nodes: nodes, edges: [edge],
+                onStatus: { _ in }, onInspect: { _ in }, onCanvasTabActiveChange: { _ in },
+                onRenameWorkspace: { _ in }, onDeleteWorkspace: { _ in }, onToggleWorkspacePinned: { _ in },
+                onRemoveResource: { _ in }, onEditSnippet: { _ in }, onDeleteSnippet: { _ in },
+                onSelectWorkspace: { _ in }, onRetryPrimaryCanvas: {})
+            try await render(workspaceView.modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 900, height: 650), to: output.appendingPathComponent("workspace-overview.png"))
+            try await render(workspaceView.modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 620, height: 650), to: output.appendingPathComponent("workspace-overview-compact.png"))
+            try await render(workspaceView.modelContainer(container).defaultAppStorage(settings),
+                size: CGSize(width: 900, height: 650), to: output.appendingPathComponent("workspace-overview-dark.png"), scheme: .dark)
+            try await render(SnippetEditor(initialKind: .command, scope: .global, workspaceId: nil, resources: resources, onSave: { _ in }),
+                size: CGSize(width: 560, height: 590), to: output.appendingPathComponent("snippet-editor.png"))
             let command = SnippetModel(id: "demo-command", title: "Run a reproducible comparison", kind: .command,
                 body: "python compare.py --config demo.json", details: "Shared comparison command", scope: .global)
             context.insert(command)
@@ -169,7 +206,16 @@ final class DocumentationPreviewTests: XCTestCase {
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
         try data.write(to: url)
-        XCTAssertGreaterThan(data.count, 10_000)
+        XCTAssertGreaterThanOrEqual(bitmap.pixelsWide, Int(size.width))
+        XCTAssertGreaterThanOrEqual(bitmap.pixelsHigh, Int(size.height))
+        var sampledColors = Set<String>()
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: max(1, bitmap.pixelsHigh / 40)) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: max(1, bitmap.pixelsWide / 40)) {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                sampledColors.insert("\(Int(color.redComponent * 255)),\(Int(color.greenComponent * 255)),\(Int(color.blueComponent * 255))")
+            }
+        }
+        XCTAssertGreaterThan(sampledColors.count, 4, "Preview should contain rendered content: \(url.lastPathComponent)")
         window.close()
     }
 }

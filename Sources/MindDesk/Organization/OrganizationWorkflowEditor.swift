@@ -41,10 +41,7 @@ struct OrganizationWorkflowEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Saved workflows").font(.title2.weight(.semibold))
-                    Text("Local presets for action, context and instructions.").font(.callout).foregroundStyle(.secondary)
-                }
+                Text("Saved workflows").font(.title2.weight(.semibold))
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") {
@@ -53,7 +50,7 @@ struct OrganizationWorkflowEditor: View {
             }
             ScrollView {
                 VStack(spacing: 16) {
-                    if draft.isEmpty { ContentUnavailableView("No saved workflows", systemImage: "slider.horizontal.3", description: Text("Add a workflow to reuse your preferred instructions.")) }
+                    if draft.isEmpty { ContentUnavailableView("No saved workflows", systemImage: "slider.horizontal.3") }
                     ForEach($draft) { $workflow in
                         GroupBox {
                             VStack(alignment: .leading, spacing: 10) {
@@ -63,8 +60,10 @@ struct OrganizationWorkflowEditor: View {
                                         draft.append(.init(id: UUID().uuidString, title: String(workflow.title.prefix(40)) + " copy", intent: workflow.intent, scope: workflow.scope, instructions: workflow.instructions))
                                     } label: { Image(systemName: "plus.square.on.square") }
                                         .help("Duplicate workflow").disabled(draft.count >= OrganizationWorkflowLibrary.maximumCount)
+                                        .accessibilityLabel("Duplicate \(workflow.title)")
                                     Button(role: .destructive) { draft.removeAll { $0.id == workflow.id } } label: { Image(systemName: "trash") }
                                         .help("Remove from this draft")
+                                        .accessibilityLabel("Remove \(workflow.title) from this draft")
                                 }
                                 Picker("Action", selection: $workflow.intent) {
                                     ForEach(OrganizationIntent.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -72,9 +71,13 @@ struct OrganizationWorkflowEditor: View {
                                 Picker("Context", selection: $workflow.scope) {
                                     ForEach(OrganizationContextScope.allCases) { Text($0.title).tag($0) }
                                 }
+                                Text("Instructions").font(.callout.weight(.medium))
                                 TextEditor(text: $workflow.instructions).font(.body).frame(minHeight: 90)
                                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
-                                Text("\(workflow.instructions.utf8.count) / 4,000 bytes").font(.caption).foregroundStyle(.secondary)
+                                    .accessibilityLabel("Instructions for \(workflow.title)")
+                                if workflow.instructions.utf8.count >= 3_200 {
+                                    Text("\(workflow.instructions.utf8.count) / 4,000 bytes").font(.caption).foregroundStyle(.secondary)
+                                }
                             }.padding(6)
                         }
                     }

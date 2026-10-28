@@ -254,6 +254,7 @@ cat >"$APP_CONTENTS/Info.plist" <<PLIST
 <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
 <key>NSPrincipalClass</key><string>NSApplication</string>
 <key>NSHumanReadableCopyright</key><string>$COPYRIGHT</string>
+<key>NSAppleEventsUsageDescription</key><string>MindDesk uses Automation to open Terminal, run a confirmed command, and create Finder aliases when you choose these actions.</string>
 <key>NSDesktopFolderUsageDescription</key><string>MindDesk can open local files and folders you choose.</string>
 <key>NSDocumentsFolderUsageDescription</key><string>MindDesk can open local files and folders you choose.</string>
 </dict></plist>

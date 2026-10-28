@@ -73,21 +73,25 @@ private struct GeneralSettingsPane: View {
     var body: some View {
         SettingsForm {
             Section {
-                Picker("Open MindDesk To", selection: startupDestinationSelection) {
-                    ForEach(AppStartupDestination.allCases) { destination in
-                        Text(destination.settingsTitle)
-                            .tag(destination.rawValue)
+                HStack {
+                    Picker("Open MindDesk To", selection: startupDestinationSelection) {
+                        ForEach(AppStartupDestination.allCases) { destination in
+                            Text(destination.settingsTitle)
+                                .tag(destination.rawValue)
+                        }
                     }
+                    SettingsHelpText("Most Recent Workspace opens the latest opened or updated workspace, or Home when there are no workspaces.", subject: "startup destination")
                 }
 
-                Picker("Open Workspaces To", selection: workspaceOpenDestinationSelection) {
-                    ForEach(AppWorkspaceOpenDestination.allCases) { destination in
-                        Text(destination.settingsTitle)
-                            .tag(destination.rawValue)
+                HStack {
+                    Picker("Open Workspaces To", selection: workspaceOpenDestinationSelection) {
+                        ForEach(AppWorkspaceOpenDestination.allCases) { destination in
+                            Text(destination.settingsTitle)
+                                .tag(destination.rawValue)
+                        }
                     }
+                    SettingsHelpText("Choose the first tab when opening a workspace.", subject: "workspace destination")
                 }
-
-                SettingsHelpText("Choose the first product surface shown when the main window appears. Most Recent Workspace opens the latest opened or updated workspace; if no workspace exists, MindDesk opens Home. Open Workspaces To controls the first tab shown when a workspace is opened from the sidebar, Home, Quick Open, or startup.")
             } header: {
                 Text("Launch")
             }
@@ -103,10 +107,12 @@ private struct GeneralSettingsPane: View {
             }
 
             Section {
-                Button(AppSettingsView.resetAllSettingsButtonTitle) {
-                    resetAllSettings()
+                HStack {
+                    Button(AppSettingsView.resetAllSettingsButtonTitle) {
+                        resetAllSettings()
+                    }
+                    SettingsHelpText(AppSettingsView.resetAllSettingsHelpText, subject: "resetting settings")
                 }
-                SettingsHelpText(AppSettingsView.resetAllSettingsHelpText)
             } header: {
                 Text("Reset")
             }
@@ -175,7 +181,6 @@ private struct AppearanceSettingsPane: View {
                     }
                 }
 
-                SettingsHelpText("Appearance, text scale, and control density are global preferences. They apply to the main app window and Settings without changing project data.")
             } header: {
                 Text("Interface")
             }
@@ -219,46 +224,50 @@ private struct CanvasSettingsPane: View {
     var body: some View {
         SettingsForm {
             Section {
-                Picker(AppSettingsView.canvasScrollZoomDirectionTitle, selection: scrollZoomDirectionSelection) {
-                    ForEach(CanvasScrollZoomDirection.allCases) { direction in
-                        Text(direction.title)
-                            .tag(direction.rawValue)
+                HStack(alignment: .top) {
+                    Picker(AppSettingsView.canvasScrollZoomDirectionTitle, selection: scrollZoomDirectionSelection) {
+                        ForEach(CanvasScrollZoomDirection.allCases) { direction in
+                            Text(direction.title)
+                                .tag(direction.rawValue)
+                        }
                     }
-                }
-                .pickerStyle(.radioGroup)
-
-                SettingsHelpText(AppSettingsView.canvasScrollZoomDirectionHelpText)
-
-                Stepper(value: $canvasDefaultZoomPercent, in: 35...500, step: 25) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Canvas 100% Baseline")
-                        Text("\(Int(canvasDefaultZoomPercent.rounded()))% actual zoom is shown as 100% in Canvas")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    .pickerStyle(.radioGroup)
+                    SettingsHelpText(AppSettingsView.canvasScrollZoomDirectionHelpText, subject: "scroll zoom direction")
                 }
 
-                Toggle("Single-use Connect", isOn: $canvasConnectSingleShot)
-
-                Picker(AppSettingsView.canvasAnimationFrameRateTitle, selection: animationFrameRateSelection) {
-                    ForEach(CanvasAnimationFrameRate.allCases) { frameRate in
-                        Text(frameRate.settingsTitle)
-                            .tag(frameRate.rawValue)
+                HStack {
+                    Stepper(value: $canvasDefaultZoomPercent, in: 35...500, step: 25) {
+                        Text("Canvas 100% Baseline: \(Int(canvasDefaultZoomPercent.rounded()))%")
                     }
+                    SettingsHelpText("This actual zoom is shown as 100% in Canvas. It also sets the initial zoom and affects density-aware rendering.", subject: "canvas baseline")
                 }
-                .pickerStyle(.segmented)
 
-                Picker(AppSettingsView.canvasZoomCommitCadenceTitle, selection: zoomCommitCadenceSelection) {
-                    ForEach(CanvasZoomCommitCadence.allCases) { cadence in
-                        Text(cadence.settingsTitle)
-                            .tag(cadence.rawValue)
+                HStack {
+                    Toggle("Single-use Connect", isOn: $canvasConnectSingleShot)
+                    SettingsHelpText("Return to Select after creating one link. Turn this off to keep building links.", subject: "single-use Connect")
+                }
+
+                HStack {
+                    Picker(AppSettingsView.canvasAnimationFrameRateTitle, selection: animationFrameRateSelection) {
+                        ForEach(CanvasAnimationFrameRate.allCases) { frameRate in
+                            Text(frameRate.settingsTitle)
+                                .tag(frameRate.rawValue)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    SettingsHelpText(AppSettingsView.canvasAnimationFrameRateHelpText, subject: "animation smoothness")
                 }
-                .pickerStyle(.segmented)
 
-                SettingsHelpText("The Canvas baseline applies to every scale label, Reset to 100%, new Canvas initial zoom, and density-aware rendering thresholds. Single-use Connect returns to Select after one link; turn it off to keep building links.")
-                SettingsHelpText(AppSettingsView.canvasAnimationFrameRateHelpText)
-                SettingsHelpText(AppSettingsView.canvasZoomCommitCadenceHelpText)
+                HStack {
+                    Picker(AppSettingsView.canvasZoomCommitCadenceTitle, selection: zoomCommitCadenceSelection) {
+                        ForEach(CanvasZoomCommitCadence.allCases) { cadence in
+                            Text(cadence.settingsTitle)
+                                .tag(cadence.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    SettingsHelpText(AppSettingsView.canvasZoomCommitCadenceHelpText, subject: "zoom save timing")
+                }
             } header: {
                 Text("Canvas Interaction")
             }
@@ -305,7 +314,6 @@ private struct WorkspaceTaskSettingsPane: View {
                 Toggle("Open Task Panel By Default", isOn: $workspaceCanvasTodoPanelDefaultOpen)
                 Toggle("Show Done Column By Default", isOn: $workspaceCanvasTodoDoneColumnDefaultOpen)
 
-                SettingsHelpText("These options control the initial state each time a Workspace Canvas opens. Task controls can still open or close the panel and Done column temporarily for the current view.")
             } header: {
                 Text("Task Defaults")
             }
@@ -325,16 +333,18 @@ private struct DataSettingsPane: View {
     var body: some View {
         SettingsForm {
             Section {
-                Picker("Default Export Preset", selection: exportScopeSelection) {
-                    ForEach(ManifestExportScope.allCases) { scope in
-                        Text(scope.settingsTitle)
-                            .tag(scope.rawValue)
+                HStack {
+                    Picker("Default Export Preset", selection: exportScopeSelection) {
+                        ForEach(ManifestExportScope.allCases) { scope in
+                            Text(scope.settingsTitle)
+                                .tag(scope.rawValue)
+                        }
                     }
+                    SettingsHelpText("The Export command confirms these options before writing. Complete Workspace Map is the only backup-style JSON export; \(AppSettingsView.portableJSONHelpText)", subject: "JSON export")
                 }
 
                 Toggle("Include usage dates in JSON export", isOn: $manifestExportIncludesUsageDates)
-
-                SettingsHelpText("The Export command confirms these options before writing. Complete Workspace Map is the only backup-style JSON export; \(AppSettingsView.portableJSONHelpText) Usage dates only cover behavior dates such as last opened or last run.")
+                    .help("Usage dates include activity such as last opened or last run.")
             } header: {
                 Text("Portable JSON")
             }
@@ -344,9 +354,11 @@ private struct DataSettingsPane: View {
                 SettingsPathRow(title: "Raw Backups", url: layout.backupDirectory)
                 SettingsPathRow(title: "Quarantine", url: layout.quarantineDirectory)
 
-                SettingsHelpText("Raw SQLite backups are local recovery data, not shareable project exports. They may include private paths, snippets, notes, aliases, and bookmark blobs.")
             } header: {
-                Text("Local Storage")
+                HStack {
+                    Text("Local Storage")
+                    SettingsHelpText("Raw SQLite backups are local recovery data, not shareable project exports. They may include private paths, snippets, notes, aliases, and bookmark blobs.", subject: "raw backups")
+                }
             }
 
             Section {
@@ -496,16 +508,15 @@ private struct SettingsForm<Content: View>: View {
 
 private struct SettingsHelpText: View {
     let text: String
+    let subject: String
 
-    init(_ text: String) {
+    init(_ text: String, subject: String) {
         self.text = text
+        self.subject = subject
     }
 
     var body: some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+        InformationButton(subject: subject, text: text)
     }
 }
 
@@ -515,17 +526,12 @@ private struct SettingsInfoRow: View {
     let description: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(value)
-                    .foregroundStyle(.secondary)
-            }
-            Text(description)
-                .font(.caption)
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            InformationButton(subject: title, text: description)
         }
     }
 }

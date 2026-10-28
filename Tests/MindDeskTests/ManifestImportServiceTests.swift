@@ -511,7 +511,7 @@ final class ManifestImportServiceTests: XCTestCase {
             linkedResourceId: resource.id
         )
         let service = ImportExportService()
-        let exportedManifest = service.makeManifest(
+        let exportedManifest = try service.makeManifest(
             workspaces: [workspace],
             resources: [resource],
             snippets: [snippet],

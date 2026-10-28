@@ -3,44 +3,43 @@
 
 [English](#english-previews) · [简体中文](#中文预览说明)
 
-These images render real SwiftUI components with synthetic, in-memory project data. They are component previews, not captures of a personal workspace or a complete application window.
+These images render the v3.4.0 SwiftUI components with synthetic, in-memory data. They are component previews, not captures of a personal workspace or complete application window.
 
-| Image | State | Source |
-| --- | --- | --- |
-| canvas.png | Four demo notes in two frames, one connection and a collapsed task panel. | Existing v3.2 preview, retained. |
-| tasks.png | Two groups, three open tasks and one completed task, with separate title and detail lines. | v3.3.1 implementation. |
-| quick-note.png | Empty note entry sheet with a bordered editor and flexible height. | v3.3.1 implementation. |
-| resources-650.png | Narrow resource list with paths, status, workspace links and all existing actions. | v3.3.1 implementation. |
-| command-list-narrow.png | Command snippet with its seven existing actions arranged in two rows. | v3.3.1 implementation. |
-| organizer.png / organizer-dark.png | Four selected demo notes, before generation; no model request. | Existing v3.3 previews, retained. |
-| workflows.png | Staged workflow editor with Save and Cancel. | Existing v3.3 preview, retained. |
+| Image | State |
+| --- | --- |
+| canvas.png | Four demo notes in two frames, one link and a collapsed task panel. |
+| tasks.png | Two groups, open and completed tasks, with task creation in the header. |
+| quick-note.png | A note sheet with visible Title and Note labels. |
+| resources-650.png | Narrow resource list with direct Open/Show and pin controls plus a more menu. |
+| command-list-narrow.png | A command card with Copy, Run and a more menu. |
+| organizer.png / organizer-dark.png | Four selected demo notes before generation; no model request. |
+| workflows.png | Local workflow draft with Save and Cancel. |
+| workweft-bridge.png | Paired demo canvas with a local note and read-only linked task. |
 
-The 2026-10-02 images were copied from the verified second-round local preview output. They show the implementation included in v3.3.1; the older v3.3.0 assets are retained on their release page. System fonts and controls may look different on another macOS version.
-
-Render the current components on macOS from the repository root:
+Render the components from the repository root:
 
 ```sh
 MINDDESK_DOCUMENTATION_PREVIEWS=/tmp/minddesk-previews MINDDESK_POLISH_PREVIEWS=1 swift test --filter DocumentationPreviewTests
+MINDDESK_BRIDGE_UI_PREVIEWS=/tmp/minddesk-previews swift test --filter WorkweftBridgeUITests
 ```
 
-Review the output before copying selected images here. The renderer uses an in-memory SwiftData container and a separate UserDefaults suite that it removes afterward. It snapshots NSHostingView content directly without opening the personal app database, reading personal files, contacting a model service or capturing the desktop.
+The renderers use in-memory SwiftData and separate settings domains. They do not open the personal app database or contact a model service. SwiftUI may emit SceneStorage or geometry warnings when rendering views outside a normal app scene; actual window checks are separate.
 
 ## 中文预览说明
 
 [English](#english-previews) · [返回项目首页](../../README.md#中文)
 
-这些图片由真实 SwiftUI 组件和内存中的虚构项目数据渲染，是组件预览，并非个人工作区或完整应用窗口截图。
+这些图片使用 v3.4.0 的 SwiftUI 组件和内存中的虚构数据，不是个人工作区或完整应用窗口截图。
 
-| 图片 | 状态 | 来源 |
-| --- | --- | --- |
-| canvas.png | 两个分组框中的四张演示笔记、一条连线与折叠的任务栏。 | 保留原 v3.2 预览。 |
-| tasks.png | 两个分组、三条待办与一条已完成任务，标题和说明分行。 | v3.3.1 实现。 |
-| quick-note.png | 空白笔记输入框，编辑区带边界，窗口采用弹性高度。 | v3.3.1 实现。 |
-| resources-650.png | 窄资源列表，展示路径、状态、工作区链接及全部原有操作。 | v3.3.1 实现。 |
-| command-list-narrow.png | 命令片段的七个原有操作分成两行。 | v3.3.1 实现。 |
-| organizer.png / organizer-dark.png | 四张演示笔记，停留在生成前的选择界面，没有发起模型请求。 | 保留原 v3.3 预览。 |
-| workflows.png | 可通过 Save 和 Cancel 保存或取消的工作流编辑草稿。 | 保留原 v3.3 预览。 |
+| 图片 | 状态 |
+| --- | --- |
+| canvas.png | 两个分组框、四张演示笔记、一条连线和折叠的任务栏。 |
+| tasks.png | 任务分组、待办和已完成任务；创建入口位于标题栏。 |
+| quick-note.png | 带 Title 和 Note 标签的笔记输入框。 |
+| resources-650.png | 窄资源列表，显示打开或定位、固定和更多操作。 |
+| command-list-narrow.png | 显示 Copy、Run 和更多菜单的命令卡片。 |
+| organizer.png / organizer-dark.png | 生成前的四张演示笔记，没有发起模型请求。 |
+| workflows.png | 可保存或取消的本地工作流草稿。 |
+| workweft-bridge.png | 含本地笔记和只读关联任务的演示配对画布。 |
 
-2026-10-02 的图片复制自已验证的第二轮本地预览，展示 v3.3.1 包含的改进。旧 v3.3.0 安装包仍保留在对应发布页。不同 macOS 版本的字体与控件样式可能不同。
-
-在仓库根目录执行上面的命令可渲染当前组件，检查后再将选定图片复制到本目录。渲染器使用内存 SwiftData 和临时独立设置域，完成后移除该设置域；直接捕获 NSHostingView，不读取个人数据库或文件，不联系模型服务，也不截取桌面。
+使用上方命令可重新渲染。渲染器使用内存数据库和独立设置域，不打开个人数据库，也不联系模型服务。脱离正常 App 场景渲染时，SwiftUI 可能输出 SceneStorage 或布局警告；实际窗口检查需另行进行。

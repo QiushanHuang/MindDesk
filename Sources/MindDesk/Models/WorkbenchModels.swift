@@ -369,6 +369,8 @@ final class CanvasModel {
     var zoom: Double
     var linkAnimationThemeRaw: String = "blue"
     var animationsEnabled: Bool = true
+    /// Local authority for the separate reviewed Workweft data bridge.
+    var workweftBridgeState: Data? = nil
     var createdAt: Date
     var updatedAt: Date
 
@@ -518,7 +520,7 @@ enum SeedData {
     ) throws {
         guard workspaces.isEmpty, snippets.isEmpty, resources.isEmpty, canvases.isEmpty, nodes.isEmpty else { return }
 
-        let workspace = WorkspaceModel(title: "Qiushan Studio", details: "Personal desktop, files, commands, and prompt workbench.", sortIndex: 0)
+        let workspace = WorkspaceModel(title: "Qiushan Studio", sortIndex: 0)
         let prompt = SnippetModel(title: "Summarize Notes", kind: .prompt, body: "Summarize these notes into decisions, open questions, and next actions.", details: "General writing prompt", tags: ["writing"], scope: .global)
         let command = SnippetModel(title: "List Current Folder", kind: .command, body: "ls -la", details: "Safe directory listing", tags: ["shell"], scope: .global, requiresConfirmation: true)
 

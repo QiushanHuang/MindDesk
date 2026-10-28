@@ -133,6 +133,20 @@ enum WorkspaceTodoBoardPresentation {
     }
 }
 
+private struct TodoEditorSelection: Identifiable {
+    let todo: WorkspaceTodoModel
+    let isNew: Bool
+    var id: String { todo.id }
+}
+
+private enum TodoEditorSaveError: LocalizedError {
+    case groupUnavailable
+
+    var errorDescription: String? {
+        "Could not create a task group. Please try again."
+    }
+}
+
 struct WorkspaceTodoBoardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.undoManager) private var undoManager
@@ -153,7 +167,7 @@ struct WorkspaceTodoBoardView: View {
     @State private var defaultGroupId: String?
     @State private var editingGroupId: String?
     @State private var editingGroupTitle = ""
-    @State private var editingTodo: WorkspaceTodoModel?
+    @State private var editingTodo: TodoEditorSelection?
     @State private var splitDragState = TodoBoardSplitDragState()
     @State private var transientColumnRatio: Double?
     @FocusState private var focusedGroupRenameId: String?
@@ -238,9 +252,30 @@ struct WorkspaceTodoBoardView: View {
         }
         .onChange(of: isDoneColumnOpen) { _, _ in resetSplitDrag() }
         .onChange(of: isOpen) { _, _ in resetSplitDrag() }
-        .sheet(item: $editingTodo) { todo in
-            WorkspaceTodoDetailView(todo: todo, resources: resources, onSave: {
-                save(status: "Updated task")
+        .sheet(item: $editingTodo) { selection in
+            let todo = selection.todo
+            WorkspaceTodoDetailView(todo: todo, resources: resources, isNew: selection.isNew, onSave: {
+                if selection.isNew {
+                    guard let group = selectedGroup ?? ensureDefaultGroup(trigger: .addTask) else {
+                        throw TodoEditorSaveError.groupUnavailable
+                    }
+                    let savedTodo = WorkspaceTodoModel(
+                        id: todo.id, workspaceId: todo.workspaceId, groupId: group.id,
+                        title: todo.title, details: todo.details, isCompleted: todo.isCompleted,
+                        isPinned: todo.isPinned, sortIndex: nextTodoSortIndex(groupId: group.id, isCompleted: false),
+                        createdAt: todo.createdAt, updatedAt: todo.updatedAt, completedAt: todo.completedAt,
+                        dueAt: todo.dueAt, linkedResourceId: todo.linkedResourceId
+                    )
+                    modelContext.insert(savedTodo)
+                }
+                do {
+                    try modelContext.save()
+                    onStatus(selection.isNew ? "Added task" : "Updated task")
+                } catch {
+                    modelContext.rollback()
+                    onStatus(error.localizedDescription)
+                    throw error
+                }
             })
         }
     }
@@ -379,14 +414,6 @@ struct WorkspaceTodoBoardView: View {
                 Label("Groups", systemImage: "folder")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Button(action: addGroup) {
-                    Image(systemName: "plus")
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("New group")
-                .accessibilityLabel("New group")
             }
 
             ScrollView {
@@ -474,14 +501,6 @@ struct WorkspaceTodoBoardView: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Spacer()
-                Button(action: addTodo) {
-                    Image(systemName: "plus")
-                        .frame(width: 24, height: 24)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("New task")
-                .accessibilityLabel("New task")
             }
 
             if items.isEmpty {
@@ -559,7 +578,7 @@ struct WorkspaceTodoBoardView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             Button {
-                editingTodo = todo
+                editingTodo = TodoEditorSelection(todo: todo, isNew: false)
             } label: {
                 Image(systemName: "info.circle")
                     .frame(width: 24, height: 24)
@@ -576,7 +595,7 @@ struct WorkspaceTodoBoardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 7))
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
-            editingTodo = todo
+            editingTodo = TodoEditorSelection(todo: todo, isNew: false)
         }
         .draggable("todo:\(todo.id)")
         .dropDestination(for: String.self) { values, _ in
@@ -589,7 +608,7 @@ struct WorkspaceTodoBoardView: View {
         }
         .contextMenu {
             Button("Edit Details") {
-                editingTodo = todo
+                editingTodo = TodoEditorSelection(todo: todo, isNew: false)
             }
             Button(todo.isPinned ? "Unpin Task" : "Pin Task") {
                 todo.isPinned.toggle()
@@ -677,17 +696,12 @@ struct WorkspaceTodoBoardView: View {
     }
 
     private func addTodo() {
-        guard let group = selectedGroup ?? ensureDefaultGroup(trigger: .addTask) else { return }
         let todo = WorkspaceTodoModel(
             workspaceId: workspaceId,
-            groupId: group.id,
-            title: "New Task",
-            sortIndex: nextTodoSortIndex(groupId: group.id, isCompleted: false)
+            groupId: selectedGroup?.id,
+            title: "New Task"
         )
-        modelContext.insert(todo)
-        if save(status: "Added task") {
-            editingTodo = todo
-        }
+        editingTodo = TodoEditorSelection(todo: todo, isNew: true)
     }
 
     private func toggle(_ todo: WorkspaceTodoModel) {
@@ -966,7 +980,8 @@ private struct WorkspaceTodoDetailView: View {
     @Environment(\.dismiss) private var dismiss
     let todo: WorkspaceTodoModel
     let resources: [ResourcePinModel]
-    let onSave: () -> Void
+    let isNew: Bool
+    let onSave: () throws -> Void
 
     @State private var title: String
     @State private var details: String
@@ -974,10 +989,12 @@ private struct WorkspaceTodoDetailView: View {
     @State private var hasDueDate: Bool
     @State private var dueAt: Date
     @State private var linkedResourceId: String
+    @State private var errorMessage: String?
 
-    init(todo: WorkspaceTodoModel, resources: [ResourcePinModel], onSave: @escaping () -> Void) {
+    init(todo: WorkspaceTodoModel, resources: [ResourcePinModel], isNew: Bool, onSave: @escaping () throws -> Void) {
         self.todo = todo
         self.resources = resources
+        self.isNew = isNew
         self.onSave = onSave
         _title = State(initialValue: todo.title)
         _details = State(initialValue: todo.details)
@@ -989,16 +1006,20 @@ private struct WorkspaceTodoDetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Task Details")
+            Text(isNew ? "New Task" : "Task Details")
                 .font(.title3.weight(.semibold))
 
-            TextField("Title", text: $title)
-                .textFieldStyle(.roundedBorder)
+            LabeledContent("Title") {
+                TextField("Title", text: $title)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Task title")
+            }
 
             Text("Details")
                 .font(.subheadline.weight(.semibold))
             TextEditor(text: $details)
                 .frame(minHeight: 120)
+                .accessibilityLabel("Task details")
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
                         .stroke(.quaternary)
@@ -1018,15 +1039,23 @@ private struct WorkspaceTodoDetailView: View {
                 }
             }
 
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack {
                 Spacer()
                 Button("Cancel") {
                     dismiss()
                 }
+                .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     save()
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(20)
@@ -1040,8 +1069,12 @@ private struct WorkspaceTodoDetailView: View {
         todo.dueAt = hasDueDate ? dueAt : nil
         todo.linkedResourceId = linkedResourceId.isEmpty ? nil : linkedResourceId
         todo.updatedAt = .now
-        onSave()
-        dismiss()
+        do {
+            try onSave()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

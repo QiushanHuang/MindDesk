@@ -163,7 +163,7 @@ enum WorkspaceCanvasLookup {
     static func descriptor(for workspaceId: String) -> FetchDescriptor<CanvasModel> {
         var descriptor = FetchDescriptor<CanvasModel>(
             predicate: #Predicate { canvas in
-                canvas.workspaceId == workspaceId
+                canvas.workspaceId == workspaceId && canvas.workweftBridgeState == nil
             }
         )
         descriptor.sortBy = [SortDescriptor(\CanvasModel.id, comparator: .lexical)]

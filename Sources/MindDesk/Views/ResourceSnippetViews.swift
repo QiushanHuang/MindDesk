@@ -82,20 +82,20 @@ enum ResourceRowActionPresentationPolicy {
     static func primaryActions(isPinned: Bool) -> [ResourceRowActionPresentation] {
         [
             ResourceRowActionPresentation(id: .open, title: "Open", systemImage: "arrow.up.forward.app", helpText: "Open"),
-            ResourceRowActionPresentation(id: .reveal, title: "Reveal", systemImage: "arrow.right.square", helpText: "Reveal"),
-            ResourceRowActionPresentation(id: .copyPath, title: "Copy Full Path", systemImage: "doc.on.doc", helpText: "Copy full path"),
             ResourceRowActionPresentation(
                 id: .pinToggle,
                 title: isPinned ? "Unpin" : "Pin",
                 systemImage: isPinned ? "pin.slash" : "pin",
                 helpText: isPinned ? "Unpin" : "Pin"
-            ),
-            ResourceRowActionPresentation(id: .details, title: "Details", systemImage: "info.circle", helpText: "Details")
+            )
         ]
     }
 
     static func moreMenuActions(canRemove: Bool) -> [ResourceRowActionPresentation] {
         var actions = [
+            ResourceRowActionPresentation(id: .reveal, title: "Reveal in Finder", systemImage: nil, helpText: "Reveal in Finder"),
+            ResourceRowActionPresentation(id: .copyPath, title: "Copy Full Path", systemImage: nil, helpText: "Copy full path"),
+            ResourceRowActionPresentation(id: .details, title: "Details", systemImage: nil, helpText: "Details"),
             ResourceRowActionPresentation(id: .rename, title: renameTitle, systemImage: nil, helpText: renameTitle),
             ResourceRowActionPresentation(id: .createAlias, title: createAliasTitle, systemImage: nil, helpText: createAliasTitle),
             ResourceRowActionPresentation(id: .reauthorize, title: reauthorizeTitle, systemImage: nil, helpText: reauthorizeTitle)
@@ -424,33 +424,7 @@ struct ResourceListView: View {
     }
 
     private func reauthorize(_ resource: ResourcePinModel) {
-        guard let url = FileDialogs.chooseResource() else { return }
-        var didMutateResource = false
-        do {
-            let selectedType = ResourceImportService.targetType(for: url)
-            guard ResourceAuthorizationPolicy.acceptsReauthorization(
-                existingTargetType: resource.targetTypeRaw,
-                selectedTargetType: selectedType.rawValue
-            ) else {
-                throw WorkbenchError.resourceTypeMismatch(expected: resource.targetTypeRaw, selected: selectedType.rawValue)
-            }
-            let bookmarkData = try BookmarkService().makeBookmark(for: url)
-            didMutateResource = true
-            resource.securityScopedBookmarkData = bookmarkData
-            resource.displayPath = url.path
-            resource.lastResolvedPath = url.path
-            resource.originalName = url.lastPathComponent.isEmpty ? url.path : url.lastPathComponent
-            resource.status = .available
-            resource.updatedAt = .now
-            resource.refreshSearchText()
-            try modelContext.save()
-            onStatus("Reauthorized \(url.path)")
-        } catch {
-            if didMutateResource {
-                modelContext.rollback()
-            }
-            onStatus(error.localizedDescription)
-        }
+        ResourceReauthorizationService.chooseReplacement(for: resource, in: modelContext, onStatus: onStatus)
     }
 
     private func togglePin(_ resource: ResourcePinModel) {
@@ -517,6 +491,9 @@ struct ResourcePreviewView: View {
         }
         .onChange(of: resource.securityScopedBookmarkData) { _, _ in
             previewError = nil
+            if resource.targetType == .folder {
+                loadFolderContents()
+            }
         }
         .onDisappear {
             folderPreviewTask?.cancel()
@@ -561,11 +538,12 @@ struct ResourcePreviewView: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
-                Text(resource.note.isEmpty ? "No description yet." : resource.note)
-                    .font(.callout)
-                    .foregroundStyle(resource.note.isEmpty ? .secondary : .primary)
-                    .lineLimit(3)
-                    .textSelection(.enabled)
+                if !resource.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(resource.note)
+                        .font(.callout)
+                        .lineLimit(3)
+                        .textSelection(.enabled)
+                }
             }
 
             Spacer(minLength: 12)
@@ -574,34 +552,27 @@ struct ResourcePreviewView: View {
                 Button {
                     performResourceAction(.open)
                 } label: {
-                    Label("Open", systemImage: "arrow.up.forward.app")
+                    Label(resource.targetType == .folder ? "Open Folder" : "Show in Finder", systemImage: "arrow.up.forward.app")
                 }
-                Button {
-                    performResourceAction(.copy)
-                } label: {
-                    Label("Copy Path", systemImage: "doc.on.doc")
-                }
-                Button {
-                    performResourceAction(.reveal)
-                } label: {
-                    Label("Reveal", systemImage: "arrow.right.square")
-                }
-                Button {
-                    onInspect(.resource(resource.id))
-                    onStatus("Showing info for \(resource.displayName)")
-                } label: {
-                    Image(systemName: "info.circle")
-                }
-                .help("Show details")
                 Menu {
+                    Button("Copy Full Path") { performResourceAction(.copy) }
+                    if resource.targetType == .folder {
+                        Button("Reveal in Finder") { performResourceAction(.reveal) }
+                    }
+                    Button("Show Details") {
+                        onInspect(.resource(resource.id))
+                        onStatus("Showing info for \(resource.displayName)")
+                    }
                     Button("Rename in MindDesk") { renamingResource = resource }
                     Button(resource.isPinned ? "Unpin Shortcut" : "Pin Shortcut") { togglePin() }
+                    Button("Reconnect…", action: reconnectResource)
                     Divider()
-                    Button("Remove from MindDesk", role: .destructive) { onRemove(resource) }
+                    Button("Remove from MindDesk…", role: .destructive) { onRemove(resource) }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
                 .help("More actions")
+                .accessibilityLabel("More actions for \(resource.displayName)")
             }
             .buttonStyle(.bordered)
         }
@@ -625,7 +596,13 @@ struct ResourcePreviewView: View {
                 ProgressView("Loading folder...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let previewError {
-                ContentUnavailableView("Folder unavailable", systemImage: "exclamationmark.triangle", description: Text(previewError))
+                ContentUnavailableView {
+                    Label("Folder unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(previewError)
+                } actions: {
+                    Button("Reconnect Folder…", action: reconnectResource)
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if folderItems.isEmpty {
                 ContentUnavailableView("Folder is empty", systemImage: "folder")
@@ -658,10 +635,22 @@ struct ResourcePreviewView: View {
                 .font(.headline)
 
             if let previewError {
-                ContentUnavailableView("Preview unavailable", systemImage: "doc", description: Text(previewError))
+                ContentUnavailableView {
+                    Label("Preview unavailable", systemImage: "doc")
+                } description: {
+                    Text(previewError)
+                } actions: {
+                    Button("Reconnect File…", action: reconnectResource)
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if !ResourceAuthorizationPolicy.canAccessFileSystem(status: resource.statusRaw, hasBookmarkData: resource.securityScopedBookmarkData != nil) {
-                ContentUnavailableView("Reauthorization required", systemImage: "lock", description: Text(resource.displayPath))
+                ContentUnavailableView {
+                    Label("Reauthorization required", systemImage: "lock")
+                } description: {
+                    Text(resource.displayPath)
+                } actions: {
+                    Button("Reconnect File…", action: reconnectResource)
+                }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 QuickLookPreview(
@@ -685,6 +674,10 @@ struct ResourcePreviewView: View {
         case open
         case reveal
         case copy
+    }
+
+    private func reconnectResource() {
+        ResourceReauthorizationService.chooseReplacement(for: resource, in: modelContext, onStatus: onStatus)
     }
 
     func copyFolderPreviewItemPath(_ item: FolderPreviewItem) {
@@ -999,7 +992,7 @@ private enum ResourceListLayout {
     static let nameMaxWidth: CGFloat = 240
     static let statusWidth: CGFloat = 84
     static let workspacesWidth: CGFloat = 160
-    static let actionsWidth: CGFloat = 188
+    static let actionsWidth: CGFloat = 142
 }
 
 private struct ResourceListHeader: View {
@@ -1058,15 +1051,18 @@ private struct ResourceRowView: View {
                         actionBar
                     }
                     resourcePath
-                    HStack(spacing: 8) {
-                        resourceStatus
-                            .fixedSize()
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text("Workspaces:")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        workspaceLinks
+                    if resource.status != .available || !workspaceUsage.isEmpty {
+                        HStack(spacing: 8) {
+                            if resource.status != .available {
+                                resourceStatus.fixedSize()
+                            }
+                            if !workspaceUsage.isEmpty {
+                                Text("Used in")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                workspaceLinks
+                            }
+                        }
                     }
                 }
             } else {
@@ -1092,14 +1088,16 @@ private struct ResourceRowView: View {
         })
         .contextMenu {
             ForEach(ResourceRowActionPresentationPolicy.contextMenuActions(isPinned: resource.isPinned, canRemove: canRemove)) { action in
-                if action.id == .remove {
-                    Divider()
-                    Button(action.title, role: .destructive) {
-                        perform(action.id)
-                    }
-                } else {
-                    Button(action.title) {
-                        perform(action.id)
+                if action.id != .reveal || resource.targetType == .folder {
+                    if action.id == .remove {
+                        Divider()
+                        Button(action.title, role: .destructive) {
+                            perform(action.id)
+                        }
+                    } else {
+                        Button(action.id == .open && resource.targetType == .file ? "Show in Finder" : action.title) {
+                            perform(action.id)
+                        }
                     }
                 }
             }
@@ -1113,16 +1111,13 @@ private struct ResourceRowView: View {
                 .foregroundStyle(resource.isPinned ? Color.accentColor : Color.secondary)
                 .frame(width: 18)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(resource.displayName)
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                    .help(resource.displayName)
-                Text(resource.targetType == .folder ? "Folder" : "File")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            Text(resource.displayName)
+                .font(.callout.weight(.medium))
+                .lineLimit(1)
+                .help(resource.displayName)
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(resource.targetType == .folder ? "Folder" : "File"): \(resource.displayName)")
     }
 
     private var resourceStatus: some View {
@@ -1151,20 +1146,32 @@ private struct ResourceRowView: View {
     private var actionBar: some View {
         HStack(spacing: 5) {
             ForEach(ResourceRowActionPresentationPolicy.primaryActions(isPinned: resource.isPinned)) { action in
-                iconButton(action.systemImage ?? "circle", action.helpText) {
-                    perform(action.id)
+                if action.id == .open {
+                    Button {
+                        perform(action.id)
+                    } label: {
+                        Label(resource.targetType == .folder ? "Open" : "Show", systemImage: action.systemImage ?? "arrow.up.forward.app")
+                    }
+                    .help(resource.targetType == .folder ? "Open folder in Finder" : "Show file in Finder")
+                    .accessibilityLabel("\(resource.targetType == .folder ? "Open folder" : "Show file") in Finder: \(resource.displayName)")
+                } else {
+                    iconButton(action.systemImage ?? "circle", action.helpText) {
+                        perform(action.id)
+                    }
                 }
             }
             Menu {
                 ForEach(ResourceRowActionPresentationPolicy.moreMenuActions(canRemove: canRemove)) { action in
-                    if action.id == .remove {
-                        Divider()
-                        Button(action.title, role: .destructive) {
-                            perform(action.id)
-                        }
-                    } else {
-                        Button(action.title) {
-                            perform(action.id)
+                    if action.id != .reveal || resource.targetType == .folder {
+                        if action.id == .remove {
+                            Divider()
+                            Button(action.title, role: .destructive) {
+                                perform(action.id)
+                            }
+                        } else {
+                            Button(action.title) {
+                                perform(action.id)
+                            }
                         }
                     }
                 }
@@ -1405,7 +1412,7 @@ enum SnippetExpansionPresentationPolicy {
 
 enum SnippetActionCardReadabilityPolicy {
     nonisolated static func titleLineLimit(compact: Bool) -> Int {
-        compact ? 3 : 1
+        compact ? 3 : 2
     }
 
     nonisolated static func subtitleLineLimit(compact: Bool) -> Int {
@@ -1830,56 +1837,38 @@ struct SnippetActionCard: View {
             .help(isExpanded ? "Collapse snippet" : "Expand snippet")
             .accessibilityLabel(isExpanded ? "Collapse snippet" : "Expand snippet")
 
-            ForEach(SnippetActionPresentationPolicy.nonDestructiveManagementActions) { action in
-                Button {
-                    performSnippetManagementAction(action.id)
-                } label: {
-                    Image(systemName: action.systemImage)
-                }
-                .buttonStyle(CardIconButtonStyle())
-                .help(action.helpText)
-                .accessibilityLabel(action.helpText)
+            Button {
+                performSnippetManagementAction(.copy)
+            } label: {
+                Label("Copy", systemImage: "doc.on.doc")
             }
-
-            Button(action: onInspect) {
-                Image(systemName: "info.circle")
-            }
-            .buttonStyle(CardIconButtonStyle())
-            .help("Show details")
-            .accessibilityLabel("Show details")
+            .help("Copy snippet")
+            .accessibilityLabel("Copy \(snippet.title)")
         }
     }
 
     private var secondaryActionButtons: some View {
         Group {
-            if let onOpenTerminal {
-                Button(action: onOpenTerminal) {
-                    Image(systemName: "terminal")
-                }
-                .buttonStyle(CardIconButtonStyle())
-                .help("Open Terminal with command prefilled")
-                .accessibilityLabel("Open Terminal with command prefilled")
-            }
-
             if let onRun {
-                Button(action: onRun) {
-                    Image(systemName: "play.fill")
-                }
-                .buttonStyle(CardIconButtonStyle())
+                Button("Run…", action: onRun)
                 .help("Run command")
-                .accessibilityLabel("Run command")
+                .accessibilityLabel("Run command: \(snippet.title)")
             }
 
-            ForEach(SnippetActionPresentationPolicy.destructiveManagementActions) { action in
-                Button(role: .destructive) {
-                    performSnippetManagementAction(action.id)
-                } label: {
-                    Image(systemName: action.systemImage)
+            Menu {
+                Button("Edit", action: onEdit)
+                Button("Details", action: onInspect)
+                if let onOpenTerminal {
+                    Button("Open Terminal with Command", action: onOpenTerminal)
                 }
-                .buttonStyle(CardIconButtonStyle())
-                .help(action.helpText)
-                .accessibilityLabel(action.helpText)
+                Divider()
+                Button("Delete Snippet…", role: .destructive, action: onDelete)
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
+            .menuStyle(.borderlessButton)
+            .help("More snippet actions")
+            .accessibilityLabel("More actions for \(snippet.title)")
         }
     }
 
@@ -2008,26 +1997,37 @@ struct SnippetEditor: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(snippet == nil ? "New Snippet" : "Edit Snippet")
                 .font(.title2.bold())
-            TextField("Title", text: $title)
+            LabeledContent("Title") {
+                TextField("Title", text: $title)
+                    .accessibilityLabel("Snippet title")
+            }
             Picker("Kind", selection: $kind) {
                 ForEach(SnippetKind.allCases) { kind in
                     Text(kind.rawValue.capitalized).tag(kind)
                 }
             }
             .pickerStyle(.segmented)
-            TextField("Tags", text: $tags)
-            TextField("Description", text: $details, axis: .vertical)
+            LabeledContent("Tags") {
+                TextField("Optional", text: $tags)
+                    .accessibilityLabel("Snippet tags")
+            }
+            LabeledContent("Description") {
+                TextField("Optional", text: $details, axis: .vertical)
+                    .accessibilityLabel("Snippet description")
+            }
+            Text("Content").font(.callout.weight(.medium))
             TextEditor(text: $snippetBody)
                 .font(.system(.body, design: .monospaced))
                 .frame(minHeight: 160)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+                .accessibilityLabel("Snippet content")
             if kind == .command {
                 commandSafetyNotice
                 workingDirectoryPicker
             }
             HStack {
                 Spacer()
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Save") {
                     let savedWorkingDirectoryRef = SnippetWorkingDirectoryOptions.validSelection(
                         workingDirectoryRef,
@@ -2048,6 +2048,7 @@ struct SnippetEditor: View {
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding()
@@ -2058,7 +2059,7 @@ struct SnippetEditor: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "checkmark.shield")
                 .foregroundStyle(.secondary)
-            Text("Command snippets always require confirmation before running. This safety policy is global and cannot be disabled per snippet.")
+            Text("Running a command requires confirmation.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2080,10 +2081,6 @@ struct SnippetEditor: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
-            } else if workingDirectoryOptions.isEmpty {
-                Text("No folder resources available.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }

@@ -665,16 +665,20 @@ enum CanvasResourceDropStatusPolicy {
 }
 
 enum CanvasNoteCardEditingPolicy {
-    static func canRenameTitle(nodeType: CanvasNodeKind) -> Bool {
-        nodeType == .note
+    static func isLinkedReference(objectType: String?) -> Bool {
+        objectType?.hasPrefix("workweft.") == true
     }
 
-    static func shouldStartTitleEditing(nodeType: CanvasNodeKind, clickCount: Int) -> Bool {
-        canRenameTitle(nodeType: nodeType) && clickCount == 2
+    static func canRenameTitle(nodeType: CanvasNodeKind, objectType: String? = nil) -> Bool {
+        nodeType == .note && !isLinkedReference(objectType: objectType)
     }
 
-    static func canEditBody(nodeType: CanvasNodeKind, rendersDetails: Bool) -> Bool {
-        nodeType == .note && rendersDetails
+    static func shouldStartTitleEditing(nodeType: CanvasNodeKind, clickCount: Int, objectType: String? = nil) -> Bool {
+        canRenameTitle(nodeType: nodeType, objectType: objectType) && clickCount == 2
+    }
+
+    static func canEditBody(nodeType: CanvasNodeKind, rendersDetails: Bool, objectType: String? = nil) -> Bool {
+        nodeType == .note && rendersDetails && !isLinkedReference(objectType: objectType)
     }
 }
 
@@ -706,6 +710,7 @@ enum CanvasResourceCardNotePolicy {
         resource: ResourcePinModel?,
         now: Date = .now
     ) -> Bool {
+        guard !CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType) else { return false }
         var didChange = false
         if node.body != note {
             node.body = note
@@ -952,6 +957,8 @@ struct WorkspaceCanvasView: View {
         nodes
     }
 
+    private var isWorkweftBridge: Bool { canvas.workweftBridgeState != nil }
+
     private var nodeObservationFingerprint: String {
         WorkspaceCanvasNodeObservationFingerprint.make(
             records: nodes.map {
@@ -1138,7 +1145,8 @@ struct WorkspaceCanvasView: View {
                     }
                 }
 
-                WorkspaceTodoBoardView(
+                if !isWorkweftBridge {
+                    WorkspaceTodoBoardView(
                     workspaceId: canvas.workspaceId,
                     resources: resources,
                     todos: todos,
@@ -1147,7 +1155,8 @@ struct WorkspaceCanvasView: View {
                     isDoneColumnOpen: $isTodoDoneColumnOpen,
                     onStatus: onStatus,
                     expandedHeight: taskPanelHeight
-                )
+                    )
+                }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
@@ -1354,14 +1363,8 @@ struct WorkspaceCanvasView: View {
                     .id("canvas-left-rail-top")
 
                 HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Canvas")
-                            .font(.headline)
-                        Text("Place resources and connect the workflow.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text("Canvas")
+                        .font(.headline)
                     Spacer(minLength: 4)
                     HStack(spacing: 6) {
                         Button {
@@ -1373,9 +1376,11 @@ struct WorkspaceCanvasView: View {
                         .buttonStyle(CanvasRailButtonStyle(isActive: canvasRightRailPanel == .inspector))
                         .tint(canvasRightRailPanel == .inspector ? .accentColor : nil)
                         .help(canvasRightRailPanel == .inspector ? "Hide canvas inspector" : "Show canvas inspector")
+                        .accessibilityLabel(canvasRightRailPanel == .inspector ? "Hide canvas inspector" : "Show canvas inspector")
                     }
                 }
 
+                if !isWorkweftBridge {
                 Button {
                     isTodoPanelOpen.toggle()
                 } label: {
@@ -1402,9 +1407,11 @@ struct WorkspaceCanvasView: View {
                     selectedNodeIDs.contains($0.id) && !$0.locked && $0.nodeType != .groupFrame
                 })
                 .help("Select editable cards to summarize, group, extract tasks, or arrange. Preview before applying.")
+                }
 
                 GroupBox("Add") {
                     VStack(alignment: .leading, spacing: 8) {
+                        if !isWorkweftBridge {
                         Menu {
                             resourceMenuSection(title: "Global Library", resources: globalResources)
                             if !currentWorkspaceResources.isEmpty {
@@ -1438,8 +1445,9 @@ struct WorkspaceCanvasView: View {
                         .disabled(workspaces.filter { $0.id != canvas.workspaceId }.isEmpty)
 
                         HStack(spacing: 6) {
-                            TextField("example.com", text: $webCardDraft)
+                            TextField("Web address", text: $webCardDraft)
                                 .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel("Web address for a new card")
                                 .onSubmit(addWebNode)
                             Button {
                                 addWebNode()
@@ -1449,6 +1457,7 @@ struct WorkspaceCanvasView: View {
                             }
                             .accessibilityLabel("Add web page card")
                             .help("Add web page card")
+                        }
                         }
 
                         Button {
@@ -1482,6 +1491,7 @@ struct WorkspaceCanvasView: View {
                             .buttonStyle(CanvasRailButtonStyle(isActive: mode == item))
                             .tint(mode == item ? .accentColor : nil)
                             .keyboardShortcut(item.shortcut, modifiers: .command)
+                            .accessibilityValue(mode == item ? "Selected" : "")
                         }
 
                         Toggle("Single Connect", isOn: $connectSingleShot)
@@ -1498,6 +1508,8 @@ struct WorkspaceCanvasView: View {
                             } label: {
                                 Image(systemName: "minus.magnifyingglass")
                             }
+                            .help("Zoom out")
+                            .accessibilityLabel("Zoom out")
                             Button {
                                 setZoom(zoomBaseline)
                             } label: {
@@ -1505,11 +1517,14 @@ struct WorkspaceCanvasView: View {
                                     .monospacedDigit()
                             }
                             .help("Reset canvas scale to 100%")
+                            .accessibilityLabel("Reset canvas scale to 100%")
                             Button {
                                 setZoom(effectiveZoom + zoomBaseline * CanvasNodeMetrics.zoomDisplayStep)
                             } label: {
                                 Image(systemName: "plus.magnifyingglass")
                             }
+                            .help("Zoom in")
+                            .accessibilityLabel("Zoom in")
                         }
                         HStack {
                             Button {
@@ -1518,6 +1533,7 @@ struct WorkspaceCanvasView: View {
                                 Image(systemName: "arrow.down.left.and.arrow.up.right")
                             }
                             .help("Fit all cards")
+                            .accessibilityLabel("Fit all cards")
                             .disabled(workflowNodes.isEmpty)
 
                             Button {
@@ -1526,6 +1542,7 @@ struct WorkspaceCanvasView: View {
                                 Image(systemName: "scope")
                             }
                             .help("Fit selected cards")
+                            .accessibilityLabel("Fit selected cards")
                             .disabled(selectedNodeIDs.isEmpty)
                         }
                     }
@@ -3903,6 +3920,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func updateNodeTitle(_ node: CanvasNodeModel, to title: String) {
+        guard !CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType) else { return }
         guard node.nodeType == .note || node.nodeType == .groupFrame else { return }
         guard node.title != title else { return }
         node.title = title
@@ -3911,6 +3929,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func updateNodeBody(_ node: CanvasNodeModel, to body: String) {
+        guard !CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType) else { return }
         guard node.body != body else { return }
         node.body = body
         node.updatedAt = .now
@@ -3918,6 +3937,7 @@ struct WorkspaceCanvasView: View {
     }
 
     private func updateCardNote(_ node: CanvasNodeModel, resource: ResourcePinModel?, to body: String) {
+        guard !CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType) else { return }
         guard CanvasResourceCardNotePolicy.applyNoteChange(body, node: node, resource: resource) else { return }
         scheduleNodeTextCommit(for: node.id)
     }
@@ -4090,6 +4110,10 @@ struct WorkspaceCanvasView: View {
     }
 
     private func importDroppedResources(_ urls: [URL], at dropLocation: CGPoint) {
+        guard !isWorkweftBridge else {
+            onStatus("Add linked cards in Workweft, then preview and apply a bridge package.")
+            return
+        }
         guard !urls.isEmpty else {
             onStatus("Drop did not include files or folders.")
             return
@@ -5004,19 +5028,20 @@ struct CanvasNodeCard: View {
             titleView(cardSize: cardSize)
             Divider()
                 .opacity(0.28)
-            if CanvasNoteCardEditingPolicy.canEditBody(nodeType: node.nodeType, rendersDetails: rendersDetails) {
+            if CanvasNoteCardEditingPolicy.canEditBody(nodeType: node.nodeType, rendersDetails: rendersDetails, objectType: node.objectType) {
                 CanvasNativeTextEditor(
                     text: noteBinding,
                     fontSize: bodyFontSize(for: cardSize),
                     weight: .regular,
                     textColor: .labelColor,
+                    accessibilityName: "Note content for \(node.title)",
                     onEditingChange: onEditingChange
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Text(notePreview)
                     .font(.system(size: bodyFontSize(for: cardSize), weight: .regular))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType) ? Color.primary : Color.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
@@ -5058,6 +5083,7 @@ struct CanvasNodeCard: View {
             }
             .buttonStyle(CardIconButtonStyle())
             .help(copyHelpText)
+            .accessibilityLabel("\(copyHelpText): \(node.title)")
             Button {
                 triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .details)) {
                     onInfo(.cardInfoButton)
@@ -5068,6 +5094,7 @@ struct CanvasNodeCard: View {
             }
             .buttonStyle(CardIconButtonStyle())
             .help("Show details")
+            .accessibilityLabel("Show details for \(node.title)")
             Button(role: .destructive) {
                 triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .delete)) {
                     onDelete()
@@ -5078,6 +5105,7 @@ struct CanvasNodeCard: View {
             }
             .buttonStyle(CardIconButtonStyle())
             .help("Delete card")
+            .accessibilityLabel("Delete card: \(node.title)")
         }
     }
 
@@ -5104,7 +5132,7 @@ struct CanvasNodeCard: View {
                 adaptiveTitleText(cardSize: cardSize)
                     .contentShape(Rectangle())
                     .onTapGesture(count: 2) {
-                        guard CanvasNoteCardEditingPolicy.shouldStartTitleEditing(nodeType: node.nodeType, clickCount: 2) else { return }
+                        guard CanvasNoteCardEditingPolicy.shouldStartTitleEditing(nodeType: node.nodeType, clickCount: 2, objectType: node.objectType) else { return }
                         isEditingTitle = true
                         onEditingChange(true)
                     }
@@ -5112,6 +5140,9 @@ struct CanvasNodeCard: View {
             }
         } else {
             adaptiveTitleText(cardSize: cardSize)
+                .help(CanvasNoteCardEditingPolicy.isLinkedReference(objectType: node.objectType)
+                    ? "Linked Workweft text is read-only. Update it in Workweft and import a new package."
+                    : titleText)
         }
     }
 
@@ -5239,7 +5270,7 @@ struct CanvasNodeCard: View {
     }
 
     private var canRenameTitle: Bool {
-        CanvasNoteCardEditingPolicy.canRenameTitle(nodeType: node.nodeType)
+        CanvasNoteCardEditingPolicy.canRenameTitle(nodeType: node.nodeType, objectType: node.objectType)
     }
 
     private var titleBinding: Binding<String> {
@@ -5263,6 +5294,9 @@ struct CanvasNodeCard: View {
     }
 
     private var subtitle: String {
+        if let objectType = node.objectType, CanvasNoteCardEditingPolicy.isLinkedReference(objectType: objectType) {
+            return "Workweft \(objectType.dropFirst("workweft.".count).capitalized)"
+        }
         if workspace != nil {
             return "Workspace"
         }
@@ -5643,6 +5677,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
     let fontSize: CGFloat
     let weight: NSFont.Weight
     let textColor: NSColor
+    var accessibilityName = "Card note"
     var onEditingChange: (Bool) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
@@ -5698,6 +5733,7 @@ private struct CanvasNativeTextEditor: NSViewRepresentable {
         textView.font = .systemFont(ofSize: fontSize, weight: weight)
         textView.textColor = textColor
         textView.insertionPointColor = textColor
+        textView.setAccessibilityLabel(accessibilityName)
     }
 
     @MainActor
@@ -5804,7 +5840,7 @@ private struct CanvasEmptyStateView: View {
             VStack(spacing: 4) {
                 Text("Start this canvas")
                     .font(.headline)
-                Text("Drop files or add a note to sketch the workflow.")
+                Text("Drop files here")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -6303,6 +6339,7 @@ struct CanvasFrameCard: View {
                     }
                     .buttonStyle(CardIconButtonStyle())
                     .help("Copy frame note")
+                    .accessibilityLabel("Copy note for frame \(node.title)")
                     Button {
                         triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .details)) {
                             onInfo(.cardInfoButton)
@@ -6313,6 +6350,7 @@ struct CanvasFrameCard: View {
                     }
                     .buttonStyle(CardIconButtonStyle())
                     .help("Show details")
+                    .accessibilityLabel("Show details for frame \(node.title)")
                     Button(role: .destructive) {
                         triggerFeedback(CanvasCardChromeButtonInteractionPolicy.feedbackMessage(for: .delete)) {
                             onDelete()
@@ -6323,6 +6361,7 @@ struct CanvasFrameCard: View {
                     }
                     .buttonStyle(CardIconButtonStyle())
                     .help("Delete frame")
+                    .accessibilityLabel("Delete frame: \(node.title)")
                 }
 
                 CanvasNativeTextEditor(
@@ -6330,6 +6369,7 @@ struct CanvasFrameCard: View {
                     fontSize: 12,
                     weight: .semibold,
                     textColor: NSColor.labelColor.withAlphaComponent(0.86),
+                    accessibilityName: "Note for frame \(node.title)",
                     onEditingChange: onEditingChange
                 )
                     .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 72)

@@ -48,22 +48,21 @@ struct OrganizationSheet: View {
                 Label("Organize with Codex", systemImage: "sparkles")
                     .font(.title2.bold())
                 Spacer()
-                Text("\(selection.cards.count) selected cards").foregroundStyle(.secondary)
             }
-            Text("Prepare context → Generate preview → Edit and apply")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             workflowControls
-            Picker("Action", selection: $intent) {
-                ForEach(OrganizationIntent.allCases, id: \.self) { item in
-                    Text(item.title).tag(item)
+            HStack {
+                Picker("Action", selection: $intent) {
+                    ForEach(OrganizationIntent.allCases, id: \.self) { item in
+                        Text(item.title).tag(item)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .disabled(busy)
+                InformationButton(subject: intent.title, text: intent.explanation)
             }
-            .pickerStyle(.segmented)
-            .disabled(busy)
             .onChange(of: intent) { _, _ in invalidatePreview() }
             .onChange(of: scope) { _, _ in invalidatePreview() }
             .onChange(of: instructions) { _, _ in invalidatePreview() }
-            Text(intent.explanation).font(.callout)
             HStack {
                 Picker("Context", selection: $scope) {
                     ForEach(OrganizationContextScope.allCases) { Text($0.title).tag($0) }
@@ -148,8 +147,6 @@ struct OrganizationSheet: View {
                             Button("Revise preview") { generate(revising: true) }
                                 .disabled(busy || feedback.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || feedback.utf8.count > 4_000)
                         }
-                        Text("Feedback creates a replacement preview. Nothing is applied until you choose Apply changes.")
-                            .font(.caption).foregroundStyle(.secondary)
                         if intent == .extractTasks && proposal.tasks.isEmpty {
                             Text("No actionable tasks found. Try a different selection.").foregroundStyle(.secondary)
                         }
@@ -170,15 +167,19 @@ struct OrganizationSheet: View {
                     ProgressView().controlSize(.small)
                     Text("Preparing a preview…").foregroundStyle(.secondary)
                 } else {
-                    Button(proposal == nil ? "Generate preview" : "Generate again") { generate() }
-                        .disabled(inputIssue != nil)
                     if let proposal, let generatedRequest {
+                        Button("Generate again") { generate() }
+                            .disabled(inputIssue != nil)
                         Button("Apply changes") {
                             do { try apply(proposal, generatedRequest); dismiss() }
                             catch { errorMessage = error.localizedDescription }
                         }
                         .buttonStyle(.borderedProminent)
                         .disabled(intent == .extractTasks && proposal.tasks.isEmpty)
+                    } else {
+                        Button("Generate preview") { generate() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(inputIssue != nil)
                     }
                 }
             }
@@ -247,11 +248,8 @@ struct OrganizationSheet: View {
                 Spacer()
                 Text("\(currentRequest.referenceCards.count) references · \(currentRequest.links.count) links")
             }.font(.callout.weight(.medium))
-            Text("Included titles, notes and relationships will be sent through your Codex account. File contents are not read. Reference-only cards cannot be changed by this preview.")
+            Text("Card titles, notes and links are sent through your Codex account. File contents are not read.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            if selection.selectedIDs.count > selection.cards.count {
-                Text("Locked cards and frames are kept as reference context.").font(.caption).foregroundStyle(.secondary)
-            }
         }.padding(12).background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
     }
 

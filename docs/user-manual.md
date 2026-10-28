@@ -3,11 +3,11 @@
 
 [English](#english-guide) · [简体中文](#中文操作指南) · [Download](https://github.com/QiushanHuang/MindDesk/releases/latest)
 
-This guide covers **v3.3.1**, including adaptive layouts and feedback improvements. [Release notes](releases/v3.3.1.md).
+This guide covers **v3.4.0**, including interface improvements and the Workweft canvas bridge. [Release notes](releases/v3.4.0.md).
 
 ## Install and update
 
-Download the v3.3.1 DMG for Apple silicon, open it and drag MindDesk.app into Applications. macOS 14 or newer is required. This build is ad-hoc signed, not Apple-notarized. If macOS blocks launch, confirm the download came from QiushanHuang/MindDesk, then open System Settings → Privacy & Security → Open Anyway.
+Download the v3.4.0 DMG for Apple silicon, open it and drag MindDesk.app into Applications. macOS 14 or newer is required. This build is ad-hoc signed, not Apple-notarized. If macOS blocks launch, confirm the download came from QiushanHuang/MindDesk, then open System Settings → Privacy & Security → Open Anyway.
 
 To update, quit MindDesk before replacing the app. Workspaces live separately from the application bundle. Export a Manifest and keep a backup before a major update.
 
@@ -55,7 +55,7 @@ The included card titles, notes, relationships, instructions and optional previo
 
 ## Tasks, resources and snippets
 
-Use task groups to separate areas of work, set due dates and move tasks between open and completed states. Link a resource when the task needs a document or folder.
+Use task groups to separate areas of work, set due dates and move tasks between open and completed states. Link a resource when the task needs a document or folder. A new task is created when you save; Cancel leaves no task.
 
 The task layout adapts to panel size: narrow, taller panels can stack open and completed tasks, while short panels keep them side by side. Drag the divider to adjust their widths; reversing at a limit responds immediately. Task titles and details appear on separate lines.
 
@@ -65,7 +65,13 @@ Narrow resource lists put paths, status and workspace links below the name. The 
 
 Snippets store prompts, commands and reusable text. Create, search, edit or copy a snippet, or place it on the canvas. Saving a command does not execute it.
 
-Snippet actions wrap when space is limited. Repeating Copy restarts the confirmation message; leaving the card cancels pending feedback. Copying still performs one copy operation per click.
+Copy and Run are visible on snippet cards. Edit, Details, Open Terminal and Delete are in the more menu; running a command still requires confirmation.
+
+## Exchange a Workweft canvas
+
+Select a workspace and choose **Workbench → Workweft Canvas Bridge…**. Choose or paste a local bridge JSON package, inspect the proposed cards and links, resolve every conflict, and apply only when ready. Linked Workweft titles and descriptions are read-only; positions, groups and local notes can be edited in the paired canvas. Export JSON to return the graph to Workweft.
+
+Undo Last Import is available only in the bridge window and only while the imported canvas is unchanged. The bridge is an explicit file exchange; it does not synchronize the resource, snippet or task libraries.
 
 ## Find something quickly
 
@@ -77,7 +83,7 @@ Resource and snippet list searches retain their existing fields and ordering. Li
 
 Use Manifest JSON export/import to move MindDesk records. An export may contain titles, paths, notes, snippets, tasks and canvas text. Inspect it before sharing. The Global Library Only option leaves out workspace-owned records.
 
-A Manifest transfers app records, not original file contents or macOS access permissions. On another Mac, copy the source files separately and reconnect or authorize them as needed. A raw database backup is for recovery, not Manifest import.
+A Manifest transfers app records, not original file contents or macOS access permissions. Workweft paired canvases and their pairing state cannot be included. The app warns before exporting a workspace map without them. Export their graphs through the bridge and retain a raw database backup to preserve pairing. On another Mac, copy source files separately and reconnect them as needed. A raw database backup is for recovery, not Manifest import.
 
 The default store is ~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store. Keep ordinary system backups. Reset All Settings resets preferences without removing your workspaces or project records.
 
@@ -85,7 +91,7 @@ The default store is ~/Library/Application Support/studio.qiushan.minddesk/Store
 
 | Symptom | What to do |
 | --- | --- |
-| Preview reports status 127 | Install v3.3.1 and fully quit/reopen the app. Check that Codex CLI and its runtime are installed in the supported locations above. |
+| Preview reports status 127 | Install v3.4.0 and fully quit/reopen the app. Check that Codex CLI and its runtime are installed in the supported locations above. |
 | Preview fails for another reason | Check Codex sign-in, network and account access. Retry with fewer cards if it times out. The failed preview does not change cards. |
 | A file no longer opens | Check that the file still exists, reconnect the reference and grant macOS file access if requested. |
 | Canvas is preparing or unavailable | Wait for preparation; use Try Again if offered. Other workspace pages remain available. |
@@ -122,11 +128,11 @@ Use the suffix matching the machine architecture; this command does not cross-co
 
 [English](#english-guide) · [返回项目首页](../README.md#中文)
 
-本指南适用于 **v3.3.1**，包含自适应布局与操作反馈改进。[查看版本说明](releases/v3.3.1.md#中文更新说明)。
+本指南适用于 **v3.4.0**，包含界面优化与 Workweft 画布桥接。[查看版本说明](releases/v3.4.0.md#中文更新说明)。
 
 ### 安装与更新
 
-下载适用于 Apple 芯片的 v3.3.1 DMG，打开后将 MindDesk.app 拖入“应用程序”。需要 macOS 14 或更新版本。本包采用 ad-hoc 签名，未经过 Apple 公证。若首次启动被阻止，确认来自 QiushanHuang/MindDesk 后，前往“系统设置 → 隐私与安全性 → 仍要打开”。
+下载适用于 Apple 芯片的 v3.4.0 DMG，打开后将 MindDesk.app 拖入“应用程序”。需要 macOS 14 或更新版本。本包采用 ad-hoc 签名，未经过 Apple 公证。若首次启动被阻止，确认来自 QiushanHuang/MindDesk 后，前往“系统设置 → 隐私与安全性 → 仍要打开”。
 
 更新前退出 MindDesk，再替换 App。工作区数据与 App 分开保存；大版本更新前请导出 Manifest，并保留备份。
 
@@ -174,7 +180,7 @@ Home 用于返回最近的项目。工作区包含 Overview（概览）、Tasks�
 
 ### 任务、资源与片段
 
-按组管理任务，设置截止日期，标记完成；需要文档或文件夹时关联资源。
+按组管理任务，设置截止日期，标记完成；需要文档或文件夹时关联资源。新任务在保存时创建，取消不会留下任务。
 
 任务布局随面板大小调整：较窄且足够高时，未完成与已完成任务可上下排列；较矮时保持并排。拖动分隔线调整两侧宽度，到达边界后反向移动会立即响应。任务标题与说明分行显示。
 
@@ -184,7 +190,13 @@ Global Library 保存可复用的资源引用，同一资源可用于多个工�
 
 Snippets 保存提示词、命令和常用文字，可创建、查找、编辑、复制或放到画布上。保存命令不会执行它。
 
-空间不足时，片段操作按钮会换行。连续点击 Copy 会重新开始提示计时，离开卡片后取消待执行反馈；每次点击仍只执行一次复制。
+片段卡片保留 Copy 和 Run；编辑、详情、打开终端与删除位于更多菜单中。运行命令仍需确认。
+
+### 交换 Workweft 画布
+
+选中工作区，打开 **Workbench → Workweft Canvas Bridge…**，选择或粘贴本地桥接 JSON。先检查卡片、连线并逐项解决冲突，再选择是否应用。Workweft 关联标题和说明在 MindDesk 中只读；可以调整配对画布中的位置、分组和本地笔记，再导出 JSON 交回 Workweft。
+
+Undo Last Import 仅在桥接窗口保持打开且导入画布未再次改变时可用。桥接是显式文件交换，不会同步资源、片段或任务库。
 
 ### 查找与设置
 
@@ -196,7 +208,7 @@ Snippets 保存提示词、命令和常用文字，可创建、查找、编辑�
 
 使用 Manifest JSON 导出和导入应用记录。导出内容可能包含标题、路径、笔记、片段、任务和画布文字，分享前请检查。Global Library Only 只导出全局资料库，不包含工作区记录。
 
-Manifest 不包含原文件本身，也不会迁移 macOS 文件访问授权。更换 Mac 时请单独复制原文件，再按需关联和授权。原始数据库备份用于恢复，不能作为 Manifest 导入。
+Manifest 不包含原文件、macOS 文件访问授权或 Workweft 配对画布及配对状态。导出不含配对画布的工作区记录前，应用会明确提示。请通过桥接功能单独导出画布，并保留原始数据库备份以保存配对状态。更换 Mac 时还需单独复制原文件并重新授权；原始数据库备份用于恢复，不能作为 Manifest 导入。
 
 默认数据库在 ~/Library/Application Support/studio.qiushan.minddesk/Stores/MindDesk.store。请保留日常系统备份；Reset All Settings 仅重置设置，不删除项目记录。
 
@@ -204,7 +216,7 @@ Manifest 不包含原文件本身，也不会迁移 macOS 文件访问授权。�
 
 | 问题 | 处理方式 |
 | --- | --- |
-| 预览报 127 | 安装 v3.3.1，完全退出后重新打开；确认 Codex CLI 及运行环境在上述支持位置。 |
+| 预览报 127 | 安装 v3.4.0，完全退出后重新打开；确认 Codex CLI 及运行环境在上述支持位置。 |
 | 预览报其他错误 | 检查 Codex 登录、网络和账号权限；超时时可减少选中卡片后重试。失败的预览不会修改卡片。 |
 | 文件打不开 | 确认原文件仍存在，重新关联引用，并按提示授权访问。 |
 | 画布准备中或不可用 | 等待准备；出现 Try Again 时可重试，其他工作区页面仍可使用。 |

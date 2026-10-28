@@ -10,16 +10,15 @@ struct QuickNoteCaptureSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Quick note", systemImage: "square.and.pencil")
-                    .font(.title2.bold())
-                Text("Capture the thought now. Organize it when you're ready.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Label("Quick note", systemImage: "square.and.pencil")
+                .font(.title2.bold())
+            LabeledContent("Title") {
+                TextField("Optional", text: $title)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("Title (optional)")
             }
-            TextField("Title (optional)", text: $title)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityLabel("Title (optional)")
+            Text("Note")
+                .font(.callout.weight(.medium))
             TextEditor(text: $text)
                 .font(.body)
                 .focused($focused)
@@ -52,7 +51,6 @@ struct QuickNoteCaptureSheet: View {
             HStack {
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
                 Spacer()
-                Text("⌘ Return to save").font(.caption).foregroundStyle(.secondary)
                 Button("Save to canvas") {
                     let content = text.trimmingCharacters(in: .whitespacesAndNewlines)
                     let explicitTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,6 +61,7 @@ struct QuickNoteCaptureSheet: View {
                     catch { errorMessage = error.localizedDescription }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
+                .help("Save to canvas (⌘ Return)")
                 .buttonStyle(.borderedProminent)
                 .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }

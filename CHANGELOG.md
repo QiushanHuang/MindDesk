@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-28 - v3.4.0: a clearer workspace and Workweft bridge
+
+- Simplify Home, workspace navigation, resources, snippets, tasks, quick notes, settings and canvas controls while keeping accessible names and impact confirmations.
+- Create tasks on Save rather than before the editor opens; reconnect an unavailable resource directly from its preview.
+- Add an optional local JSON bridge for Workweft canvas review, conflict resolution, import, export and limited in-window undo. Linked Workweft text is read-only.
+- Prevent a Manifest from silently discarding bridge pairing. Workspace exports require explicit confirmation to exclude paired canvases; preserve their graph through bridge export and pairing state through a raw database backup.
+- Refresh bilingual guides, release notes and synthetic component previews. The store adds an optional bridge field; preserve a raw backup before upgrading.
+- Add the macOS Automation usage description to the release bundle for user-initiated Terminal and Finder alias actions.
+
+### 中文
+
+- 精简首页、工作区导航、资源、片段、任务、快速笔记、设置和画布控件，保留可访问名称与操作影响确认。
+- 新任务在保存时创建；失效资源可从预览页重新关联。
+- 增加可选 Workweft 本地 JSON 画布桥接，支持预览、冲突选择、导入、导出及受限的窗口内撤销；关联文字只读。
+- 避免 Manifest 静默丢失桥接配对：导出工作区时需明确确认排除配对画布；画布图通过桥接导出，配对状态需原始数据库备份。
+- 更新中英指南、版本说明及合成界面预览。数据库增加可选桥接字段，升级前请保留原始备份。
+- 发布包补充终端和 Finder 别名操作所需的 macOS 自动化权限用途说明。
+
+[Release notes / 版本说明](docs/releases/v3.4.0.md)
+
 ## 2026-10-02 - v3.3.1: existing workflow polish
 
 This patch improves existing layouts, interactions and rendering without adding features. [Release notes](docs/releases/v3.3.1.md).
